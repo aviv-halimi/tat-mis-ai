@@ -1,0 +1,8 @@
+[2026-02-04 14:11:20] Command triggered for store_id 12 with PID 18928
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/inc/security.php on line 41
+<ul><li>Davis<li>0 product(s) found for reset<li>5 product(s) found for discount<li>2199928<li>2185776<li>2188136<li>2191808<li>2200840</ul><hr />{"success":true,"response":"5 products updated","redirect":null}

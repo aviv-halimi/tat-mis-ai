@@ -1,0 +1,15 @@
+[2026-01-27 14:27:33] Command triggered for store_id 12 with PID 11130
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/inc/security.php on line 41
+<ul><li>Davis<li>0 product(s) found for reset<li>0 product(s) found for discount</ul><hr />{"success":true,"response":"0 products updated","redirect":null}[2026-01-27 14:44:05] Command triggered for store_id 12 with PID 11883
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/inc/security.php on line 41
+<ul><li>Davis<li>18 product(s) found for reset<li>2234760<li>2222576<li>2234928<li>2223288<li>2227368<li>2224096<li>2235696<li>2235696<li>2236536<li>2224336<li>2236336<li>2231976<li>2224904<li>2233608<li>2237360<li>2228280<li>2228280<li>2220384<li>0 product(s) found for discount</ul><hr />{"success":true,"response":"8 products updated","redirect":null}

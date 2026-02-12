@@ -1,0 +1,177 @@
+
+
+@page {
+    margin-top: 90pt;
+    margin-right: 0;
+    margin-bottom: 60pt;
+    margin-left: 0;
+    margin-header: 2mm;
+    margin-footer: 3mm;
+    header: html_myHeader2;
+    odd-footer-name: html_myFooter1;
+    even-footer-name: html_myFooter2;
+}
+@page :first {
+    header: html_myHeader1;
+}
+
+body {
+    font-family:roboto;
+    font-size: 11pt;
+    color:#000;
+    height: 100%;
+}
+
+h1 {
+    color: #c0300f;
+    font-size:26pt;
+    margin: 20pt 0 0 0;
+    text-align: right;
+    text-transform: uppercase;
+    padding: 0;
+}
+h2 {
+    color: #c0300f;
+    font-size:26pt;
+    margin: 20pt 0 0 0;
+    text-transform: uppercase;
+    padding: 0;
+}
+h3 {
+    font-size:18pt;
+    margin: 20pt 0 0 0;
+    color: #185d62;
+    text-transform: uppercase;
+    padding: 0;
+}
+h4 {
+    font-size:12pt;
+    margin: 10pt 0 10pt 0;
+    color: #185d62;
+    text-transform: uppercase;
+    padding: 0;
+}
+
+.content {
+    margin: 20pt 40pt;
+}
+.border-2 {
+    border:3pt solid #003997;
+    padding: 12pt;
+}
+table.full {
+    width: 100%;
+    border-spacing: 0;
+}
+table th {
+    padding: 3pt 8pt;
+}
+table td {
+    padding: 3pt 8pt;
+    vertical-align: top;
+    margin: 0;
+}
+table.sm td {
+    padding: 0pt;
+}
+table.bordered {
+    border-spacing: 0;
+    border: 1px solid #000;
+}
+table.bordered td {
+    padding: 2pt 10pt;
+    border: 1px solid #000;
+}
+table.sm-right td {
+    padding: 0;
+}
+.b-1 td {
+    border-bottom: 1px dotted #000;
+}
+.b-2 th {
+    border-bottom: 2px solid #444;
+}
+.b-3 th {
+    background: #ddd;
+    border-top: 2px solid #000;
+    border-bottom: 4px solid #000;
+}
+.b-4 td {
+    border-bottom: 4px solid #000;
+}
+.b-5 th {
+    background: #333;
+    color: #fff;
+    border-bottom: 8px solid #888;
+}
+.text-center {
+    text-align: center;
+}
+.text-right {
+    text-align: right;
+}
+.text-left {
+    text-align: left;
+}
+table th.pl-1 {
+    padding-left: 10pt;
+    text-align: left;
+}
+table th.pl-2 {
+    padding-left: 20pt;
+    text-align: left;
+}
+table td.pl-1 {
+    padding-left: 10pt;
+    text-align: left;
+}
+table td.pl-3 {
+    padding-left: 30pt;
+    text-align: left;
+}
+table td.pr-2 {
+    padding-right: 10pt;
+}
+.header {
+    padding: 12pt 40pt;
+    margin-bottom: 10pt;
+    border-bottom:5px solid #ef4923;
+}
+.title {
+    padding: 10pt 0;
+    margin-bottom: 10pt;
+    border-bottom:2px solid #000;
+}
+.vendor {
+    padding-left: 50pt;
+    margin-bottom: 10pt;
+}
+.footer {
+    border-top: 1px solid #ccc;
+    padding: 10pt 40pt;
+    font-size: 10pt;
+    color: #333;
+    margin: 30pt 0 0 0;
+  }
+  .footer b {
+      border-bottom: 1pt solid #000;
+  }
+  .comments {
+      margin-top: 30pt;
+      border: 1px solid #ccc;
+  }
+  .comments h3 {
+      font-size: 11pt;
+      font-weight: bold;
+      text-align: left;
+      border-bottom: 1px solid #ccc;
+      padding: 10pt;
+      margin: 0;
+  }
+  .comments p {
+      padding: 10pt;
+      margin: 0;
+  }
+  .page-break {
+      page-break-after: always;
+  }

@@ -1,0 +1,15 @@
+@page {
+    margin-top: 0;
+    margin-right: 0;
+    margin-bottom: 0;
+    margin-left: 0;
+    margin-header: 0;
+    margin-footer: 0;
+}
+
+body {
+    font-family:gilroy;
+    font-size: 8pt;
+    color:#000;
+    height: 100%;
+}

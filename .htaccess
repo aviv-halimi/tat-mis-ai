@@ -1,0 +1,74 @@
+RewriteEngine on
+RewriteBase /
+
+RewriteRule ^login$ login.php [NC,L]
+RewriteRule ^reset-password/(.*)$ reset-password.php?t=$1 [NC,L]
+RewriteRule ^inc/(.*)$ inc/404.php [NC,L]
+RewriteRule ^module/(.*)$ inc/404.php [NC,L]
+RewriteRule ^class/(.*)$ inc/404.php [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^media/([^\.]+)/([^\.]+)/(.*)$ media-viewer.php?t=$1&s=$2&f=$3 [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^media/([^\.]+)/(.*)$ media-viewer.php?t=$1&f=$2 [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^download/([^\.]+)/(.*)$ download.php?t=$1&f=$2 [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ajax/(.*)/(.*)$ ajax/$1.php?c=$2 [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ajax/(.*)$ ajax/$1.php [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^cron/(.*)$ cron/$1.php [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^modal/(.*)$ modal/$1.php [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^api/table/(.*)$ api/table.php?t=$1 [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^api/(.*)/(.*)/(.*)$ api/$1.php?_a=$2&_b=$3 [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^api/(.*)/(.*)$ api/$1.php?_a=$2 [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^api/(.*)$ api/$1.php [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^([^\.]+)/([^\.]+)/([^\.]+)$ $1.php?c=$1&d=$2 [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{QUERY_STRING} ^id=(.*)$
+RewriteRule ^([^\.]+)$ index.php?_module_code=$1&c=$2&id=%1 [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{QUERY_STRING} ^_ajax=(.*)$
+RewriteRule ^([^\.]+)$ index.php?_module_code=$1&c=$2&_ajax=%1 [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^([^\.]+)/([^\.]+)$ index.php?_module_code=$1&c=$2 [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^([^\.]+)$ index.php?_module_code=$1 [NC,L]

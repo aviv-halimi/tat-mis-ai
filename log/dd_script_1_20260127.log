@@ -1,0 +1,15 @@
+[2026-01-27 14:27:32] Command triggered for store_id 1 with PID 11110
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/inc/security.php on line 41
+<ul><li>West Hollywood<li>18 product(s) found for reset<li>2212296<li>2204728<li>2211928<li>2209096<li>2211400<li>2209464<li>2211896<li>2211896<li>2212296<li>2204728<li>2211656<li>2211928<li>2208952<li>2211864<li>2211816<li>2206808<li>2206808<li>2205408<li>0 product(s) found for discount</ul><hr />{"success":true,"response":"0 products updated","redirect":null}[2026-01-27 14:44:05] Command triggered for store_id 1 with PID 11863
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/class/SessionManager.php on line 59
+PHP Notice:  Undefined index: REQUEST_URI in /var/www/vhosts/wantadigital.com/www/theartisttree-mis/inc/security.php on line 41
+<ul><li>West Hollywood<li>18 product(s) found for reset<li>2212296<li>2204728<li>2211928<li>2209096<li>2211400<li>2209464<li>2211896<li>2211896<li>2212296<li>2204728<li>2211656<li>2211928<li>2208952<li>2211864<li>2211816<li>2206808<li>2206808<li>2205408<li>0 product(s) found for discount</ul><hr />{"success":true,"response":"0 products updated","redirect":null}

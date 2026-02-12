@@ -1,0 +1,88 @@
+<?php
+define('SkipAuth', true);
+require_once('../_config.php');
+$start = time();
+
+
+$rs = getRs("SELECT store_id, db FROM store WHERE " . is_enabled() . " ORDER BY store_id");
+foreach($rs as $s) {
+  setRs("TRUNCATE TABLE {$s['db']}.product_sale");
+  setRs("TRUNCATE TABLE {$s['db']}.product_avg_sale");
+	
+ /* AVIV UPDATE SCRIPT TO MATCH NEW DAILY SALES SCRIPT
+	
+	$rp = getRs("SELECT
+  t.productSku, 
+  SUM(t.quantity) AS sales, 
+  FROM_UNIXTIME(MIN(t.ts_dateCreated)/1000, '%Y-%m-%d %H:%i:%s') AS date_first_sale,
+  FROM_UNIXTIME(MAX(t.ts_dateCreated)/1000, '%Y-%m-%d %H:%i:%s') AS date_last_sale,
+  CASE WHEN MAX(t.ts_dateCreated)/1000 >= UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 7 day)) THEN
+    SUM(CASE WHEN t.ts_dateCreated/1000 >= UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 28 day)) THEN t.quantity ELSE 0 END)
+  ELSE 0 END AS valid_sales,
+  DATEDIFF(NOW(), (CASE WHEN MIN(t.ts_dateCreated)/1000 < UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 28 day)) THEN DATE_SUB(NOW(), INTERVAL 28 day) ELSE FROM_UNIXTIME(MIN(t.ts_dateCreated)/1000, '%Y-%m-%d %H:%i:%s') END)) AS sale_days
+
+  FROM {$s['db']}._transactions t GROUP BY t.productSku");
+  
+  foreach($rp as $p) {
+    $inv_1 = 0; //rand(30,40);
+    $inv_2 = 0; //rand(30,40);
+    dbPut($s['db'] . '.product_sale', array('sku' => $p['productSku'], 'sales' => $p['sales'], 'valid_sales' => $p['valid_sales'], 'date_first_sale' => $p['date_first_sale'], 'date_last_sale' => $p['date_last_sale'], 'sale_days' => $p['sale_days'], 'daily_sales' => ($p['sale_days'])?ceil($p['valid_sales'] / $p['sale_days']):0, 'inv_1' => $inv_1, 'inv_2' => $inv_2));
+  }
+*/
+  $t_store_id = $s['store_id'];
+  $rp = getRs("SELECT
+  p.product_id, p.id, p.sku, p.name, p.category_id, p.brand_id, p.vendor_id, p.unitPrice,
+  SUM(COALESCE(i.quantity, 0)) AS sales, 
+  FROM_UNIXTIME(MIN(t.created)/1000, '%Y-%m-%d %H:%i:%s') AS date_first_sale,
+  FROM_UNIXTIME(MAX(t.created)/1000, '%Y-%m-%d %H:%i:%s') AS date_last_sale,
+  CASE WHEN MAX(t.created)/1000 >= UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 7 day)) THEN
+    SUM(CASE WHEN t.created/1000 >= UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 28 day)) THEN i.quantity ELSE 0 END)
+  ELSE 0 END AS valid_sales_old,
+  DATEDIFF(NOW(), (CASE WHEN MIN(t.created)/1000 < UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 28 day)) THEN DATE_SUB(NOW(), INTERVAL 28 day) ELSE FROM_UNIXTIME(MIN(t.created)/1000, '%Y-%m-%d %H:%i:%s') END)) AS sale_days_old,
+IFNULL(SUM(id.DaysInInventory),0) sale_days,
+SUM(CASE WHEN t.created/1000 >= UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 60 DAY)) 
+	AND	((i.FinalPrice
+	   - ((c.afterTaxDiscount / (c.SubTotal - c.TotalDiscount  + c.calccartdiscount)) * i.finalPrice)
+		- ((c.calcCartDiscount / (c.SubTotal - c.totaldiscount + c.calccartdiscount)) * i.finalPrice))
+	/ i.quantity > 1 ) 
+	THEN i.quantity ELSE 0 END) AS valid_sales
+  
+
+  FROM 
+  {$s['db']}.product p LEFT JOIN (
+    {$s['db']}.items i LEFT JOIN (
+      {$s['db']}.cart c LEFT JOIN (
+          {$s['db']}.`transaction` t 
+      ) ON t.transaction_id = c.transaction_id
+    ) ON c.cart_id = i.cart_id
+  ) ON i.product_id = p.product_id
+LEFT JOIN theartisttree._Days_Inventory id ON id.store_id = {$t_store_id} AND p.product_id = id.product_id
+
+  GROUP BY p.product_id, p.id, p.sku, p.name, p.category_id, p.brand_id, p.vendor_id, p.unitPrice");
+
+  
+  foreach($rp as $p) {
+    $inv_1 = 0; //rand(30,40);
+    $inv_2 = 0; //rand(30,40);
+    dbPut($s['db'] . '.product_sale', array('sku' => $p['sku'], 'sales' => $p['sales'], 'valid_sales' => $p['valid_sales'], 'date_first_sale' => $p['date_first_sale'], 'date_last_sale' => $p['date_last_sale'], 'sale_days' => $p['sale_days'], 'daily_sales' => ($p['sale_days'])?ceil($p['valid_sales'] / $p['sale_days']):0, 'inv_1' => $inv_1, 'inv_2' => $inv_2, 'id' => $p['id'], 'name' => $p['name'], 'product_id' => $p['product_id'], 'category_id' => $p['category_id'], 'brand_id' => $p['brand_id'], 'vendor_id' => $p['vendor_id'], 'price' => $p['unitPrice']));
+  }
+	
+	
+  setRs("UPDATE {$s['db']}.product_sale s INNER JOIN {$s['db']}.product p ON p.sku = s.sku
+  SET s.id = p.id, s.name = TRIM(p.name), s.product_id = p.product_id, s.category_id = p.category_id, s.brand_id = p.brand_id, s.vendor_id = p.vendor_id, s.price = p.unitPrice");
+
+  $ra = getRs("SELECT category_id, brand_id, AVG(daily_sales) AS daily_sales FROM {$s['db']}.product_sale WHERE daily_sales > 0 AND brand_id AND category_id GROUP BY category_id, brand_id");
+  foreach($ra as $a) {
+    dbPut($s['db'] . '.product_avg_sale', array('category_id' => $a['category_id'], 'brand_id' => $a['brand_id'], 'daily_sales' => $a['daily_sales']));
+  }
+
+  setRs("UPDATE {$s['db']}.product_sale s INNER JOIN {$s['db']}.product_avg_sale a ON s.category_id = a.category_id AND s.brand_id = a.brand_id
+  SET s.daily_avg_sales = a.daily_sales WHERE COALESCE(s.daily_sales, 0) = 0");
+
+  // set nulls to zero for quick report comparisons
+  setRs("UPDATE {$s['db']}.product_sale SET daily_sales = 0 WHERE daily_sales IS NULL");
+  setRs("UPDATE {$s['db']}.product_sale SET daily_avg_sales = 0 WHERE daily_avg_sales IS NULL");
+}
+echo '<li>Done</li>';
+echo '<li> Duration ' . (time() - $start) . ' secs</li>';
+?>
