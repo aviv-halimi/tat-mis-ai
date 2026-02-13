@@ -72,7 +72,10 @@ $stop_url = isset($stop_url) ? $stop_url : '';
       try {
         var data = JSON.parse(xhr.responseText);
         if (data.content) {
-          logEl.textContent = data.content;
+          var escaped = data.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          escaped = escaped.replace(/(https?:\/\/[^\s<>]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+          escaped = escaped.replace(/(\.\.\/module\/po-download-r\.php\?c=[^\s<>]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+          logEl.innerHTML = escaped;
           logEl.scrollTop = logEl.scrollHeight;
         }
         if (!data.running) {

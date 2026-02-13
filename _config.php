@@ -37,6 +37,8 @@ date_default_timezone_set('America/Los_Angeles');
 # Paths
 define('BASE_PATH', dirname(__FILE__) . '/');
 define('BASE_URL', '');
+// Optional: full base URL for log links (e.g. invoice validation PDF links). If set, log shows full URL.
+// define('SITE_URL', 'https://wantadigital.com/theartisttree-mis-ai');
 
 # PHP CLI for invoice validation (run from UI). Required on Plesk when "php" is php-fpm.
 define('INVOICE_VALIDATE_PHP_CLI', '/opt/plesk/php/8.3/bin/php');

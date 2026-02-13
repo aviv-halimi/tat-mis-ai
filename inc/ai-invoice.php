@@ -89,14 +89,7 @@ function parseInvoiceTotalFromPdf($file_path, &$debug_log = null)
                         'text' =>
                             "Analyze this invoice and determine the final payable amount owed.
                              Consider totals, balances, taxes, credits, and adjustments.
-                             Return ONLY valid JSON:
-
-                             {
-                               \"final_amount_due\": number,
-                               \"currency\": \"string\",
-                               \"confidence\": number,
-                               \"reasoning_summary\": \"short explanation\"
-                             }"
+                             Return ONLY a valid nunber.  no additional text."
                     ]
                 ]
             ]]
@@ -119,7 +112,7 @@ function parseInvoiceTotalFromPdf($file_path, &$debug_log = null)
         $curlErr = curl_error($ch);
         curl_close($ch);
 
-        $debug_log[] = "Attempt $attempt response: $response";
+        $debug_log[] = "Attempt $attempt HTTP $httpCode – full response: " . (is_string($response) ? $response : json_encode($response));
 
         if ($response === false || $curlErr || $httpCode >= 300) {
             continue;

@@ -92,9 +92,20 @@ if ($isCli) {
             continue;
         }
 
+        $pdf_url = defined('SITE_URL') && SITE_URL !== ''
+            ? (rtrim(SITE_URL, '/') . '/module/po-download-r.php?c=' . urlencode($po_code))
+            : ('../module/po-download-r.php?c=' . urlencode($po_code));
+        status("PO {$po_number}: invoice PDF: " . $pdf_url, $isCli);
+
         status("PO {$po_number}: uploading PDF to OpenAI ...", $isCli);
         $raw_ai_response = null;
         $ai_total        = parseInvoiceTotalFromPdf($full_path, $raw_ai_response);
+
+        if (is_array($raw_ai_response) && count($raw_ai_response) > 0) {
+            foreach ($raw_ai_response as $line) {
+                status("PO {$po_number}: OpenAI – " . $line, $isCli);
+            }
+        }
 
         if ($ai_total === null) {
             status("PO {$po_number}: error – AI did not return a total.", $isCli);
