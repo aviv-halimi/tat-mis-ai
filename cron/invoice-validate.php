@@ -151,6 +151,10 @@ if ($isCli) {
 }
 
 // --- Web: show instructions and optional “run in background” ---
+if (!defined('SkipAuth')) {
+    define('SkipAuth', true);
+}
+require_once dirname(__FILE__) . '/../_config.php';
 $page_title = 'Invoice Validation';
 $page_icon  = 'fa-file-invoice-dollar';
 include_once dirname(__FILE__) . '/../inc/header.php';
