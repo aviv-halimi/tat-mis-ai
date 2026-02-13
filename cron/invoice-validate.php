@@ -107,6 +107,7 @@ if ($isCli) {
 
     status('Done. Processed: ' . $processed . ', validated: ' . $validated . ', mismatch: ' . $mismatch . ', errors: ' . $errors, $isCli);
     status('Invoice validation finished.', $isCli);
+    echo "RUN_COMPLETE\n";
     exit(0);
 }
 
@@ -115,29 +116,10 @@ $page_title = 'Invoice Validation';
 $page_icon  = 'fa-file-invoice-dollar';
 include_once dirname(__FILE__) . '/../inc/header.php';
 ?>
-<div class="row">
-  <div class="col-md-12">
-    <div class="panel panel-default">
-      <div class="panel-heading">
-        <h4 class="panel-title"><i class="fa fa-file-invoice-dollar mr-1"></i> Invoice Validation</h4>
-      </div>
-      <div class="panel-body">
-        <p>
-          Validation runs as a <strong>script</strong> so it doesn’t time out. It processes all POs with
-          <code>po_status_id = 5</code>, sends invoice PDFs to OpenAI, and sets <code>invoice_validated = 1</code>
-          when the AI total matches <code>r_total</code>.
-        </p>
-        <h5>Run from the command line</h5>
-        <p>From the project root (where <code>_config.php</code> is):</p>
-        <pre class="bg-light p-3">php cron/invoice-validate.php</pre>
-        <p>You’ll see live status lines as each PO is processed.</p>
-        <p class="text-muted small mb-0">
-          To run on a schedule, add a cron entry, e.g. daily at 2am:<br>
-          <code>0 2 * * * cd /path/to/theartisttree-mis && php cron/invoice-validate.php</code>
-        </p>
-      </div>
-    </div>
-  </div>
-</div>
+
 <?php
+$ajax_base = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+$start_url = rtrim($ajax_base, '/') . '/ajax/invoice-validate-start.php';
+$status_url = rtrim($ajax_base, '/') . '/ajax/invoice-validate-status.php';
+include dirname(__FILE__) . '/../inc/invoice-validate-ui.php';
 include_once dirname(__FILE__) . '/../inc/footer.php';
