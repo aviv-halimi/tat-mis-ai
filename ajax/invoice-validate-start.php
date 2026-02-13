@@ -43,28 +43,19 @@ $phpBin = null;
 if (defined('INVOICE_VALIDATE_PHP_CLI') && INVOICE_VALIDATE_PHP_CLI !== '' && file_exists(INVOICE_VALIDATE_PHP_CLI)) {
     $phpBin = INVOICE_VALIDATE_PHP_CLI;
 } elseif (strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN') {
+    // Attempt to find PHP executable (common Plesk paths)
     $possiblePhpPaths = [
+        '/usr/bin/php',
         '/opt/plesk/php/8.3/bin/php',
         '/opt/plesk/php/8.2/bin/php',
         '/opt/plesk/php/8.1/bin/php',
         '/opt/plesk/php/8.0/bin/php',
         '/opt/plesk/php/7.4/bin/php',
-        '/usr/bin/php',
     ];
-    // Derive CLI from PHP_BINARY when running under php-fpm (e.g. /opt/plesk/php/7.4/sbin/php-fpm -> .../bin/php)
-    if (defined('PHP_BINARY') && PHP_BINARY !== '' && (strpos(PHP_BINARY, 'php-fpm') !== false || strpos(PHP_BINARY, 'sbin') !== false)) {
-        $cliGuess = preg_replace('#[/\\\\]sbin[/\\\\].*$#', DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'php', PHP_BINARY);
-        $cliGuess = preg_replace('#php-fpm.*$#', 'php', $cliGuess);
-        if ($cliGuess !== PHP_BINARY && file_exists($cliGuess)) {
-            $phpBin = $cliGuess;
-        }
-    }
-    if (!$phpBin) {
-        foreach ($possiblePhpPaths as $path) {
-            if (file_exists($path)) {
-                $phpBin = $path;
-                break;
-            }
+    foreach ($possiblePhpPaths as $path) {
+        if (file_exists($path) && is_executable($path)) {
+            $phpBin = $path;
+            break;
         }
     }
     if (!$phpBin) {
