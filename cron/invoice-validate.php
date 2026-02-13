@@ -57,9 +57,19 @@ if ($isCli) {
     status('Invoice validation started (provider: ' . $provider . ').', $isCli);
 
     $rs = getRs(
-        "SELECT po_id, po_number, po_code, r_total, invoice_filename
-         FROM po
-         WHERE " . is_enabled() . " AND po_status_id = 5 AND LENGTH(invoice_filename) AND r_total > 0",
+        "SELECT p.po_id, p.po_number, p.po_code, r_total - SUM(d.discount_amount) AS r_total, p.invoice_filename
+         FROM po p
+         	LEFT JOIN po_discount d ON p.po_id = d.po_id
+         WHERE po_status_id = 5 
+          AND p.is_active = 1 
+          AND p.is_enabled = 1
+          AND LENGTH(invoice_filename) 
+          AND r_total > 0 
+          AND d.is_enabled = 1 
+          AND d.is_active = 1 
+          AND d.is_receiving = 1
+         GROUP BY p.po_id
+         LIMIT 5;",
         array()
     );
 
@@ -129,7 +139,7 @@ if ($isCli) {
 
         status("PO {$po_number}: AI total = {$ai_total}, DB r_total = {$r_total}", $isCli);
 
-        if (abs($ai_total - $r_total) <= 0.01) {
+        if (abs($ai_total - $r_total) <= 5) {
             dbUpdate('po', array('invoice_validated' => 1), $po_id);
             status("PO {$po_number}: match – invoice_validated set to 1.", $isCli);
             $validated++;
