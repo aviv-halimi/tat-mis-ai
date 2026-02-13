@@ -549,6 +549,9 @@ if (in_array($_Session->admin_group_id,array(1,3,11,12,15))) {
   <a href="../module/notify_andrew.php?poid=' . $_po_id . '" class="btn btn-info"><i class="fa fa-file"></i> Notify Andrew </a>
   </div>';
 }
+if ($t['po_status_id'] == 5) {
+  echo '<div class="btn-group m-b-5 m-r-5"><button type="button" class="btn btn-primary btn-po-qbo-push" data-c="' . htmlspecialchars($po_code) . '"><i class="fa fa-external-link-alt"></i> Push to QuickBooks</button></div> ';
+}
 echo '
 <div class="btn-group m-b-5 m-r-5">
 <a href="javascript:;" class="btn btn-success"><i class="fa fa-file-pdf"></i> Purchase Order Document </a>

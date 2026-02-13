@@ -514,6 +514,16 @@ function initAssets(select2) {
    }
   });
 
+  $('.btn-po-qbo-push').off('click').on('click', function(e) {
+    e.preventDefault();
+    var c = $(this).data('c');
+    postAjax('po-qbo-bill', { c: c }, 'status_po', function(data) {
+      if (data.need_mapping) {
+        updateDialog2('po-qbo-map-vendor', 'Map vendor to QuickBooks', null, c);
+      }
+    });
+  });
+
   $('.btn-po-status').off('click').on('click', function(e) {
     e.preventDefault();
     var $this = $(this);
