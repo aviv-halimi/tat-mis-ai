@@ -34,6 +34,18 @@ if ($isCli) {
 
     set_time_limit(0);
 
+    $logDir = rtrim(BASE_PATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'log';
+    $pidFile = $logDir . DIRECTORY_SEPARATOR . 'invoice-validate.pid';
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0755, true);
+    }
+    @file_put_contents($pidFile, (string) getmypid());
+    register_shutdown_function(function () use ($pidFile) {
+        if (file_exists($pidFile)) {
+            @unlink($pidFile);
+        }
+    });
+
     status('Invoice validation started.', $isCli);
 
     $rs = getRs(
@@ -108,6 +120,9 @@ if ($isCli) {
     status('Done. Processed: ' . $processed . ', validated: ' . $validated . ', mismatch: ' . $mismatch . ', errors: ' . $errors, $isCli);
     status('Invoice validation finished.', $isCli);
     echo "RUN_COMPLETE\n";
+    if (isset($pidFile) && file_exists($pidFile)) {
+        @unlink($pidFile);
+    }
     exit(0);
 }
 
@@ -121,5 +136,6 @@ include_once dirname(__FILE__) . '/../inc/header.php';
 $ajax_base = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''));
 $start_url = rtrim($ajax_base, '/') . '/ajax/invoice-validate-start.php';
 $status_url = rtrim($ajax_base, '/') . '/ajax/invoice-validate-status.php';
+$stop_url   = rtrim($ajax_base, '/') . '/ajax/invoice-validate-stop.php';
 include dirname(__FILE__) . '/../inc/invoice-validate-ui.php';
 include_once dirname(__FILE__) . '/../inc/footer.php';

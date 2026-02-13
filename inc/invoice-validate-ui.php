@@ -1,10 +1,11 @@
 <?php
 /**
- * Invoice validation UI: trigger button + live log. Expects $start_url and $status_url to be set.
+ * Invoice validation UI: trigger, stop, and live log. Expects $start_url, $status_url, and optionally $stop_url.
  */
 if (!isset($start_url) || !isset($status_url)) {
     return;
 }
+$stop_url = isset($stop_url) ? $stop_url : '';
 ?>
 <div class="row">
   <div class="col-md-12">
@@ -22,6 +23,9 @@ if (!isset($start_url) || !isset($status_url)) {
           <button type="button" class="btn btn-primary" id="invoice-validate-run-btn">
             <i class="fa fa-play mr-1"></i> Run validation
           </button>
+          <button type="button" class="btn btn-danger ml-1" id="invoice-validate-stop-btn" disabled>
+            <i class="fa fa-stop mr-1"></i> Stop
+          </button>
           <span id="invoice-validate-status" class="ml-2 text-muted"></span>
         </p>
         <div class="mt-3">
@@ -38,10 +42,12 @@ if (!isset($start_url) || !isset($status_url)) {
 <script>
 (function() {
   var runBtn = document.getElementById('invoice-validate-run-btn');
+  var stopBtn = document.getElementById('invoice-validate-stop-btn');
   var statusEl = document.getElementById('invoice-validate-status');
   var logEl = document.getElementById('invoice-validate-log');
   var startUrl = <?php echo json_encode($start_url); ?>;
   var statusUrl = <?php echo json_encode($status_url); ?>;
+  var stopUrl = <?php echo json_encode($stop_url); ?>;
   var pollTimer = null;
 
   function setStatus(msg, isError) {
@@ -49,13 +55,14 @@ if (!isset($start_url) || !isset($status_url)) {
     statusEl.className = 'ml-2 ' + (isError ? 'text-danger' : 'text-muted');
   }
 
-  function stopPolling() {
+  function stopPolling(stopped) {
     if (pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
     }
     runBtn.disabled = false;
-    setStatus('Done.');
+    if (stopBtn) stopBtn.disabled = true;
+    setStatus(stopped ? 'Stopped.' : 'Done.');
   }
 
   function poll() {
@@ -69,7 +76,7 @@ if (!isset($start_url) || !isset($status_url)) {
           logEl.scrollTop = logEl.scrollHeight;
         }
         if (!data.running) {
-          stopPolling();
+          stopPolling(false);
         }
       } catch (e) {}
     };
@@ -88,11 +95,13 @@ if (!isset($start_url) || !isset($status_url)) {
         var data = JSON.parse(xhr.responseText);
         if (data.started) {
           setStatus('Running…');
+          if (stopBtn) stopBtn.disabled = false;
           pollTimer = setInterval(poll, 1500);
           poll();
         } else {
           setStatus(data.message || 'Could not start.', true);
           if (data.running) {
+            if (stopBtn) stopBtn.disabled = false;
             pollTimer = setInterval(poll, 1500);
             poll();
           }
@@ -109,5 +118,23 @@ if (!isset($start_url) || !isset($status_url)) {
     };
     xhr.send();
   });
+
+  if (stopBtn && stopUrl) {
+    stopBtn.addEventListener('click', function() {
+      if (stopBtn.disabled) return;
+      stopBtn.disabled = true;
+      setStatus('Stopping…');
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', stopUrl, true);
+      xhr.onload = function() {
+        stopPolling(true);
+      };
+      xhr.onerror = function() {
+        setStatus('Stop request failed.', true);
+        stopBtn.disabled = false;
+      };
+      xhr.send();
+    });
+  }
 })();
 </script>

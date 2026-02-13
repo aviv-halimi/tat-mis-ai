@@ -38,12 +38,48 @@ if (!is_dir($logDir)) {
 // Start fresh log for this run
 @file_put_contents($logFile, '[' . date('Y-m-d H:i:s') . "] Run started from UI.\n");
 
-// Run script in background (Linux/Unix)
-$phpBin = defined('PHP_BINARY') ? PHP_BINARY : 'php';
-$cmd    = $phpBin . ' ' . escapeshellarg($script) . ' >> ' . escapeshellarg($logFile) . ' 2>&1 &';
+// Use PHP CLI binary (not php-fpm). On Plesk/some hosts, "php" in PATH is php-fpm.
+$phpBin = null;
+if (defined('INVOICE_VALIDATE_PHP_CLI') && INVOICE_VALIDATE_PHP_CLI !== '' && file_exists(INVOICE_VALIDATE_PHP_CLI)) {
+    $phpBin = INVOICE_VALIDATE_PHP_CLI;
+} elseif (strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN') {
+    $possiblePhpPaths = [
+        '/opt/plesk/php/8.3/bin/php',
+        '/opt/plesk/php/8.2/bin/php',
+        '/opt/plesk/php/8.1/bin/php',
+        '/opt/plesk/php/8.0/bin/php',
+        '/opt/plesk/php/7.4/bin/php',
+        '/usr/bin/php',
+    ];
+    if (defined('PHP_BINARY') && PHP_BINARY !== '' && (strpos(PHP_BINARY, 'php-fpm') !== false || strpos(PHP_BINARY, 'sbin') !== false)) {
+        $cliGuess = preg_replace('#[/\\\\]sbin[/\\\\].*$#', DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'php', PHP_BINARY);
+        $cliGuess = preg_replace('#php-fpm.*$#', 'php', $cliGuess);
+        if ($cliGuess !== PHP_BINARY && file_exists($cliGuess) && is_executable($cliGuess)) {
+            $phpBin = $cliGuess;
+        }
+    }
+    if (!$phpBin) {
+        foreach ($possiblePhpPaths as $path) {
+            if (file_exists($path) && is_executable($path)) {
+                $phpBin = $path;
+                break;
+            }
+        }
+    }
+    if (!$phpBin) {
+        $phpBin = trim((string) shell_exec('which php 2>/dev/null'));
+        if ($phpBin !== '' && strpos($phpBin, 'php-fpm') !== false) {
+            $phpBin = '';
+        }
+    }
+}
+if (!$phpBin || !file_exists($phpBin)) {
+    $phpBin = 'php';
+}
+
+$cmd = $phpBin . ' ' . escapeshellarg($script) . ' >> ' . escapeshellarg($logFile) . ' 2>&1 &';
 
 if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-    // Windows: start detached (no & support in cmd)
     $cmd = 'start /B "" ' . $phpBin . ' ' . escapeshellarg($script) . ' >> ' . escapeshellarg($logFile) . ' 2>&1';
 }
 
