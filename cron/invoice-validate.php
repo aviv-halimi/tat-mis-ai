@@ -27,10 +27,18 @@ function status($msg, $isCli)
 $isCli = (php_sapi_name() === 'cli');
 
 if ($isCli) {
-    // CLI: minimal bootstrap, no HTML/session
+    // CLI: minimal bootstrap, no HTML/session. Provider: openai | gemini (argv[1] or env)
     define('SkipAuth', true);
     require_once dirname(__FILE__) . '/../_config.php';
+
+    $provider = isset($argv[1]) ? strtolower(trim($argv[1])) : (getenv('INVOICE_VALIDATE_PROVIDER') ?: 'openai');
+    if (!in_array($provider, ['openai', 'gemini'], true)) {
+        $provider = 'openai';
+    }
     require_once dirname(__FILE__) . '/../inc/ai-invoice.php';
+    if ($provider === 'gemini') {
+        require_once dirname(__FILE__) . '/../inc/ai-invoice-gemini.php';
+    }
 
     set_time_limit(0);
 
@@ -46,7 +54,7 @@ if ($isCli) {
         }
     });
 
-    status('Invoice validation started.', $isCli);
+    status('Invoice validation started (provider: ' . $provider . ').', $isCli);
 
     $rs = getRs(
         "SELECT po_id, po_number, po_code, r_total, invoice_filename
@@ -97,13 +105,18 @@ if ($isCli) {
             : ('../module/po-download-r.php?c=' . urlencode($po_code));
         status("PO {$po_number}: invoice PDF: " . $pdf_url, $isCli);
 
-        status("PO {$po_number}: uploading PDF to OpenAI ...", $isCli);
+        $providerLabel = $provider === 'gemini' ? 'Gemini' : 'OpenAI';
+        status("PO {$po_number}: sending PDF to {$providerLabel} ...", $isCli);
         $raw_ai_response = null;
-        $ai_total        = parseInvoiceTotalFromPdf($full_path, $raw_ai_response);
+        if ($provider === 'gemini') {
+            $ai_total = parseInvoiceTotalFromPdfGemini($full_path, $raw_ai_response);
+        } else {
+            $ai_total = parseInvoiceTotalFromPdf($full_path, $raw_ai_response);
+        }
 
         if (is_array($raw_ai_response) && count($raw_ai_response) > 0) {
             foreach ($raw_ai_response as $line) {
-                status("PO {$po_number}: OpenAI – " . $line, $isCli);
+                status("PO {$po_number}: {$providerLabel} – " . $line, $isCli);
             }
         }
 

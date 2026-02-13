@@ -49,12 +49,13 @@ function parseInvoiceTotalFromPdf($file_path, &$debug_log = null)
     ]);
 
     $uploadResponse = curl_exec($ch);
-    $uploadCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $uploadCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $curlErr = curl_error($ch);
     curl_close($ch);
 
     if ($uploadResponse === false || $curlErr || $uploadCode >= 300) {
-        $debug_log[] = "Upload failed: $curlErr";
+        $debug_log[] = "Upload failed: HTTP $uploadCode" . ($curlErr ? " curl: $curlErr" : "")
+            . " response: " . (is_string($uploadResponse) ? $uploadResponse : json_encode($uploadResponse));
         return null;
     }
 

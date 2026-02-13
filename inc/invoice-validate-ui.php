@@ -15,11 +15,16 @@ $stop_url = isset($stop_url) ? $stop_url : '';
       </div>
       <div class="panel-body">
         <p>
-          Processes all POs with <code>po_status_id = 5</code>, sends invoice PDFs to OpenAI, and sets
+          Processes all POs with <code>po_status_id = 5</code>, sends invoice PDFs to the selected AI model, and sets
           <code>invoice_validated = 1</code> when the AI total matches <code>r_total</code>. The script runs in the
           background so the page does not time out; updates appear below as it runs.
         </p>
         <p>
+          <label for="invoice-validate-provider" class="mr-2">Model:</label>
+          <select id="invoice-validate-provider" class="form-control d-inline-block mr-2" style="width: auto;">
+            <option value="openai">OpenAI (gpt-4o)</option>
+            <option value="gemini">Gemini (1.5 Flash)</option>
+          </select>
           <button type="button" class="btn btn-primary" id="invoice-validate-run-btn">
             <i class="fa fa-play mr-1"></i> Run validation
           </button>
@@ -33,7 +38,7 @@ $stop_url = isset($stop_url) ? $stop_url : '';
           <pre id="invoice-validate-log" class="bg-dark text-light p-3 rounded" style="max-height: 400px; overflow: auto; min-height: 120px;">No run yet. Click "Run validation" to start.</pre>
         </div>
         <p class="text-muted small mt-3 mb-0">
-          You can also run from the command line: <code>php cron/invoice-validate.php</code>
+          You can also run from the command line: <code>php cron/invoice-validate.php [openai|gemini]</code>
         </p>
       </div>
     </div>
@@ -45,10 +50,16 @@ $stop_url = isset($stop_url) ? $stop_url : '';
   var stopBtn = document.getElementById('invoice-validate-stop-btn');
   var statusEl = document.getElementById('invoice-validate-status');
   var logEl = document.getElementById('invoice-validate-log');
-  var startUrl = <?php echo json_encode($start_url); ?>;
+  var startUrlBase = <?php echo json_encode($start_url); ?>;
   var statusUrl = <?php echo json_encode($status_url); ?>;
   var stopUrl = <?php echo json_encode($stop_url); ?>;
   var pollTimer = null;
+
+  function getStartUrl() {
+    var provider = (document.getElementById('invoice-validate-provider') || {}).value || 'openai';
+    var sep = startUrlBase.indexOf('?') >= 0 ? '&' : '?';
+    return startUrlBase + sep + 'provider=' + encodeURIComponent(provider);
+  }
 
   function setStatus(msg, isError) {
     statusEl.textContent = msg;
@@ -92,7 +103,7 @@ $stop_url = isset($stop_url) ? $stop_url : '';
     logEl.textContent = 'Starting…\n';
 
     var xhr = new XMLHttpRequest();
-    xhr.open('GET', startUrl, true);
+    xhr.open('GET', getStartUrl(), true);
     xhr.onload = function() {
       try {
         var data = JSON.parse(xhr.responseText);

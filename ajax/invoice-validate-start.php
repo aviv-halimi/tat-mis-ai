@@ -30,13 +30,18 @@ if (!is_file($script)) {
     exit;
 }
 
+$provider = isset($_GET['provider']) ? strtolower(trim($_GET['provider'])) : (isset($_POST['provider']) ? strtolower(trim($_POST['provider'])) : 'openai');
+if (!in_array($provider, ['openai', 'gemini'], true)) {
+    $provider = 'openai';
+}
+
 // Ensure log directory exists
 if (!is_dir($logDir)) {
     @mkdir($logDir, 0755, true);
 }
 
 // Start fresh log for this run
-@file_put_contents($logFile, '[' . date('Y-m-d H:i:s') . "] Run started from UI.\n");
+@file_put_contents($logFile, '[' . date('Y-m-d H:i:s') . "] Run started from UI (provider: $provider).\n");
 
 // Use PHP CLI binary (not php-fpm). On Plesk/some hosts, "php" in PATH is php-fpm.
 $phpBin = null;
@@ -75,10 +80,10 @@ if ($phpBin === 'php') {
     @file_put_contents($logFile, '[' . date('Y-m-d H:i:s') . "] WARNING: 'php' is often php-fpm here. In _config.php uncomment and set: define('INVOICE_VALIDATE_PHP_CLI', '/opt/plesk/php/7.4/bin/php');\n", FILE_APPEND);
 }
 
-$cmd = $phpBin . ' ' . escapeshellarg($script) . ' >> ' . escapeshellarg($logFile) . ' 2>&1 &';
+$cmd = $phpBin . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($provider) . ' >> ' . escapeshellarg($logFile) . ' 2>&1 &';
 
 if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-    $cmd = 'start /B "" ' . $phpBin . ' ' . escapeshellarg($script) . ' >> ' . escapeshellarg($logFile) . ' 2>&1';
+    $cmd = 'start /B "" ' . $phpBin . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($provider) . ' >> ' . escapeshellarg($logFile) . ' 2>&1';
 }
 
 @popen($cmd, 'r');

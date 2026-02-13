@@ -43,5 +43,8 @@ define('BASE_URL', '');
 # PHP CLI for invoice validation (run from UI). Required on Plesk when "php" is php-fpm.
 define('INVOICE_VALIDATE_PHP_CLI', '/opt/plesk/php/8.3/bin/php');
 
+# Optional: for invoice validation with Gemini. Set in env as GEMINI_API_KEY or uncomment below.
+// define('GEMINI_API_KEY', '');
+
 require_once(BASE_PATH . 'inc/settings.php')
 ?>
