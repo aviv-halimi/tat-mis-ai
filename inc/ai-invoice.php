@@ -1,9 +1,8 @@
-```php
 <?php
 /**
- * Production-grade invoice total extraction via OpenAI.
- * Semantic extraction (not keyword-based).
- * Returns associative array or null on failure.
+ * Invoice total extraction via OpenAI (upload PDF, extract total, delete file).
+ * Returns float (final_amount_due) on success, null on failure.
+ * Second parameter receives a debug log array when provided.
  */
 
 if (!defined('OPENAI_API_KEY')) {
@@ -14,12 +13,15 @@ function parseInvoiceTotalFromPdf($file_path, &$debug_log = null)
 {
     $debug_log = [];
 
-    if (!is_string($file_path) || !file_exists($file_path)) {
+    if (!is_string($file_path) || strlen(trim($file_path)) === 0 || !file_exists($file_path)) {
         $debug_log[] = "Invalid file path.";
         return null;
     }
 
-    $apiKey = getenv('OPENAI_API_KEY') ?: OPENAI_API_KEY;
+    $apiKey = getenv('OPENAI_API_KEY');
+    if ($apiKey === false || $apiKey === '') {
+        $apiKey = (defined('OPENAI_API_KEY') && OPENAI_API_KEY !== '') ? OPENAI_API_KEY : null;
+    }
     if (!$apiKey) {
         $debug_log[] = "Missing API key.";
         return null;
@@ -156,6 +158,8 @@ function parseInvoiceTotalFromPdf($file_path, &$debug_log = null)
     curl_exec($ch);
     curl_close($ch);
 
-    return $result;
+    if ($result !== null && isset($result['final_amount_due']) && is_numeric($result['final_amount_due'])) {
+        return (float) $result['final_amount_due'];
+    }
+    return null;
 }
-```
