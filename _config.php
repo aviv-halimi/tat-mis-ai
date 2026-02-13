@@ -38,5 +38,8 @@ date_default_timezone_set('America/Los_Angeles');
 define('BASE_PATH', dirname(__FILE__) . '/');
 define('BASE_URL', '');
 
+# PHP CLI for invoice validation (run from UI). Required on Plesk when "php" is php-fpm.
+define('INVOICE_VALIDATE_PHP_CLI', '/opt/plesk/php/8.3/bin/php');
+
 require_once(BASE_PATH . 'inc/settings.php')
 ?>

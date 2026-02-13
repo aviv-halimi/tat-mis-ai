@@ -51,16 +51,17 @@ if (defined('INVOICE_VALIDATE_PHP_CLI') && INVOICE_VALIDATE_PHP_CLI !== '' && fi
         '/opt/plesk/php/7.4/bin/php',
         '/usr/bin/php',
     ];
+    // Derive CLI from PHP_BINARY when running under php-fpm (e.g. /opt/plesk/php/7.4/sbin/php-fpm -> .../bin/php)
     if (defined('PHP_BINARY') && PHP_BINARY !== '' && (strpos(PHP_BINARY, 'php-fpm') !== false || strpos(PHP_BINARY, 'sbin') !== false)) {
         $cliGuess = preg_replace('#[/\\\\]sbin[/\\\\].*$#', DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'php', PHP_BINARY);
         $cliGuess = preg_replace('#php-fpm.*$#', 'php', $cliGuess);
-        if ($cliGuess !== PHP_BINARY && file_exists($cliGuess) && is_executable($cliGuess)) {
+        if ($cliGuess !== PHP_BINARY && file_exists($cliGuess)) {
             $phpBin = $cliGuess;
         }
     }
     if (!$phpBin) {
         foreach ($possiblePhpPaths as $path) {
-            if (file_exists($path) && is_executable($path)) {
+            if (file_exists($path)) {
                 $phpBin = $path;
                 break;
             }
@@ -75,6 +76,12 @@ if (defined('INVOICE_VALIDATE_PHP_CLI') && INVOICE_VALIDATE_PHP_CLI !== '' && fi
 }
 if (!$phpBin || !file_exists($phpBin)) {
     $phpBin = 'php';
+}
+
+// Log which PHP we're using so you can fix INVOICE_VALIDATE_PHP_CLI if it's wrong
+@file_put_contents($logFile, '[' . date('Y-m-d H:i:s') . "] Using PHP: " . $phpBin . "\n", FILE_APPEND);
+if ($phpBin === 'php') {
+    @file_put_contents($logFile, '[' . date('Y-m-d H:i:s') . "] WARNING: 'php' is often php-fpm here. In _config.php uncomment and set: define('INVOICE_VALIDATE_PHP_CLI', '/opt/plesk/php/7.4/bin/php');\n", FILE_APPEND);
 }
 
 $cmd = $phpBin . ' ' . escapeshellarg($script) . ' >> ' . escapeshellarg($logFile) . ' 2>&1 &';
