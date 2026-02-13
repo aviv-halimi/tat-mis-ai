@@ -109,32 +109,40 @@ function parseInvoiceTotalFromPdf($file_path, &$debug_log = null)
         ]);
 
         $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlErr = curl_error($ch);
         curl_close($ch);
 
-        $debug_log[] = "Attempt $attempt HTTP $httpCode – full response: " . (is_string($response) ? $response : json_encode($response));
-
         if ($response === false || $curlErr || $httpCode >= 300) {
+            $debug_log[] = "Attempt $attempt HTTP $httpCode – " . ($curlErr ?: substr(is_string($response) ? $response : json_encode($response), 0, 500));
             continue;
         }
 
         $json = json_decode($response, true);
+        $content = trim((string) ($json['choices'][0]['message']['content'] ?? ''));
 
-        $content = $json['choices'][0]['message']['content'] ?? '';
+        // Log only the extracted content (not the full response) so run log stays small
+        $debug_log[] = "Attempt $attempt HTTP $httpCode – content: " . ($content !== '' ? $content : '(empty)');
+
+        $amount = null;
         $parsed = json_decode($content, true);
-
-        if (!is_array($parsed)) {
-            continue;
-        }
-
-        $amount = $parsed['final_amount_due'] ?? null;
-        $confidence = $parsed['confidence'] ?? 0;
-
-        // sanity checks
-        if (is_numeric($amount) && $amount > 0 && $confidence >= 0.5) {
-            $result = $parsed;
-            break;
+        if (is_array($parsed) && isset($parsed['final_amount_due'])) {
+            $amount = $parsed['final_amount_due'];
+            $confidence = $parsed['confidence'] ?? 1;
+            if (is_numeric($amount) && $amount > 0 && $confidence >= 0.5) {
+                $result = $parsed;
+                break;
+            }
+        } else {
+            // Plain number in content (e.g. "2454.37")
+            $contentStripped = preg_replace('/[^\d.-]/', '', $content);
+            if (preg_match('/-?\d+\.?\d*/', $contentStripped, $m) && is_numeric($m[0])) {
+                $amount = (float) $m[0];
+                if ($amount > 0) {
+                    $result = ['final_amount_due' => $amount, 'confidence' => 1];
+                    break;
+                }
+            }
         }
     }
 

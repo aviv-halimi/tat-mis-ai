@@ -4,7 +4,7 @@
  * Returns float (total amount due) on success, null on failure.
  * Second parameter receives a debug log array when provided.
  *
- * Requires GEMINI_API_KEY in env or constant. Model: gemini-1.5-flash (or set GEMINI_MODEL).
+ * Requires GEMINI_API_KEY in env or constant. Model: gemini-2.0-flash (or set GEMINI_MODEL).
  */
 
 if (!defined('GEMINI_API_KEY')) {
@@ -12,7 +12,7 @@ if (!defined('GEMINI_API_KEY')) {
 }
 
 if (!defined('GEMINI_MODEL')) {
-    define('GEMINI_MODEL', 'gemini-1.5-flash');
+    define('GEMINI_MODEL', 'gemini-2.0-flash');
 }
 
 function parseInvoiceTotalFromPdfGemini($file_path, &$debug_log = null)
@@ -39,7 +39,7 @@ function parseInvoiceTotalFromPdfGemini($file_path, &$debug_log = null)
         return null;
     }
 
-    $model = (defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-1.5-flash';
+    $model = (defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-2.0-flash';
     $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode($model) . ':generateContent?key=' . urlencode($apiKey);
 
     $prompt = "Analyze this invoice and determine the final payable amount owed. "
