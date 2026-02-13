@@ -1,24 +1,8 @@
 <?php
 /**
- * Invoice PDF total extraction via Smalot PDF parser + OpenAI.
- * Requires: Composer + smalot/pdfparser, and OPENAI_API_KEY set (env or constant below).
+ * Invoice PDF total extraction: send the PDF directly to OpenAI (Files API + Chat Completions).
+ * No local PDF parsing. Requires OPENAI_API_KEY (env or constant below).
  */
-
-// Autoload path: from inc/ so project root is parent
-$autoload = defined('BASE_PATH')
-    ? (rtrim(BASE_PATH, '/\\') . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php')
-    : (__DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php');
-
-if (!is_file($autoload)) {
-    function parseInvoiceTotalFromPdf($file_path, &$raw_response = null)
-    {
-        $raw_response = null;
-        return null;
-    }
-    return;
-}
-
-require_once $autoload;
 
 // Optional: set key here if not using env. Leave empty to use OPENAI_API_KEY env var only.
 if (!defined('OPENAI_API_KEY')) {
@@ -26,8 +10,8 @@ if (!defined('OPENAI_API_KEY')) {
 }
 
 /**
- * Extract the total amount due from an invoice PDF using PDF text + OpenAI.
- * Returns float on success, null on failure.
+ * Extract the total amount due from an invoice PDF by sending the PDF to OpenAI.
+ * Uses Files API (upload) then Chat Completions with file_id. Returns float on success, null on failure.
  */
 function parseInvoiceTotalFromPdf($file_path, &$raw_response = null)
 {
@@ -37,27 +21,6 @@ function parseInvoiceTotalFromPdf($file_path, &$raw_response = null)
         return null;
     }
 
-    // Step 1: Extract text from PDF (use FQCN so no top-level "use" needed)
-    try {
-        $parser = new \Smalot\PdfParser\Parser();
-        $pdf   = $parser->parseFile($file_path);
-        $text  = $pdf->getText();
-    } catch (\Exception $e) {
-        return null;
-    }
-
-    if (!is_string($text) || strlen(trim($text)) === 0) {
-        return null;
-    }
-
-    // Step 2: Truncate long text to stay under context limits
-    $maxChars = 12000;
-    if (strlen($text) > $maxChars) {
-        $text = substr($text, 0, $maxChars) . "\n\n[Text truncated...]";
-    }
-    $prompt = "Extract ONLY the numeric total amount due from this invoice text. Respond with a single number only, no currency symbols or words.\n\n" . $text;
-
-    // Step 3: API key (env first, then constant)
     $apiKey = getenv('OPENAI_API_KEY');
     if ($apiKey === false || $apiKey === '') {
         $apiKey = (defined('OPENAI_API_KEY') && OPENAI_API_KEY !== '') ? OPENAI_API_KEY : null;
@@ -66,16 +29,68 @@ function parseInvoiceTotalFromPdf($file_path, &$raw_response = null)
         return null;
     }
 
+    $filename = basename($file_path);
+
+    // Step 1: Upload PDF to OpenAI Files API
+    $ch = curl_init('https://api.openai.com/v1/files');
+    if ($ch === false) {
+        return null;
+    }
+
+    $cfile = new CURLFile($file_path, 'application/pdf', $filename);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Bearer ' . $apiKey,
+        ],
+        CURLOPT_POSTFIELDS    => [
+            'purpose' => 'user_data',
+            'file'    => $cfile,
+        ],
+    ]);
+
+    $uploadResponse = curl_exec($ch);
+    $uploadCode     = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlErr        = curl_error($ch);
+    curl_close($ch);
+
+    if ($uploadResponse === false || $curlErr !== '') {
+        return null;
+    }
+
+    $uploadJson = is_string($uploadResponse) ? json_decode($uploadResponse, true) : null;
+    if (!is_array($uploadJson) || $uploadCode < 200 || $uploadCode >= 300) {
+        return null;
+    }
+
+    $fileId = isset($uploadJson['id']) ? $uploadJson['id'] : null;
+    if (!$fileId || !is_string($fileId)) {
+        return null;
+    }
+
+    // Step 2: Chat Completions with the uploaded file (vision-capable model required for PDF)
     $ch = curl_init('https://api.openai.com/v1/chat/completions');
     if ($ch === false) {
         return null;
     }
 
     $payload = [
-        'model'       => 'gpt-4',
+        'model'       => 'gpt-4o',
         'messages'    => [
-            ['role' => 'system', 'content' => 'You extract the total amount due from invoices. Reply with only that number, no other text.'],
-            ['role' => 'user', 'content' => $prompt],
+            [
+                'role'    => 'user',
+                'content' => [
+                    [
+                        'type' => 'file',
+                        'file' => ['file_id' => $fileId],
+                    ],
+                    [
+                        'type' => 'text',
+                        'text' => 'Extract the total amount due from this invoice. Reply with only that number, no currency symbols or words.',
+                    ],
+                ],
+            ],
         ],
         'temperature' => 0,
     ];
@@ -96,31 +111,32 @@ function parseInvoiceTotalFromPdf($file_path, &$raw_response = null)
     curl_close($ch);
 
     $raw_response = $response;
+    $result       = null;
 
-    if ($response === false || $curlErr !== '') {
-        return null;
+    if ($response !== false && $curlErr === '') {
+        $json = is_string($response) ? json_decode($response, true) : null;
+        if (is_array($json) && !isset($json['error']['message']) && $httpCode >= 200 && $httpCode < 300) {
+            $content = isset($json['choices'][0]['message']['content']) && is_string($json['choices'][0]['message']['content'])
+                ? trim($json['choices'][0]['message']['content'])
+                : '';
+            if (preg_match_all('/[\d,]+\.?\d*/', $content, $matches) && !empty($matches[0])) {
+                $last   = str_replace(',', '', end($matches[0]));
+                $result = (float) $last;
+            }
+        }
     }
 
-    $json = is_string($response) ? json_decode($response, true) : null;
-    if (!is_array($json)) {
-        return null;
+    // Step 3: Delete the uploaded file from OpenAI
+    $ch = curl_init('https://api.openai.com/v1/files/' . $fileId);
+    if ($ch !== false) {
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST  => 'DELETE',
+            CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $apiKey],
+        ]);
+        curl_exec($ch);
+        curl_close($ch);
     }
 
-    if (isset($json['error']['message']) || $httpCode < 200 || $httpCode >= 300) {
-        return null;
-    }
-
-    if (!isset($json['choices'][0]['message']['content']) || !is_string($json['choices'][0]['message']['content'])) {
-        return null;
-    }
-
-    $content = trim($json['choices'][0]['message']['content']);
-
-    // Step 4: Extract numeric value (last number in response)
-    if (preg_match_all('/[\d,]+\.?\d*/', $content, $matches) && !empty($matches[0])) {
-        $last = str_replace(',', '', end($matches[0]));
-        return (float) $last;
-    }
-
-    return null;
+    return $result;
 }
