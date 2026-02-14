@@ -19,14 +19,21 @@ $debug_log = array(
     'stores_count' => is_array($stores) ? count($stores) : 0,
     'store_ids_available' => is_array($stores) ? array_map(function ($r) { return (int)$r['store_id']; }, $stores) : array(),
 );
+// Debug: show keys of first row in case DB returns different column names (e.g. lowercase)
+if (is_array($stores) && count($stores) > 0) {
+    $debug_log['first_row_keys'] = array_keys($stores[0]);
+    $debug_log['first_row_store_id_value'] = isset($stores[0]['store_id']) ? $stores[0]['store_id'] : '(no store_id key)';
+}
 if ($store_id) {
-    $s = null;
+    // Index stores by store_id so we always find the row when it's in the list
+    $stores_by_id = array();
     foreach ($stores as $r) {
-        if ((int)$r['store_id'] === $store_id) {
-            $s = $r;
-            break;
+        $rid = isset($r['store_id']) ? (int)$r['store_id'] : (isset($r['Store_id']) ? (int)$r['Store_id'] : null);
+        if ($rid !== null) {
+            $stores_by_id[$rid] = $r;
         }
     }
+    $s = isset($stores_by_id[$store_id]) ? $stores_by_id[$store_id] : null;
     $debug_log['store_selected'] = $s ? array('store_id' => $s['store_id'], 'store_name' => $s['store_name'], 'db' => $s['db']) : 'Store not found';
     if ($s) {
         $store_db = $s['db'];
