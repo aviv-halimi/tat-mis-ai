@@ -12,6 +12,7 @@ $vendors = array();
 $qbo_vendors = array();
 $store_db = null;
 
+$debug_log = array();
 if ($store_id) {
     $s = null;
     foreach ($stores as $r) {
@@ -20,10 +21,18 @@ if ($store_id) {
             break;
         }
     }
+    $debug_log['store_selected'] = $s ? array('store_id' => $s['store_id'], 'store_name' => $s['store_name'], 'db' => $s['db']) : 'Store not found';
     if ($s) {
         $store_db = $s['db'];
-        $vendors = getRs("SELECT vendor_id, name, QBO_ID FROM {$store_db}.vendor WHERE " . is_enabled() . " ORDER BY name");
+        try {
+            $vendors = getRs("SELECT vendor_id, name, QBO_ID FROM {$store_db}.vendor WHERE " . is_enabled() . " ORDER BY name");
+            $debug_log['our_vendors'] = array('count' => is_array($vendors) ? count($vendors) : 0, 'error' => null);
+        } catch (Throwable $e) {
+            $vendors = array();
+            $debug_log['our_vendors'] = array('count' => 0, 'error' => $e->getMessage());
+        }
         $qbo_result = qbo_list_vendors($store_id);
+        $debug_log['qbo_api_response'] = $qbo_result;
         if ($qbo_result['success'] && !empty($qbo_result['vendors'])) {
             $qbo_vendors = $qbo_result['vendors'];
         }
@@ -51,6 +60,19 @@ include_once('inc/header.php');
       </select>
       <button type="submit" class="btn btn-primary ml-2">Load vendors</button>
     </form>
+
+    <?php if ($store_id && !empty($debug_log)) { ?>
+    <div class="panel panel-default mt-3">
+      <div class="panel-heading">
+        <a href="javascript:;" data-toggle="collapse" data-target="#vendor_qbo_debug" class="panel-title collapsed">Troubleshooting log (API / query results)</a>
+      </div>
+      <div id="vendor_qbo_debug" class="panel-collapse collapse">
+        <div class="panel-body">
+          <pre class="mb-0" style="white-space: pre-wrap; word-break: break-all; font-size: 12px;"><?php echo htmlspecialchars(json_encode($debug_log, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)); ?></pre>
+        </div>
+      </div>
+    </div>
+    <?php } ?>
 
     <?php if ($store_id && $store_db) { ?>
     <div id="vendor_qbo_status" class="status"></div>
