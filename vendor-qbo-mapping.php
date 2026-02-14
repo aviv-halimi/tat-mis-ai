@@ -6,13 +6,19 @@
 include_once('_config.php');
 require_once(BASE_PATH . 'inc/qbo.php');
 
-$store_id = getVarInt('store_id');
+// getVarInt('store_id') defaults to max=1; use wide range so any store id is accepted
+$store_id = getVarInt('store_id', 0, 0, 99999);
 $stores = getRs("SELECT store_id, store_name, db FROM store WHERE " . is_enabled() . " ORDER BY store_name");
 $vendors = array();
 $qbo_vendors = array();
 $store_db = null;
 
-$debug_log = array();
+$debug_log = array(
+    'request_store_id_raw' => isset($_REQUEST['store_id']) ? $_REQUEST['store_id'] : '(not set)',
+    'store_id_parsed' => $store_id,
+    'stores_count' => is_array($stores) ? count($stores) : 0,
+    'store_ids_available' => is_array($stores) ? array_map(function ($r) { return (int)$r['store_id']; }, $stores) : array(),
+);
 if ($store_id) {
     $s = null;
     foreach ($stores as $r) {
