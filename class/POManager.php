@@ -1441,7 +1441,7 @@ class POManager extends SessionManager {
     $v = getVarA('v', $_p);
 
     if ($this->HasModulePermission('po')) {
-      $rs = getRs("SELECT po_id, invoice_number, invoice_filename, date_received FROM po WHERE " . is_enabled() . " AND FIND_IN_SET(po_status_id, '1,3,4,5') AND po_code = ?", array($po_code));
+      $rs = getRs("SELECT po_id, invoice_number, invoice_filename, date_received, payment_terms FROM po WHERE " . is_enabled() . " AND FIND_IN_SET(po_status_id, '1,3,4,5') AND po_code = ?", array($po_code));
       if ($r = getRow($rs)) {
         $po_id = $r['po_id'];
         if ($f == 'invoice_number') {
@@ -1478,6 +1478,12 @@ class POManager extends SessionManager {
           dbUpdate('po', array('date_received' => toMySqlDT($v)), $po_id);
           $success = true;
           $response = 'Date received ' . iif($v, 'updated: ' . $v, 'removed');
+        }
+        if ($f == 'payment_terms') {
+          $val = ($v !== '' && is_numeric($v)) ? (int)$v : null;
+          dbUpdate('po', array('payment_terms' => $val), $po_id);
+          $success = true;
+          $response = 'Payment terms (days) ' . ($val !== null ? 'updated: ' . $val : 'removed');
         }
         if ($f == 'description') {
           dbUpdate('po', array('description' => $v), $po_id);
@@ -1555,7 +1561,7 @@ class POManager extends SessionManager {
   }
 
   function GetPO($po_id) {
-    return getRs("SELECT t.po_id, t.po_code, t.po_name, t.email, t.po_number, t.po_type_id, t.description, t.vendor_id, t.num_products, t.num_orders, t.date_created, t.admin_id, t.po_status_id, t.discount_name, t.discount_rate, t.discount_amount, t.discount, t.tax_rate, t.tax_amount, t.tax, t.subtotal, t.total, t.date_ordered, t.date_requested_ship, t.date_schedule_delivery, t.po_filename, t.invoice_filename, t.invoice_number, t.coa_filename, t.coa_filenames, t.date_received, t.is_confirmed, t.date_confirmed, t.confirmed_by_vendor_id, t.invoice_validated, r.po_reorder_type_id, r.po_reorder_type_name, r.field_level, t.vendor_name, s.po_status_name, s.caption AS status_caption, s.description AS status_description, s.back_caption, s.back_description FROM po_status s INNER JOIN (po_reorder_type r INNER JOIN po t ON t.po_reorder_type_id = r.po_reorder_type_id) ON s.po_status_id = t.po_status_id WHERE " . is_enabled('t,r') . " AND t.po_id = ?", array($po_id));
+    return getRs("SELECT t.po_id, t.po_code, t.po_name, t.email, t.po_number, t.po_type_id, t.description, t.vendor_id, t.store_id, t.num_products, t.num_orders, t.date_created, t.admin_id, t.po_status_id, t.discount_name, t.discount_rate, t.discount_amount, t.discount, t.tax_rate, t.tax_amount, t.tax, t.subtotal, t.total, t.date_ordered, t.date_requested_ship, t.date_schedule_delivery, t.po_filename, t.invoice_filename, t.invoice_number, t.payment_terms, t.coa_filename, t.coa_filenames, t.date_received, t.is_confirmed, t.date_confirmed, t.confirmed_by_vendor_id, t.invoice_validated, r.po_reorder_type_id, r.po_reorder_type_name, r.field_level, t.vendor_name, s.po_status_name, s.caption AS status_caption, s.description AS status_description, s.back_caption, s.back_description FROM po_status s INNER JOIN (po_reorder_type r INNER JOIN po t ON t.po_reorder_type_id = r.po_reorder_type_id) ON s.po_status_id = t.po_status_id WHERE " . is_enabled('t,r') . " AND t.po_id = ?", array($po_id));
   }
 
   function NabisSummary($nabis_id = null) {

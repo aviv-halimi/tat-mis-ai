@@ -73,7 +73,7 @@ if ($po_code) {
 $restock_type_id = $_restock_type_id = null;
 $_hide_options = false;
 $timespan = '';
-$_po_name = $_description = $po_number = $_po_number = $_po_status_id = $_date_ordered = $_date_last_purchased = $_date_requested_ship = $_date_schedule_delivery = $_date_received = $_invoice_number = $_invoice_filename = $_po_filename = $_coa_filename = $_coa_filenames = $_email = null;
+$_po_name = $_description = $po_number = $_po_number = $_po_status_id = $_date_ordered = $_date_last_purchased = $_date_requested_ship = $_date_schedule_delivery = $_date_received = $_invoice_number = $_invoice_filename = $_po_filename = $_coa_filename = $_coa_filenames = $_email = $_payment_terms = null;
 
 $_date_schedule_delivery_placeholder = date('n/j/Y', strtotime("+ " . $_Session->GetSetting('scheduling-window') . " days")) . ' (default)';
 
@@ -100,6 +100,7 @@ if ($_po_id) {
     $_po_status_id = $r['po_status_id'];
     $_invoice_number = $r['invoice_number'];
     $_invoice_filename = $r['invoice_filename'];
+    $_payment_terms = isset($r['payment_terms']) && $r['payment_terms'] !== '' && $r['payment_terms'] !== null ? (int)$r['payment_terms'] : '';
     $_po_filename = $r['po_filename'];
     $_vendor_id = $r['vendor_id'];
     $_po_type_id = $r['po_type_id'];
@@ -503,6 +504,18 @@ if (true) { //sizeof($rs)) {
     </div>';
   }
 
+$qbo_term_display = '';
+if (isset($t['po_status_id']) && (int)$t['po_status_id'] === 5 && !empty($t['store_id'])) {
+  $store_rs = getRs("SELECT db FROM store WHERE store_id = ?", array($t['store_id']));
+  $store_row = getRow($store_rs);
+  if ($store_row && !empty($store_row['db'])) {
+    require_once(BASE_PATH . 'inc/qbo.php');
+    $pt_lookup = qbo_lookup_payment_term($store_row['db'], isset($t['payment_terms']) ? $t['payment_terms'] : null);
+    $qbo_term_display = $pt_lookup['qbo_term_name'] !== '' ? $pt_lookup['qbo_term_name'] : '—';
+  } else {
+    $qbo_term_display = '—';
+  }
+}
 if ($t['po_status_id'] > 3) {
 echo '
 <div class="panel mt-3">
@@ -522,7 +535,17 @@ echo '
         <div class="row form-input-flat mb-2">
           <div class="col-sm-12 col-form-label">Invoice #: <b>' . $_invoice_number . '</b></div>
         </div>
+      </div>
+      <div class="col-md-4">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12 col-form-label">Payment terms (days): <b>' . ($_payment_terms !== '' && $_payment_terms !== null ? (int)$_payment_terms : '—') . '</b></div>
+        </div>
       </div>' . ($t['po_status_id'] == 5 ? '
+      <div class="col-md-4">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12 col-form-label">QBO Payment Term: <b>' . htmlspecialchars($qbo_term_display) . '</b></div>
+        </div>
+      </div>' : '') . ($t['po_status_id'] == 5 ? '
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
           <div class="col-sm-12 col-form-label">AI Invoice Validation: ' . (isset($t['invoice_validated']) && (int)$t['invoice_validated'] === 1 ? '<span class="badge badge-success">Match</span>' : '<span class="badge badge-warning">No match</span>') . '</div>
@@ -707,10 +730,16 @@ echo iif($t['po_status_id'] == 3, '
         </div>
 		
       </div>
-	  <div class="col-md-4">
+      <div class="col-md-4">
         <div class="row form-input-flat mb-2">
           <div class="col-sm-12 col-form-label">Invoice #:</div>
           <div class="col-sm-12"><input type="text" class="form-control" placeholder="" id="invoice_number" name="invoice_number" value="' . $_invoice_number . '" /></div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12 col-form-label">Payment terms (days):</div>
+          <div class="col-sm-12"><input type="number" class="form-control" placeholder="e.g. 30" id="payment_terms" name="payment_terms" value="' . ($_payment_terms !== '' && $_payment_terms !== null ? (int)$_payment_terms : '') . '" min="0" /></div>
         </div>
       </div>
       <div class="col-md-4">
@@ -758,6 +787,12 @@ echo iif($t['po_status_id'] == 4, '
         <div class="row form-input-flat mb-2">
           <div class="col-sm-12 col-form-label">Invoice #:</div>
           <div class="col-sm-12"><input type="text" class="form-control" placeholder="" id="invoice_number" name="invoice_number" value="' . $_invoice_number . '" /></div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12 col-form-label">Payment terms (days):</div>
+          <div class="col-sm-12"><input type="number" class="form-control" placeholder="e.g. 30" id="payment_terms" name="payment_terms" value="' . ($_payment_terms !== '' && $_payment_terms !== null ? (int)$_payment_terms : '') . '" min="0" /></div>
         </div>
       </div>
       <div class="col-md-4">

@@ -794,6 +794,9 @@ function initAssets(select2) {
   $('.po-data #invoice_number').off('change').on('change', function(e) {
     postAjax('po-data', {c: $('#po_code').val(), f: 'invoice_number', v: $(this).val()}, 'status');
   });
+  $('.po-data #payment_terms').off('change').on('change', function(e) {
+    postAjax('po-data', {c: $('#po_code').val(), f: 'payment_terms', v: $(this).val()}, 'status');
+  });
   $('.po-data #invoice_filename').off('change').on('change', function(e) {
     postAjax('po-data', {c: $('#po_code').val(), f: 'invoice_filename', v: $(this).val()}, 'status');
   });

@@ -250,6 +250,75 @@ function qbo_list_vendors($store_id) {
 }
 
 /**
+ * List payment terms (Term) from QBO for a store.
+ * @param int $store_id
+ * @return array { success, terms: [ { id, Name } ], error }
+ */
+function qbo_list_terms($store_id) {
+    $token = qbo_get_access_token($store_id);
+    if (!is_array($token) || empty($token['access_token'])) {
+        $err = (is_array($token) && isset($token['error'])) ? $token['error'] : 'QBO not configured or token failed';
+        return array('success' => false, 'terms' => array(), 'error' => $err);
+    }
+    try {
+        $dataService = qbo_data_service($token);
+        if (!$dataService) {
+            return array('success' => false, 'terms' => array(), 'error' => 'Could not create DataService');
+        }
+        $termsResult = $dataService->Query('SELECT * FROM Term MAXRESULTS 100');
+        $error = $dataService->getLastError();
+        if ($error) {
+            return array(
+                'success' => false,
+                'terms' => array(),
+                'error' => $error->getResponseBody() ?: $error->getOAuthHelperError() ?: 'QBO API error',
+            );
+        }
+        $terms = array();
+        if (is_array($termsResult)) {
+            foreach ($termsResult as $t) {
+                $id = is_object($t) ? (isset($t->Id) ? $t->Id : null) : (isset($t['Id']) ? $t['Id'] : null);
+                $name = is_object($t) ? (isset($t->Name) ? $t->Name : 'Term ' . $id) : (isset($t['Name']) ? $t['Name'] : 'Term ' . $id);
+                if ($id !== null) {
+                    $terms[] = array('id' => $id, 'Name' => $name);
+                }
+            }
+        }
+        return array('success' => true, 'terms' => $terms);
+    } catch (\Exception $e) {
+        return array('success' => false, 'terms' => array(), 'error' => $e->getMessage());
+    }
+}
+
+/**
+ * Look up QBO Term Id for a store by payment_terms (days). Uses store's payment_terms table (min_days <= days <= max_days).
+ * @param string $store_db Store database name (e.g. blaze1)
+ * @param int|null $payment_terms_days PO payment_terms (days) or null
+ * @return array { qbo_term_id => string|null, qbo_term_name => string }
+ */
+function qbo_lookup_payment_term($store_db, $payment_terms_days) {
+    $out = array('qbo_term_id' => null, 'qbo_term_name' => '');
+    if ($payment_terms_days === null || $payment_terms_days === '') {
+        return $out;
+    }
+    $days = (int)$payment_terms_days;
+    $db = preg_replace('/[^a-z0-9_]/i', '', $store_db);
+    if ($db === '') {
+        return $out;
+    }
+    $rs = getRs(
+        "SELECT qbo_term_id, qbo_term_name FROM {$db}.payment_terms WHERE " . is_enabled() . " AND ? BETWEEN min_days AND max_days ORDER BY min_days DESC LIMIT 1",
+        array($days)
+    );
+    $row = getRow($rs);
+    if ($row && !empty($row['qbo_term_id'])) {
+        $out['qbo_term_id'] = trim($row['qbo_term_id']);
+        $out['qbo_term_name'] = trim(isset($row['qbo_term_name']) ? $row['qbo_term_name'] : '');
+    }
+    return $out;
+}
+
+/**
  * Create a Bill in QBO (using SDK).
  * @param int $store_id
  * @param string $vendor_ref_id QBO Vendor Id
@@ -258,9 +327,10 @@ function qbo_list_vendors($store_id) {
  * @param string $doc_number
  * @param string|null $txn_date Y-m-d
  * @param string|null $private_note Optional note on the bill (e.g. "Added via MIS by {name}")
+ * @param string|null $sales_term_ref_id QBO Term Id for payment terms (SalesTermRef)
  * @return array { success, BillId, error }
  */
-function qbo_create_bill($store_id, $vendor_ref_id, $subtotal, $discounts, $doc_number = '', $txn_date = null, $private_note = null) {
+function qbo_create_bill($store_id, $vendor_ref_id, $subtotal, $discounts, $doc_number = '', $txn_date = null, $private_note = null, $sales_term_ref_id = null) {
     $token = qbo_get_access_token($store_id);
     if (!is_array($token) || empty($token['access_token'])) {
         $err = (is_array($token) && isset($token['error'])) ? $token['error'] : 'QBO not configured or token failed';
@@ -307,6 +377,9 @@ function qbo_create_bill($store_id, $vendor_ref_id, $subtotal, $discounts, $doc_
     }
     if ($private_note !== null && $private_note !== '') {
         $payload['PrivateNote'] = $private_note;
+    }
+    if ($sales_term_ref_id !== null && $sales_term_ref_id !== '') {
+        $payload['SalesTermRef'] = array('value' => $sales_term_ref_id);
     }
     try {
         $dataService = qbo_data_service($token);
@@ -387,7 +460,7 @@ define('QBO_DOCNUMBER_WITH_PO_NAME_IDS', '68cdcf401c44c0b22a777c91,5dcf89fb002f0
  */
 function po_qbo_push_bill($po_code) {
     $rs = getRs(
-        "SELECT p.po_id, p.po_code, p.po_number, p.po_name, p.po_status_id, p.store_id, p.vendor_id, p.r_subtotal, p.date_received, p.invoice_filename, p.invoice_number, s.db AS store_db " .
+        "SELECT p.po_id, p.po_code, p.po_number, p.po_name, p.po_status_id, p.store_id, p.vendor_id, p.r_subtotal, p.date_received, p.invoice_filename, p.invoice_number, p.payment_terms, s.db AS store_db " .
         "FROM po p INNER JOIN store s ON s.store_id = p.store_id WHERE p.po_code = ? AND " . is_enabled('p,s'),
         array($po_code)
     );
@@ -441,7 +514,9 @@ function po_qbo_push_bill($po_code) {
             $private_note = 'Added via MIS by ' . $admin_name;
         }
     }
-    $result = qbo_create_bill($store_id, $qbo_id, $subtotal, $discounts, $doc_number, $txn_date, $private_note);
+    $term_lookup = qbo_lookup_payment_term($store_db, isset($po['payment_terms']) ? $po['payment_terms'] : null);
+    $sales_term_ref_id = !empty($term_lookup['qbo_term_id']) ? $term_lookup['qbo_term_id'] : null;
+    $result = qbo_create_bill($store_id, $qbo_id, $subtotal, $discounts, $doc_number, $txn_date, $private_note, $sales_term_ref_id);
     if (!$result['success']) {
         return array('success' => false, 'response' => $result['error']);
     }
