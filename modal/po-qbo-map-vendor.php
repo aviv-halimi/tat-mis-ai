@@ -63,6 +63,17 @@ $store_id = (int)$po['store_id'];
     } else {
       sel.appendChild(new Option(data.error || 'No vendors or error', ''));
     }
+    var $sel = $('#qbo_vendor_id');
+    if ($sel.length && typeof $sel.select2 === 'function') {
+      if ($sel.hasClass('select2-hidden-accessible')) {
+        $sel.select2('destroy');
+      }
+      $sel.select2({
+        dropdownParent: $('#modal'),
+        minimumResultsForSearch: 0,
+        width: '100%'
+      });
+    }
   }, 'json');
 })();
 </script>
