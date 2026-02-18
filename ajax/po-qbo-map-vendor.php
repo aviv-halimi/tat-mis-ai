@@ -26,7 +26,25 @@ if ($db === '') {
     echo json_encode(array('success' => false, 'response' => 'Invalid store database.'));
     exit;
 }
-dbUpdate($db . '.vendor', array('QBO_ID' => $qbo_vendor_id), $vendor_id, 'vendor_id');
+try {
+    global $dbconn;
+    $table = "`{$db}`.`vendor`";
+    $stmt = $dbconn->prepare("UPDATE {$table} SET QBO_ID = ? WHERE vendor_id = ?");
+    $stmt->execute(array($qbo_vendor_id, $vendor_id));
+    $rows = $stmt->rowCount();
+    if ($rows === 0) {
+        $stmt = $dbconn->prepare("UPDATE {$table} SET QBO_ID = ? WHERE id = ?");
+        $stmt->execute(array($qbo_vendor_id, $vendor_id));
+        $rows = $stmt->rowCount();
+    }
+    if ($rows === 0) {
+        echo json_encode(array('success' => false, 'response' => 'No row updated. Check that the vendor exists in ' . $db . '.vendor and that column QBO_ID exists.'));
+        exit;
+    }
+} catch (PDOException $e) {
+    echo json_encode(array('success' => false, 'response' => 'Database error: ' . $e->getMessage()));
+    exit;
+}
 
 require_once(BASE_PATH . 'inc/qbo.php');
 $result = po_qbo_push_bill($po_code);

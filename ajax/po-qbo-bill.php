@@ -8,8 +8,8 @@ header('Content-Type: application/json');
 
 $po_code = getVar('c');
 $action = getVar('action');
-$vendor_id = getVarInt('vendor_id');
-$qbo_vendor_id = getVar('qbo_vendor_id');
+$vendor_id = getVarInt('vendor_id', 0, 0, 999999);
+$qbo_vendor_id = trim(getVar('qbo_vendor_id'));
 
 if (!$po_code) {
     echo json_encode(array('success' => false, 'response' => 'Missing PO code'));
@@ -27,7 +27,20 @@ if ($action === 'save_mapping' && $vendor_id && $qbo_vendor_id !== '') {
     }
     $db = preg_replace('/[^a-z0-9_]/i', '', $po['store_db']);
     if ($db !== '') {
-        dbUpdate($db . '.vendor', array('QBO_ID' => $qbo_vendor_id), $vendor_id, 'vendor_id');
+        try {
+            global $dbconn;
+            $table = "`{$db}`.`vendor`";
+            $stmt = $dbconn->prepare("UPDATE {$table} SET QBO_ID = ? WHERE vendor_id = ?");
+            $stmt->execute(array($qbo_vendor_id, $vendor_id));
+            $rows = $stmt->rowCount();
+            if ($rows === 0) {
+                $stmt = $dbconn->prepare("UPDATE {$table} SET QBO_ID = ? WHERE id = ?");
+                $stmt->execute(array($qbo_vendor_id, $vendor_id));
+            }
+        } catch (PDOException $e) {
+            echo json_encode(array('success' => false, 'response' => 'Database error: ' . $e->getMessage()));
+            exit;
+        }
     }
 }
 

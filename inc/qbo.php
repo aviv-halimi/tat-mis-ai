@@ -257,9 +257,10 @@ function qbo_list_vendors($store_id) {
  * @param float $discounts
  * @param string $doc_number
  * @param string|null $txn_date Y-m-d
+ * @param string|null $private_note Optional note on the bill (e.g. "Added via MIS by {name}")
  * @return array { success, BillId, error }
  */
-function qbo_create_bill($store_id, $vendor_ref_id, $subtotal, $discounts, $doc_number = '', $txn_date = null) {
+function qbo_create_bill($store_id, $vendor_ref_id, $subtotal, $discounts, $doc_number = '', $txn_date = null, $private_note = null) {
     $token = qbo_get_access_token($store_id);
     if (!is_array($token) || empty($token['access_token'])) {
         $err = (is_array($token) && isset($token['error'])) ? $token['error'] : 'QBO not configured or token failed';
@@ -303,6 +304,9 @@ function qbo_create_bill($store_id, $vendor_ref_id, $subtotal, $discounts, $doc_
     }
     if ($txn_date !== null && $txn_date !== '') {
         $payload['TxnDate'] = $txn_date;
+    }
+    if ($private_note !== null && $private_note !== '') {
+        $payload['PrivateNote'] = $private_note;
     }
     try {
         $dataService = qbo_data_service($token);
@@ -373,6 +377,9 @@ function qbo_attach_file_to_bill($store_id, $bill_id, $file_path, $file_name = '
     }
 }
 
+/** Store vendor.id values (vendor table "id" column) that use DocNumber = LEFT(invoice_number + '-' + po_name, 21); others use LEFT(invoice_number, 21). */
+define('QBO_DOCNUMBER_WITH_PO_NAME_IDS', '68cdcf401c44c0b22a777c91,5dcf89fb002f09082a7558ba,606f4dacabc6dc08d64b3206,68ed31e7b9121ceb14aa573f,682b62fc91e28c51768aa8c1,67c6279d2de2587fdc6c47df,5dd8834bf6afa10828aa099a,691fc20c8377f73fcd2cb401,65cbc54907f5504f1ec21c60,6807b5fa0175b724c820b0d3,65ca7c44a9ebc20d1cb8e727,66f42feaa3a7187435acbece658b221c2579c43e0c249559');
+
 /**
  * Push a PO (status 5) to QBO as a Bill.
  * @param string $po_code
@@ -380,7 +387,7 @@ function qbo_attach_file_to_bill($store_id, $bill_id, $file_path, $file_name = '
  */
 function po_qbo_push_bill($po_code) {
     $rs = getRs(
-        "SELECT p.po_id, p.po_code, p.po_number, p.po_status_id, p.store_id, p.vendor_id, p.r_subtotal, p.date_received, p.invoice_filename, p.invoice_number, s.db AS store_db " .
+        "SELECT p.po_id, p.po_code, p.po_number, p.po_name, p.po_status_id, p.store_id, p.vendor_id, p.r_subtotal, p.date_received, p.invoice_filename, p.invoice_number, s.db AS store_db " .
         "FROM po p INNER JOIN store s ON s.store_id = p.store_id WHERE p.po_code = ? AND " . is_enabled('p,s'),
         array($po_code)
     );
@@ -392,7 +399,7 @@ function po_qbo_push_bill($po_code) {
     $store_db = $po['store_db'];
     $po_vendor_id = (int)$po['vendor_id'];
 
-    $vendor_rs = getRs("SELECT vendor_id, name, QBO_ID FROM {$store_db}.vendor WHERE vendor_id = ?", array($po_vendor_id));
+    $vendor_rs = getRs("SELECT vendor_id, id, name, QBO_ID FROM {$store_db}.vendor WHERE vendor_id = ?", array($po_vendor_id));
     $vendor = getRow($vendor_rs);
     if (!$vendor) {
         return array('success' => false, 'response' => 'Vendor not found.');
@@ -418,8 +425,23 @@ function po_qbo_push_bill($po_code) {
     $discounts = $discount_row ? (float)$discount_row['discounts'] : 0.0;
     $subtotal = (float)$po['r_subtotal'];
     $txn_date = !empty($po['date_received']) ? date('Y-m-d', strtotime($po['date_received'])) : date('Y-m-d');
-    $doc_number = !empty($po['invoice_number']) ? trim($po['invoice_number']) : ('PO ' . $po['po_number']);
-    $result = qbo_create_bill($store_id, $qbo_id, $subtotal, $discounts, $doc_number, $txn_date);
+    $invoice_num = trim(!empty($po['invoice_number']) ? $po['invoice_number'] : '');
+    $po_name = trim(!empty($po['po_name']) ? $po['po_name'] : '');
+    $vendor_table_id = isset($vendor['id']) ? trim((string)$vendor['id']) : '';
+    $use_po_name = $vendor_table_id !== '' && in_array($vendor_table_id, array_map('trim', explode(',', QBO_DOCNUMBER_WITH_PO_NAME_IDS)), true);
+    if ($use_po_name && $invoice_num !== '' && $po_name !== '') {
+        $doc_number = mb_substr($invoice_num . '-' . $po_name, 0, 21);
+    } else {
+        $doc_number = $invoice_num !== '' ? mb_substr($invoice_num, 0, 21) : ('PO ' . $po['po_number']);
+    }
+    $private_note = '';
+    if (function_exists('getAdminName') && !empty($GLOBALS['_Session']->admin_id)) {
+        $admin_name = getAdminName($GLOBALS['_Session']->admin_id);
+        if ($admin_name !== '') {
+            $private_note = 'Added via MIS by ' . $admin_name;
+        }
+    }
+    $result = qbo_create_bill($store_id, $qbo_id, $subtotal, $discounts, $doc_number, $txn_date, $private_note);
     if (!$result['success']) {
         return array('success' => false, 'response' => $result['error']);
     }
