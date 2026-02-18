@@ -530,7 +530,8 @@ echo '
 
 
 	
-if ($t['po_status_id'] > 1 and str_len($_po_filename)) {
+// Show action buttons when PO status > 1 (no longer require po_filename so buttons show locally without media/PDF)
+if ($t['po_status_id'] > 1) {
 echo '
 <form id="f_po-data" class="po-data" action="" method="post">
 <input type="hidden" name="c" value="' . $po_code . '" />
@@ -558,10 +559,18 @@ echo '
 <a href="javascript:;" data-toggle="dropdown" class="btn btn-success dropdown-toggle">
     <span class="caret"></span>
 </a>
-<ul class="dropdown-menu pull-right">
+<ul class="dropdown-menu pull-right">';
+if (str_len($_po_filename)) {
+echo '
     <li><a href="/po-download/' . $po_code . '" target="_blank"><i class="fa fa-angle-double-down mr-1"></i> Download</a></li>
     <li><a href="/ajax/po-pdf/' . $po_code . '" target="_blank"><i class="fa fa-sync mr-1"></i> Regenerate PDF</a></li>
     ';
+} else {
+echo '
+    <li><a href="/ajax/po-pdf/' . $po_code . '" target="_blank"><i class="fa fa-sync mr-1"></i> Generate PDF</a></li>
+    <li class="text-muted"><span class="mr-1">Download</span> (generate PDF first)</li>
+    ';
+}
     $is_po_email = 0;
     $_rv = getRs("SELECT is_po_email FROM {$_Session->db}.vendor WHERE vendor_id = ?", array($_vendor_id));
     if ($_v = getRow($_rv)) {

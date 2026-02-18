@@ -35,10 +35,12 @@ Each store that uses QBO needs credentials in `store.params` (JSON). Example:
 
 - **qbo_realm_id**: QBO Company ID (realm id from OAuth).
 - **qbo_refresh_token**: OAuth2 refresh token for that company.
-- **qbo_account_id_products**: QBO Account Id for **14-100 Cannabis Products**.
-- **qbo_account_id_rebates**: QBO Account Id for **40-102 Monthly Rebates**.
+- **qbo_account_id_products**: QBO Account Id for **14-100 Cannabis Products** (the internal Id, not the account number).
+- **qbo_account_id_rebates**: QBO Account Id for **40-102 Monthly Rebates** (the internal Id, not the account number).
 
-You can get Account Ids from QBO (Account list) or the API.
+**Format**: Plain numeric Id string, e.g. `"45"` or `"67"`. Do not use the GL number (e.g. not `14-100`).
+
+**How to find the Id**: In QBO go to **Accounting → Chart of Accounts**, open the account, and check the URL (e.g. `...?accountId=45` → use `45`). Or query the QBO API for the Account list and use each account’s `Id` field.
 
 ## 2. Environment / config
 

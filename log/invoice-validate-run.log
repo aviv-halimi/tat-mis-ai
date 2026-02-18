@@ -1,0 +1,36 @@
+[2026-02-18 12:02:37] Run started from UI (Gemini).
+[2026-02-18 12:02:37] Using PHP: php
+[2026-02-18 12:02:37] WARNING: 'php' is often php-fpm here. In _config.php uncomment and set: define('INVOICE_VALIDATE_PHP_CLI', '/opt/plesk/php/7.4/bin/php');
+PHP Warning:  Undefined array key "REQUEST_URI" in C:\theartisttree-mis\class\SessionManager.php on line 59
+
+Warning: Undefined array key "REQUEST_URI" in C:\theartisttree-mis\class\SessionManager.php on line 59
+PHP Warning:  Undefined array key "REQUEST_URI" in C:\theartisttree-mis\class\SessionManager.php on line 59
+
+Warning: Undefined array key "REQUEST_URI" in C:\theartisttree-mis\class\SessionManager.php on line 59
+PHP Warning:  Undefined array key "REQUEST_URI" in C:\theartisttree-mis\class\SessionManager.php on line 59
+
+Warning: Undefined array key "REQUEST_URI" in C:\theartisttree-mis\class\SessionManager.php on line 59
+PHP Warning:  Undefined array key "REQUEST_URI" in C:\theartisttree-mis\class\SessionManager.php on line 59
+
+Warning: Undefined array key "REQUEST_URI" in C:\theartisttree-mis\class\SessionManager.php on line 59
+PHP Warning:  Undefined array key "REQUEST_URI" in C:\theartisttree-mis\class\SessionManager.php on line 59
+
+Warning: Undefined array key "REQUEST_URI" in C:\theartisttree-mis\class\SessionManager.php on line 59
+PHP Warning:  Undefined array key "REQUEST_URI" in C:\theartisttree-mis\inc\security.php on line 41
+
+Warning: Undefined array key "REQUEST_URI" in C:\theartisttree-mis\inc\security.php on line 41
+[2026-02-18 12:02:37] Invoice validation started (Gemini).
+[2026-02-18 12:02:37] Found 5 PO(s) to process.
+[2026-02-18 12:02:37] PO 54317: starting ...
+[2026-02-18 12:02:37] PO 54317: error – file not found.
+[2026-02-18 12:02:37] PO 54691: starting ...
+[2026-02-18 12:02:37] PO 54691: error – file not found.
+[2026-02-18 12:02:37] PO 54919: starting ...
+[2026-02-18 12:02:37] PO 54919: error – file not found.
+[2026-02-18 12:02:37] PO 54955: starting ...
+[2026-02-18 12:02:37] PO 54955: error – file not found.
+[2026-02-18 12:02:37] PO 55014: starting ...
+[2026-02-18 12:02:37] PO 55014: error – file not found.
+[2026-02-18 12:02:37] Done. Processed: 5, validated: 0, mismatch: 0, errors: 5
+[2026-02-18 12:02:37] Invoice validation finished.
+RUN_COMPLETE

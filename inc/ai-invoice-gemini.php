@@ -1,10 +1,11 @@
 <?php
 /**
- * Invoice total extraction via Google Gemini (inline PDF in request).
- * Returns float (total amount due) on success, null on failure.
+ * Invoice extraction via Google Gemini (inline PDF): total amount due and payment terms.
+ * Returns array ['total' => float, 'payment_terms' => int|null] on success, null on failure.
+ * payment_terms is the numeric part only (e.g. 20 from "NET 20"); null if not found.
  * Second parameter receives a debug log array when provided.
  *
- * Requires GEMINI_API_KEY in env or constant. Model: gemini-2.0-flash (or set GEMINI_MODEL).
+ * Requires GEMINI_API_KEY. Model: gemini-2.0-flash (or set GEMINI_MODEL).
  */
 
 if (!defined('GEMINI_API_KEY')) {
@@ -15,7 +16,7 @@ if (!defined('GEMINI_MODEL')) {
     define('GEMINI_MODEL', 'gemini-2.0-flash');
 }
 
-function parseInvoiceTotalFromPdfGemini($file_path, &$debug_log = null)
+function parseInvoiceFromPdfGemini($file_path, &$debug_log = null)
 {
     $debug_log = [];
 
@@ -42,9 +43,23 @@ function parseInvoiceTotalFromPdfGemini($file_path, &$debug_log = null)
     $model = (defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-2.0-flash';
     $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode($model) . ':generateContent?key=' . urlencode($apiKey);
 
-    $prompt = "Analyze this invoice and determine the final payable amount owed. "
-        . "Consider totals, balances, taxes, credits, and adjustments. "
-        . "Reply with ONLY a valid number (no currency symbol, no extra text). Example: 1234.56";
+    $prompt = <<<PROMPT
+Analyze this invoice PDF and extract exactly two values. Reply with ONLY a single JSON object, no other text.
+
+Required JSON structure (use exactly these keys):
+{
+  "total_amount_due": <number>,
+  "payment_terms": <integer or null>
+}
+
+Rules:
+- total_amount_due: The final amount owed (number, e.g. 1234.56). Consider totals, balances, taxes, credits, adjustments.
+- payment_terms: The payment due period as an integer number of days only. Invoice often shows "NET 20", "NET 30", "Due in 15 days", etc. Extract ONLY the numeric part (e.g. 20, 30, 15). If not found or unclear, use null. Do not include the word "NET" or any text—only the integer or null.
+
+Example responses:
+{"total_amount_due": 2454.37, "payment_terms": 20}
+{"total_amount_due": 1500.00, "payment_terms": null}
+PROMPT;
 
     $payload = [
         'contents' => [
@@ -64,7 +79,7 @@ function parseInvoiceTotalFromPdfGemini($file_path, &$debug_log = null)
         ],
         'generationConfig' => [
             'temperature' => 0,
-            'maxOutputTokens' => 64,
+            'maxOutputTokens' => 256,
         ],
     ];
 
@@ -82,7 +97,7 @@ function parseInvoiceTotalFromPdfGemini($file_path, &$debug_log = null)
     curl_close($ch);
 
     $debug_log[] = "Gemini HTTP $httpCode" . ($curlErr ? " curl: $curlErr" : "")
-        . " response: " . (is_string($response) && strlen($response) < 2000 ? $response : substr((string) $response, 0, 2000) . (strlen((string) $response) > 2000 ? '...' : ''));
+        . " response: " . (is_string($response) && strlen($response) < 1500 ? $response : substr((string) $response, 0, 1500) . (strlen((string) $response) > 1500 ? '...' : ''));
 
     if ($response === false || $curlErr || $httpCode >= 300) {
         return null;
@@ -97,15 +112,39 @@ function parseInvoiceTotalFromPdfGemini($file_path, &$debug_log = null)
     }
 
     $text = trim($text);
-    $text = preg_replace('/^[^\d.-]+/', '', $text);
-    $text = preg_replace('/[^\d.-].*$/s', '', $text);
-    if (preg_match('/-?\d+\.?\d*/', $text, $m)) {
-        $amount = (float) $m[0];
-        if ($amount >= 0) {
-            return $amount;
+    $text = preg_replace('/^[^{]+/', '', $text);
+    $text = preg_replace('/[^}]+$/', '', $text);
+    $parsed = json_decode($text, true);
+
+    if (!is_array($parsed) || !isset($parsed['total_amount_due'])) {
+        $debug_log[] = "Could not parse JSON or missing total_amount_due: " . substr($text, 0, 200);
+        return null;
+    }
+
+    $total = isset($parsed['total_amount_due']) && is_numeric($parsed['total_amount_due'])
+        ? (float) $parsed['total_amount_due']
+        : null;
+    if ($total === null || $total < 0) {
+        $debug_log[] = "Invalid total_amount_due.";
+        return null;
+    }
+
+    $paymentTerms = null;
+    if (array_key_exists('payment_terms', $parsed)) {
+        if ($parsed['payment_terms'] === null) {
+            $paymentTerms = null;
+        } elseif (is_numeric($parsed['payment_terms'])) {
+            $paymentTerms = (int) $parsed['payment_terms'];
+            if ($paymentTerms < 0) {
+                $paymentTerms = null;
+            }
+        } else {
+            $paymentTerms = null;
         }
     }
 
-    $debug_log[] = "Could not parse number from: " . $text;
-    return null;
+    return [
+        'total' => $total,
+        'payment_terms' => $paymentTerms,
+    ];
 }

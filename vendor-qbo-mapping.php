@@ -81,6 +81,9 @@ include_once('inc/header.php');
       </div>
       <div id="vendor_qbo_debug" class="panel-collapse collapse">
         <div class="panel-body">
+          <p class="text-muted mb-2"><strong>Last save (AJAX)</strong> — updated when you click Save</p>
+          <pre id="vendor_qbo_ajax_log" class="mb-3" style="white-space: pre-wrap; word-break: break-all; font-size: 12px; min-height: 2em;">No save attempt yet.</pre>
+          <p class="text-muted mb-2"><strong>Page load (store / QBO API)</strong></p>
           <pre class="mb-0" style="white-space: pre-wrap; word-break: break-all; font-size: 12px;"><?php echo htmlspecialchars(json_encode($debug_log, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)); ?></pre>
         </div>
       </div>
@@ -88,7 +91,9 @@ include_once('inc/header.php');
     <?php } ?>
 
     <?php if ($store_id && $store_db) { ?>
+    <input type="hidden" id="vendor_qbo_store_id_loaded" value="<?php echo (int)$store_id; ?>" />
     <div id="vendor_qbo_status" class="status"></div>
+    <p id="vendor_qbo_last_action" class="text-muted small mb-2" style="min-height: 1.5em;">&nbsp;</p>
     <table class="table table-bordered table-striped">
       <thead>
         <tr>
@@ -113,7 +118,7 @@ include_once('inc/header.php');
                 echo '<option value="' . htmlspecialchars($q['id']) . '"' . ($qbo_id === (string)$q['id'] ? ' selected' : '') . '>' . htmlspecialchars($q['DisplayName']) . '</option>';
             }
             echo '</select></td>';
-            echo '<td><button type="button" class="btn btn-sm btn-primary btn-vendor-qbo-save" data-vendor-id="' . $vid . '">Save</button></td>';
+            echo '<td><button type="button" class="btn btn-sm btn-primary btn-vendor-qbo-save" data-vendor-id="' . $vid . '" onclick="return window.vendorQboSaveClick ? window.vendorQboSaveClick(this) : false;">Save</button></td>';
             echo '</tr>';
         }
         ?>
@@ -129,41 +134,101 @@ include_once('inc/header.php');
 </div>
 <script>
 (function() {
-  var storeId = <?php echo $store_id ? (int)$store_id : 'null'; ?>;
-  if (!storeId) return;
-  $('.btn-vendor-qbo-save').on('click', function() {
-    var $btn = $(this);
-    var vendorId = $btn.data('vendor-id');
-    var $row = $btn.closest('tr');
-    var qboId = $row.find('.qbo-vendor-select').val();
+  function showClickAcknowledged() {
+    var time = new Date().toLocaleTimeString();
+    var msg = 'Click acknowledged at ' + time;
+    var logEl = document.getElementById('vendor_qbo_ajax_log');
+    var actionEl = document.getElementById('vendor_qbo_last_action');
+    var panelEl = document.getElementById('vendor_qbo_debug');
+    if (logEl) logEl.textContent = msg + '\n\n(Sending request…)';
+    if (actionEl) actionEl.textContent = msg;
+    if (panelEl && panelEl.classList) panelEl.classList.add('in');
+  }
+
+  window.vendorQboSaveClick = function(btn) {
+    showClickAcknowledged();
+    var storeId = 0;
+    var storeEl = document.getElementById('vendor_qbo_store_id');
+    if (storeEl) storeId = parseInt(storeEl.value, 10) || 0;
+    if (!storeId && typeof jQuery !== 'undefined') {
+      var jqVal = jQuery('#vendor_qbo_store_id').val();
+      if (jqVal) storeId = parseInt(jqVal, 10) || 0;
+    }
+    if (!storeId) {
+      var loadedEl = document.getElementById('vendor_qbo_store_id_loaded');
+      if (loadedEl && loadedEl.value) storeId = parseInt(loadedEl.value, 10) || 0;
+    }
+    if (!storeId) {
+      alert('Please select a store and load vendors first.');
+      return false;
+    }
+    var vendorId = btn.getAttribute('data-vendor-id');
+    var row = btn.closest('tr');
+    var select = row ? row.querySelector('.qbo-vendor-select') : null;
+    var qboId = select ? select.value : '';
     if (!qboId) {
       alert('Please select a QBO vendor.');
-      return;
+      return false;
     }
-    $btn.prop('disabled', true);
-    $.ajax({
-      url: '/ajax/vendor-qbo-save.php',
-      type: 'POST',
-      data: { store_id: storeId, vendor_id: vendorId, qbo_vendor_id: qboId },
-      dataType: 'json'
-    }).done(function(data) {
-      $btn.prop('disabled', false);
-      if (data && data.success) {
-        $row.find('.qbo-current').text(qboId);
-        $('#vendor_qbo_status').html('<div class="alert alert-success">' + (data.response || 'Mapping saved.') + '</div>').show();
-        setTimeout(function() { $('#vendor_qbo_status').fadeOut(); }, 2000);
-      } else {
-        $('#vendor_qbo_status').html('<div class="alert alert-danger">' + (data && data.response ? data.response : 'Error') + '</div>').show();
+    var payload = { store_id: storeId, vendor_id: vendorId, qbo_vendor_id: qboId };
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    function done(success, dataOrErr) {
+      btn.disabled = false;
+      btn.textContent = 'Save';
+      var logEl = document.getElementById('vendor_qbo_ajax_log');
+      var logObj = {
+        request: { url: '/ajax/vendor-qbo-save.php', method: 'POST', payload: payload },
+        success: success,
+        response: dataOrErr
+      };
+      if (logEl) logEl.textContent = JSON.stringify(logObj, null, 2);
+      var statusEl = document.getElementById('vendor_qbo_status');
+      if (statusEl) {
+        if (success && dataOrErr && dataOrErr.success) {
+          statusEl.innerHTML = '<div class="alert alert-success">' + (dataOrErr.response || 'Mapping saved.') + '</div>';
+          if (row) {
+            var currentCell = row.querySelector('.qbo-current');
+            if (currentCell) currentCell.textContent = qboId;
+          }
+        } else {
+          var errMsg = (dataOrErr && dataOrErr.response) ? dataOrErr.response : (typeof dataOrErr === 'string' ? dataOrErr : 'Error');
+          statusEl.innerHTML = '<div class="alert alert-danger">' + errMsg + '</div>';
+        }
       }
-    }).fail(function(jqXHR) {
-      $btn.prop('disabled', false);
-      var msg = 'Request failed. ';
-      if (jqXHR.responseJSON && jqXHR.responseJSON.response) msg = jqXHR.responseJSON.response;
-      else if (jqXHR.responseText && jqXHR.responseText.length < 200) msg += jqXHR.responseText;
-      else if (jqXHR.status) msg += 'Status: ' + jqXHR.status;
-      $('#vendor_qbo_status').html('<div class="alert alert-danger">' + msg + '</div>').show();
-    });
-  });
+      var actionEl = document.getElementById('vendor_qbo_last_action');
+      if (actionEl) actionEl.textContent = success ? 'Save completed at ' + new Date().toLocaleTimeString() : 'Save failed at ' + new Date().toLocaleTimeString();
+    }
+
+    if (typeof jQuery !== 'undefined' && jQuery.ajax) {
+      jQuery.ajax({
+        url: '/ajax/vendor-qbo-save.php',
+        type: 'POST',
+        data: payload,
+        dataType: 'json'
+      }).done(function(data) { done(true, data); }).fail(function(jqXHR) {
+        var err = { response: 'Request failed.', status: jqXHR.status };
+        if (jqXHR.responseJSON && jqXHR.responseJSON.response) err.response = jqXHR.responseJSON.response;
+        else if (jqXHR.responseText && jqXHR.responseText.length < 300) err.response = jqXHR.responseText;
+        done(false, err);
+      });
+    } else {
+      var formBody = Object.keys(payload).map(function(k) { return encodeURIComponent(k) + '=' + encodeURIComponent(payload[k]); }).join('&');
+      fetch('/ajax/vendor-qbo-save.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
+        body: formBody
+      }).then(function(r) {
+        return r.json().then(function(data) {
+          done(r.ok && data && data.success, data);
+        }, function() {
+          done(false, { response: 'Server error ' + r.status + (r.statusText ? ': ' + r.statusText : '') });
+        });
+      }).catch(function(e) { done(false, { response: 'Network error: ' + (e.message || 'failed') }); });
+    }
+    return false;
+  };
 })();
 </script>
 <?php

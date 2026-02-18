@@ -1,8 +1,8 @@
 <?php
 /**
  * Invoice validation: run as a CLI script to avoid timeouts.
- * Scans POs with po_status_id = 5, sends invoice PDFs to OpenAI, compares total to r_total,
- * sets invoice_validated = 1 when they match. Prints status updates as it runs.
+ * Scans POs with po_status_id = 5, sends invoice PDFs to Gemini, compares total to r_total,
+ * sets invoice_validated = 1 when they match; optionally sets po.payment_terms from invoice.
  *
  * Run from project root:  php cron/invoice-validate.php
  * Or from cron dir:       php invoice-validate.php  (after cd cron)
@@ -27,18 +27,9 @@ function status($msg, $isCli)
 $isCli = (php_sapi_name() === 'cli');
 
 if ($isCli) {
-    // CLI: minimal bootstrap, no HTML/session. Provider: openai | gemini (argv[1] or env)
     define('SkipAuth', true);
     require_once dirname(__FILE__) . '/../_config.php';
-
-    $provider = isset($argv[1]) ? strtolower(trim($argv[1])) : (getenv('INVOICE_VALIDATE_PROVIDER') ?: 'openai');
-    if (!in_array($provider, ['openai', 'gemini'], true)) {
-        $provider = 'openai';
-    }
-    require_once dirname(__FILE__) . '/../inc/ai-invoice.php';
-    if ($provider === 'gemini') {
-        require_once dirname(__FILE__) . '/../inc/ai-invoice-gemini.php';
-    }
+    require_once dirname(__FILE__) . '/../inc/ai-invoice-gemini.php';
 
     set_time_limit(0);
 
@@ -54,7 +45,7 @@ if ($isCli) {
         }
     });
 
-    status('Invoice validation started (provider: ' . $provider . ').', $isCli);
+    status('Invoice validation started (Gemini).', $isCli);
 
     $rs = getRs(
         "SELECT p.po_id, p.po_number, p.po_code, r_total - SUM(d.discount_amount) AS r_total, p.invoice_filename
@@ -115,33 +106,38 @@ if ($isCli) {
             : ('../module/po-download-r.php?c=' . urlencode($po_code));
         status("PO {$po_number}: invoice PDF: " . $pdf_url, $isCli);
 
-        $providerLabel = $provider === 'gemini' ? 'Gemini' : 'OpenAI';
-        status("PO {$po_number}: sending PDF to {$providerLabel} ...", $isCli);
+        status("PO {$po_number}: sending PDF to Gemini ...", $isCli);
         $raw_ai_response = null;
-        if ($provider === 'gemini') {
-            $ai_total = parseInvoiceTotalFromPdfGemini($full_path, $raw_ai_response);
-        } else {
-            $ai_total = parseInvoiceTotalFromPdf($full_path, $raw_ai_response);
-        }
+        $result = parseInvoiceFromPdfGemini($full_path, $raw_ai_response);
 
         if (is_array($raw_ai_response) && count($raw_ai_response) > 0) {
             foreach ($raw_ai_response as $line) {
-                status("PO {$po_number}: {$providerLabel} – " . $line, $isCli);
+                status("PO {$po_number}: Gemini – " . $line, $isCli);
             }
         }
 
-        if ($ai_total === null) {
-            status("PO {$po_number}: error – AI did not return a total.", $isCli);
+        if ($result === null || !isset($result['total'])) {
+            status("PO {$po_number}: error – Gemini did not return a total.", $isCli);
             $errors++;
             $processed++;
             continue;
         }
 
-        status("PO {$po_number}: AI total = {$ai_total}, DB r_total = {$r_total}", $isCli);
+        $ai_total = (float) $result['total'];
+        $payment_terms = array_key_exists('payment_terms', $result) ? $result['payment_terms'] : null;
+        if ($payment_terms !== null) {
+            $payment_terms = (int) $payment_terms;
+        }
+
+        status("PO {$po_number}: AI total = {$ai_total}, DB r_total = {$r_total}" . ($payment_terms !== null ? ", payment_terms = {$payment_terms}" : ", payment_terms = (none)") . ".", $isCli);
 
         if (abs($ai_total - $r_total) <= 5) {
-            dbUpdate('po', array('invoice_validated' => 1), $po_id);
-            status("PO {$po_number}: match – invoice_validated set to 1.", $isCli);
+            $update = array('invoice_validated' => 1);
+            if ($payment_terms !== null) {
+                $update['payment_terms'] = $payment_terms;
+            }
+            dbUpdate('po', $update, $po_id);
+            status("PO {$po_number}: match – invoice_validated set to 1" . ($payment_terms !== null ? ", payment_terms = {$payment_terms}" : "") . ".", $isCli);
             $validated++;
         } else {
             status("PO {$po_number}: mismatch – no update.", $isCli);
