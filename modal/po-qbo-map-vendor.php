@@ -42,38 +42,10 @@ $store_id = (int)$po['store_id'];
     <select name="qbo_vendor_id" id="qbo_vendor_id" class="form-control select2" required>
       <option value="">— Loading… —</option>
     </select>
+    <small class="form-text text-muted">Type in the dropdown to search and filter vendors.</small>
   </div>
   <div class="form-btns">
     <button type="submit" class="btn btn-primary btn-submit">Save &amp; Push to QuickBooks</button>
   </div>
   <div id="status_po-qbo-map-vendor" class="status mt-2"></div>
 </form>
-<script>
-(function() {
-  var storeId = document.getElementById('qbo_map_store_id').value;
-  var sel = document.getElementById('qbo_vendor_id');
-  if (!sel || !storeId) return;
-  $.post('/ajax/qbo-vendors.php', { store_id: storeId }, function(data) {
-    sel.options.length = 0;
-    sel.appendChild(new Option('— Select QBO vendor —', ''));
-    if (data.success && data.vendors && data.vendors.length) {
-      data.vendors.forEach(function(v) {
-        sel.appendChild(new Option(v.DisplayName, v.id));
-      });
-    } else {
-      sel.appendChild(new Option(data.error || 'No vendors or error', ''));
-    }
-    var $sel = $('#qbo_vendor_id');
-    if ($sel.length && typeof $sel.select2 === 'function') {
-      if ($sel.hasClass('select2-hidden-accessible')) {
-        $sel.select2('destroy');
-      }
-      $sel.select2({
-        dropdownParent: $('#modal'),
-        minimumResultsForSearch: 0,
-        width: '100%'
-      });
-    }
-  }, 'json');
-})();
-</script>

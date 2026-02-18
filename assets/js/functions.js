@@ -236,6 +236,31 @@ function updateDialog2(url, title, a, c) {
 		$('#modal .modal-body').html(data);
 		initAssets();
 		bindForm(url);
+		if (url === 'po-qbo-map-vendor') {
+			var storeId = $('#modal #qbo_map_store_id').val();
+			var $sel = $('#modal #qbo_vendor_id');
+			if (storeId && $sel.length && typeof $sel.select2 === 'function') {
+				$.post('/ajax/qbo-vendors.php', { store_id: storeId }, function(res) {
+					$sel.find('option').remove();
+					$sel.append($('<option value="">— Select QBO vendor —</option>'));
+					if (res.success && res.vendors && res.vendors.length) {
+						res.vendors.forEach(function(v) {
+							$sel.append($('<option></option>').attr('value', v.id).text(v.DisplayName));
+						});
+					} else {
+						$sel.append($('<option value="">' + (res.error || 'No vendors or error') + '</option>'));
+					}
+					if ($sel.hasClass('select2-hidden-accessible')) {
+						$sel.select2('destroy');
+					}
+					$sel.select2({
+						dropdownParent: $('#modal'),
+						minimumResultsForSearch: 0,
+						width: '100%'
+					});
+				}, 'json');
+			}
+		}
 	})
   	.fail(function(xhr, status, error) {
     	$('#modal .modal-body').html('<div class="alert alert-danger" role="alert"><i class="fe fe-exclamation"></i> Error while contacting server: ' + error + '</div>');
