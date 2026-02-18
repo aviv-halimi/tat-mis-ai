@@ -141,16 +141,28 @@ include_once('inc/header.php');
       return;
     }
     $btn.prop('disabled', true);
-    $.post('/ajax/vendor-qbo-save.php', { store_id: storeId, vendor_id: vendorId, qbo_vendor_id: qboId }, function(data) {
+    $.ajax({
+      url: '/ajax/vendor-qbo-save.php',
+      type: 'POST',
+      data: { store_id: storeId, vendor_id: vendorId, qbo_vendor_id: qboId },
+      dataType: 'json'
+    }).done(function(data) {
       $btn.prop('disabled', false);
-      if (data.success) {
+      if (data && data.success) {
         $row.find('.qbo-current').text(qboId);
-        $('#vendor_qbo_status').html('<div class="alert alert-success">' + data.response + '</div>').show();
+        $('#vendor_qbo_status').html('<div class="alert alert-success">' + (data.response || 'Mapping saved.') + '</div>').show();
         setTimeout(function() { $('#vendor_qbo_status').fadeOut(); }, 2000);
       } else {
-        $('#vendor_qbo_status').html('<div class="alert alert-danger">' + (data.response || 'Error') + '</div>').show();
+        $('#vendor_qbo_status').html('<div class="alert alert-danger">' + (data && data.response ? data.response : 'Error') + '</div>').show();
       }
-    }, 'json');
+    }).fail(function(jqXHR) {
+      $btn.prop('disabled', false);
+      var msg = 'Request failed. ';
+      if (jqXHR.responseJSON && jqXHR.responseJSON.response) msg = jqXHR.responseJSON.response;
+      else if (jqXHR.responseText && jqXHR.responseText.length < 200) msg += jqXHR.responseText;
+      else if (jqXHR.status) msg += 'Status: ' + jqXHR.status;
+      $('#vendor_qbo_status').html('<div class="alert alert-danger">' + msg + '</div>').show();
+    });
   });
 })();
 </script>

@@ -4,7 +4,12 @@
  * POST: store_id, vendor_id, qbo_vendor_id
  */
 require_once('../_config.php');
-header('Content-Type: application/json');
+header('Content-Type: application/json; charset=utf-8');
+
+function sendJson($data) {
+    echo json_encode($data);
+    exit;
+}
 
 // Allow any valid store/vendor id (getVarInt defaults to max 1 which breaks multi-store)
 $store_id = getVarInt('store_id', 0, 0, 99999);
@@ -12,35 +17,36 @@ $vendor_id = getVarInt('vendor_id', 0, 0, 999999);
 $qbo_vendor_id = trim(getVar('qbo_vendor_id'));
 
 if (!$store_id || !$vendor_id || $qbo_vendor_id === '') {
-    echo json_encode(array('success' => false, 'response' => 'Missing store, vendor, or QBO vendor.'));
-    exit;
+    sendJson(array('success' => false, 'response' => 'Missing store, vendor, or QBO vendor.'));
 }
 
 $rs = getRs("SELECT db FROM store WHERE store_id = ? AND " . is_enabled(), array($store_id));
 $r = getRow($rs);
 if (!$r) {
-    echo json_encode(array('success' => false, 'response' => 'Store not found.'));
-    exit;
+    sendJson(array('success' => false, 'response' => 'Store not found.'));
 }
 $db = preg_replace('/[^a-z0-9_]/i', '', $r['db']);
 if ($db === '') {
-    echo json_encode(array('success' => false, 'response' => 'Invalid store database.'));
-    exit;
+    sendJson(array('success' => false, 'response' => 'Invalid store database.'));
 }
 
 try {
     global $dbconn;
-    $stmt = $dbconn->prepare("UPDATE `{$db}`.`vendor` SET `QBO_ID` = ? WHERE `vendor_id` = ?");
+    $table = "`{$db}`.`vendor`";
+    // Try vendor_id first (most store DBs); fallback to id if no row updated
+    $stmt = $dbconn->prepare("UPDATE {$table} SET QBO_ID = ? WHERE vendor_id = ?");
     $stmt->execute(array($qbo_vendor_id, $vendor_id));
     $rows = $stmt->rowCount();
     if ($rows === 0) {
-        echo json_encode(array('success' => false, 'response' => 'No vendor row updated. Check that vendor_id ' . (int)$vendor_id . ' exists in ' . $db . '.vendor and that column QBO_ID exists.'));
-        exit;
+        $stmt = $dbconn->prepare("UPDATE {$table} SET QBO_ID = ? WHERE id = ?");
+        $stmt->execute(array($qbo_vendor_id, $vendor_id));
+        $rows = $stmt->rowCount();
     }
-} catch (Exception $e) {
-    echo json_encode(array('success' => false, 'response' => 'Database error: ' . $e->getMessage()));
-    exit;
+    if ($rows === 0) {
+        sendJson(array('success' => false, 'response' => 'No row updated. Check that the vendor exists in ' . $db . '.vendor and that column QBO_ID exists.'));
+    }
+} catch (PDOException $e) {
+    sendJson(array('success' => false, 'response' => 'Database error: ' . $e->getMessage()));
 }
 
-echo json_encode(array('success' => true, 'response' => 'Mapping saved.'));
-exit;
+sendJson(array('success' => true, 'response' => 'Mapping saved.'));
