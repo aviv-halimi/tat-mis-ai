@@ -6,8 +6,9 @@
 require_once('../_config.php');
 header('Content-Type: application/json');
 
-$store_id = getVarInt('store_id');
-$vendor_id = getVarInt('vendor_id');
+// Allow any valid store/vendor id (getVarInt defaults to max 1 which breaks multi-store)
+$store_id = getVarInt('store_id', 0, 0, 99999);
+$vendor_id = getVarInt('vendor_id', 0, 0, 999999);
 $qbo_vendor_id = trim(getVar('qbo_vendor_id'));
 
 if (!$store_id || !$vendor_id || $qbo_vendor_id === '') {
