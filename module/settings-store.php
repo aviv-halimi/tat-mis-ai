@@ -1,7 +1,7 @@
 <?php
 require_once ('./_config.php');
 
-$ks = array('po_email', 'po_scheduling_email', 'max_daily_deliveries', 'target_days_of_inventory', 'daily_sales_lookback_period', 'appointment_duration', 'po_scheduled_email_bcc','boh_email', 'nabis_vendor_id', 'default_markup');
+$ks = array('po_email', 'po_scheduling_email', 'max_daily_deliveries', 'target_days_of_inventory', 'daily_sales_lookback_period', 'appointment_duration', 'po_scheduled_email_bcc','boh_email', 'nabis_vendor_id', 'default_markup','qbo_realm_id','qbo_refresh_token','qbo_account_id_products','qbo_account_id_rebates');
 
 if (isset($_POST['TableName'])) {
     $params = array();
