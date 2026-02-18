@@ -323,13 +323,64 @@ function qbo_create_bill($store_id, $vendor_ref_id, $subtotal, $discounts, $doc_
 }
 
 /**
+ * Attach a file (e.g. invoice PDF) to an existing QBO Bill.
+ * @param int $store_id
+ * @param string $bill_id QBO Bill Id
+ * @param string $file_path Full path to the file
+ * @param string $file_name Filename for the attachment (e.g. invoice.pdf)
+ * @return array { success, error? }
+ */
+function qbo_attach_file_to_bill($store_id, $bill_id, $file_path, $file_name = '') {
+    if ($file_name === '') {
+        $file_name = basename($file_path);
+    }
+    $token = qbo_get_access_token($store_id);
+    if (!is_array($token) || empty($token['access_token'])) {
+        return array('success' => false, 'error' => 'QBO not configured or token failed');
+    }
+    $dataService = qbo_data_service($token);
+    if (!$dataService) {
+        return array('success' => false, 'error' => 'Could not create DataService');
+    }
+    $contents = @file_get_contents($file_path);
+    if ($contents === false) {
+        return array('success' => false, 'error' => 'Could not read file');
+    }
+    $mimeType = 'application/pdf';
+    if (preg_match('/\.(jpe?g|gif|png)$/i', $file_name)) {
+        $mimeType = 'image/jpeg';
+        if (preg_match('/\.png$/i', $file_name)) {
+            $mimeType = 'image/png';
+        } elseif (preg_match('/\.gif$/i', $file_name)) {
+            $mimeType = 'image/gif';
+        }
+    }
+    try {
+        $entityRef = new \QuickBooksOnline\API\Data\IPPReferenceType(array('value' => $bill_id, 'type' => 'Bill'));
+        $attachableRef = new \QuickBooksOnline\API\Data\IPPAttachableRef(array('EntityRef' => $entityRef));
+        $objAttachable = new \QuickBooksOnline\API\Data\IPPAttachable();
+        $objAttachable->FileName = $file_name;
+        $objAttachable->AttachableRef = $attachableRef;
+        $objAttachable->Category = 'Other';
+        $dataService->Upload(base64_encode($contents), $file_name, $mimeType, $objAttachable);
+        $error = $dataService->getLastError();
+        if ($error) {
+            return array('success' => false, 'error' => $error->getResponseBody() ?: $error->getOAuthHelperError() ?: 'Upload failed');
+        }
+        return array('success' => true);
+    } catch (\Exception $e) {
+        return array('success' => false, 'error' => $e->getMessage());
+    }
+}
+
+/**
  * Push a PO (status 5) to QBO as a Bill.
  * @param string $po_code
  * @return array JSON-ready result
  */
 function po_qbo_push_bill($po_code) {
     $rs = getRs(
-        "SELECT p.po_id, p.po_code, p.po_number, p.po_status_id, p.store_id, p.vendor_id, p.r_subtotal, p.date_received, s.db AS store_db " .
+        "SELECT p.po_id, p.po_code, p.po_number, p.po_status_id, p.store_id, p.vendor_id, p.r_subtotal, p.date_received, p.invoice_filename, p.invoice_number, s.db AS store_db " .
         "FROM po p INNER JOIN store s ON s.store_id = p.store_id WHERE p.po_code = ? AND " . is_enabled('p,s'),
         array($po_code)
     );
@@ -356,6 +407,7 @@ function po_qbo_push_bill($po_code) {
             'vendor_name' => $vendor['name'],
             'store_id' => $store_id,
             'po_code' => $po_code,
+            'dialog' => array('url' => 'po-qbo-map-vendor', 'title' => 'Map vendor to QuickBooks', 'a' => null, 'c' => $po_code),
         );
     }
     $dr = getRs(
@@ -366,14 +418,30 @@ function po_qbo_push_bill($po_code) {
     $discounts = $discount_row ? (float)$discount_row['discounts'] : 0.0;
     $subtotal = (float)$po['r_subtotal'];
     $txn_date = !empty($po['date_received']) ? date('Y-m-d', strtotime($po['date_received'])) : date('Y-m-d');
-    $doc_number = 'PO ' . $po['po_number'];
+    $doc_number = !empty($po['invoice_number']) ? trim($po['invoice_number']) : ('PO ' . $po['po_number']);
     $result = qbo_create_bill($store_id, $qbo_id, $subtotal, $discounts, $doc_number, $txn_date);
     if (!$result['success']) {
         return array('success' => false, 'response' => $result['error']);
     }
+    $bill_id = $result['BillId'];
+    $attached = false;
+    if (!empty($po['invoice_filename']) && defined('MEDIA_PATH')) {
+        $invoice_path = MEDIA_PATH . 'po/' . $po['invoice_filename'];
+        if (is_file($invoice_path)) {
+            $attach_result = qbo_attach_file_to_bill($store_id, $bill_id, $invoice_path, $po['invoice_filename']);
+            $attached = !empty($attach_result['success']);
+            if (!$attached && !empty($attach_result['error'])) {
+                return array(
+                    'success' => true,
+                    'response' => 'Bill created in QuickBooks (Bill #' . $bill_id . '). Invoice PDF could not be attached: ' . $attach_result['error'],
+                    'BillId' => $bill_id,
+                );
+            }
+        }
+    }
     return array(
         'success' => true,
-        'response' => 'Bill created in QuickBooks (Bill #' . $result['BillId'] . ').',
-        'BillId' => $result['BillId'],
+        'response' => 'Bill created in QuickBooks (Bill #' . $bill_id . ').' . ($attached ? ' Invoice PDF attached.' : ''),
+        'BillId' => $bill_id,
     );
 }

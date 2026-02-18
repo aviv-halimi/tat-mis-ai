@@ -227,7 +227,8 @@ function tableDialog($t) {
 function updateDialog2(url, title, a, c) {
 	var path = '/modal';
   	var args = {a: a, c: c, '_r': Math.random()};
-	$('#modal .modal-body').html('<div class="alert alert-info" role="alert"><i class="fa fa-spinner fa-spin"></i> <span>' + $('#__lang-please-wait-loading').val() + '</span></div>');
+	$('#modal .modal-body').html('<div class="alert alert-info" role="alert"><i class="fa fa-spinner fa-spin"></i> <span>' + ($('#__lang-please-wait-loading').length ? $('#__lang-please-wait-loading').val() : 'Loading…') + '</span></div>');
+	$('#modal').modal({ show: true, backdrop: 'static', keyboard: false });
 	$.post(path + '/' + url, args)
 	.done(function(data) {
 		$('#modal form').attr('id', 'f_' + url);

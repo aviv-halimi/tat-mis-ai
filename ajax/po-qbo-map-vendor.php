@@ -7,7 +7,7 @@ require_once('../_config.php');
 header('Content-Type: application/json');
 
 $po_code = getVar('c');
-$vendor_id = getVarInt('vendor_id');
+$vendor_id = getVarInt('vendor_id', 0, 0, 999999);
 $qbo_vendor_id = trim(getVar('qbo_vendor_id'));
 
 if (!$po_code || !$vendor_id || $qbo_vendor_id === '') {

@@ -10,7 +10,7 @@ if (!$po_code) {
     exit;
 }
 $rs = getRs(
-    "SELECT p.po_id, p.po_code, p.store_id, p.vendor_id, s.db FROM po p INNER JOIN store s ON s.store_id = p.store_id WHERE p.po_code = ? AND " . is_enabled('p,s'),
+    "SELECT p.po_id, p.po_code, p.store_id, p.vendor_id, s.db AS store_db FROM po p INNER JOIN store s ON s.store_id = p.store_id WHERE p.po_code = ? AND " . is_enabled('p,s'),
     array($po_code)
 );
 $po = getRow($rs);
@@ -18,7 +18,7 @@ if (!$po) {
     echo '<div class="alert alert-danger">PO not found.</div>';
     exit;
 }
-$store_db = $po['store_db'];
+$store_db = isset($po['store_db']) ? $po['store_db'] : '';
 $vendor_rs = getRs("SELECT vendor_id, name FROM {$store_db}.vendor WHERE vendor_id = ?", array($po['vendor_id']));
 $vendor = getRow($vendor_rs);
 if (!$vendor) {
