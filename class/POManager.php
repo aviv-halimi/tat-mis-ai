@@ -1378,6 +1378,10 @@ class POManager extends SessionManager {
                     setRs("UPDATE po SET po_event_status_id = 3 WHERE po_event_status_id < 3 AND po_id = ?", array($po_id));
                     setRs("UPDATE po_event SET po_event_status_id = 3 WHERE po_event_status_id < 3 AND po_id = ?", array($po_id));
                   }
+                  else if ($po_status_id == 5) {
+                    require_once dirname(__FILE__) . '/../inc/ai-invoice-gemini.php';
+                    runInvoiceValidationForPO($po_id);
+                  }
                   $this->SavePONote($po_id, 'PO status changed from ' . getDisplayName('po_status', $r['po_status_id']) . ' to ' . getDisplayName('po_status', $po_status_id), $_admin_id);
                   $success = true;
                   $response = 'Status successfully updated to ' . $p['po_status_name'] . '. Just a sec .. redirecting';
@@ -1540,7 +1544,7 @@ class POManager extends SessionManager {
   }
 
   function GetPO($po_id) {
-    return getRs("SELECT t.po_id, t.po_code, t.po_name, t.email, t.po_number, t.po_type_id, t.description, t.vendor_id, t.num_products, t.num_orders, t.date_created, t.admin_id, t.po_status_id, t.discount_name, t.discount_rate, t.discount_amount, t.discount, t.tax_rate, t.tax_amount, t.tax, t.subtotal, t.total, t.date_ordered, t.date_requested_ship, t.date_schedule_delivery, t.po_filename, t.invoice_filename, t.invoice_number, t.coa_filename, t.coa_filenames, t.date_received, t.is_confirmed, t.date_confirmed, t.confirmed_by_vendor_id, r.po_reorder_type_id, r.po_reorder_type_name, r.field_level, t.vendor_name, s.po_status_name, s.caption AS status_caption, s.description AS status_description, s.back_caption, s.back_description FROM po_status s INNER JOIN (po_reorder_type r INNER JOIN po t ON t.po_reorder_type_id = r.po_reorder_type_id) ON s.po_status_id = t.po_status_id WHERE " . is_enabled('t,r') . " AND t.po_id = ?", array($po_id));
+    return getRs("SELECT t.po_id, t.po_code, t.po_name, t.email, t.po_number, t.po_type_id, t.description, t.vendor_id, t.num_products, t.num_orders, t.date_created, t.admin_id, t.po_status_id, t.discount_name, t.discount_rate, t.discount_amount, t.discount, t.tax_rate, t.tax_amount, t.tax, t.subtotal, t.total, t.date_ordered, t.date_requested_ship, t.date_schedule_delivery, t.po_filename, t.invoice_filename, t.invoice_number, t.coa_filename, t.coa_filenames, t.date_received, t.is_confirmed, t.date_confirmed, t.confirmed_by_vendor_id, t.invoice_validated, r.po_reorder_type_id, r.po_reorder_type_name, r.field_level, t.vendor_name, s.po_status_name, s.caption AS status_caption, s.description AS status_description, s.back_caption, s.back_description FROM po_status s INNER JOIN (po_reorder_type r INNER JOIN po t ON t.po_reorder_type_id = r.po_reorder_type_id) ON s.po_status_id = t.po_status_id WHERE " . is_enabled('t,r') . " AND t.po_id = ?", array($po_id));
   }
 
   function NabisSummary($nabis_id = null) {

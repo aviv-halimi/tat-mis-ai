@@ -522,7 +522,12 @@ echo '
         <div class="row form-input-flat mb-2">
           <div class="col-sm-12 col-form-label">Invoice #: <b>' . $_invoice_number . '</b></div>
         </div>
-      </div>
+      </div>' . ($t['po_status_id'] == 5 ? '
+      <div class="col-md-4">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12 col-form-label">AI Invoice Validation: ' . (isset($t['invoice_validated']) && (int)$t['invoice_validated'] === 1 ? '<span class="badge badge-success">Match</span>' : '<span class="badge badge-warning">No match</span>') . '</div>
+        </div>
+      </div>' : '') . '
     </div>
   </div>
 </div>';

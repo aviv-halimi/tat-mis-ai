@@ -148,3 +148,45 @@ PROMPT;
         'payment_terms' => $paymentTerms,
     ];
 }
+
+/**
+ * Run invoice validation for a single PO (e.g. when status is pushed to 5).
+ * Loads PO r_total and invoice file, calls Gemini, updates invoice_validated and payment_terms.
+ * Returns array('matched' => bool, 'ai_total' => float|null, 'payment_terms' => int|null) for optional use.
+ */
+function runInvoiceValidationForPO($po_id)
+{
+    $po_id = (int) $po_id;
+    if ($po_id <= 0) {
+        return array('matched' => false, 'ai_total' => null, 'payment_terms' => null);
+    }
+    $rs = getRs("SELECT po_id, r_total, invoice_filename FROM po WHERE " . is_enabled() . " AND po_id = ? AND LENGTH(invoice_filename) > 0 AND r_total > 0", array($po_id));
+    $r = getRow($rs);
+    if (!$r) {
+        return array('matched' => false, 'ai_total' => null, 'payment_terms' => null);
+    }
+    $full_path = MEDIA_PATH . 'po/' . $r['invoice_filename'];
+    if (!file_exists($full_path)) {
+        return array('matched' => false, 'ai_total' => null, 'payment_terms' => null);
+    }
+    $debug_log = null;
+    $result = parseInvoiceFromPdfGemini($full_path, $debug_log);
+    $r_total = (float) $r['r_total'];
+    if ($result === null || !isset($result['total'])) {
+        dbUpdate('po', array('invoice_validated' => 0), $po_id);
+        return array('matched' => false, 'ai_total' => null, 'payment_terms' => null);
+    }
+    $ai_total = (float) $result['total'];
+    $payment_terms = array_key_exists('payment_terms', $result) && $result['payment_terms'] !== null ? (int) $result['payment_terms'] : null;
+    $matched = (abs($ai_total - $r_total) <= 5);
+    if ($matched) {
+        $update = array('invoice_validated' => 1);
+        if ($payment_terms !== null) {
+            $update['payment_terms'] = $payment_terms;
+        }
+        dbUpdate('po', $update, $po_id);
+    } else {
+        dbUpdate('po', array('invoice_validated' => 0), $po_id);
+    }
+    return array('matched' => $matched, 'ai_total' => $ai_total, 'payment_terms' => $payment_terms);
+}
