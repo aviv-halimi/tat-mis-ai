@@ -22,7 +22,7 @@ define('MEDIA_PATH', '/var/www/vhosts/wantadigital.com/media/theartisttree/');
 
 define('QBO_CLIENT_ID','ABlCQrnxy6yYXtHToWKxfdbPdhv76gXdk0iHRK1G6pk7x5cvDs');
 define('QBO_CLIENT_SECRET','P5LtNoBtVXFz6yDNu20lmsGSE2mnpbEV507d6RCS');
-
+define('GEMINI_API_KEY', 'AIzaSyDesbKlO5eny5YR43hcLTvabVz2CtRuy28');
 # Report all PHP errors
 //error_reporting(E_ALL);
 //error_reporting(-1);
