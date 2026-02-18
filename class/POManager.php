@@ -1389,7 +1389,7 @@ class POManager extends SessionManager {
                       $note = 'AI Invoice Validation: ' . ($validation['matched'] ? 'Match' : 'No match') . "\n\n" . implode("\n", $validation['debug_log']);
                       $this->SavePONote($po_id, $note, $_admin_id);
                     }
-                    if (!empty($validation['add_auto_discount']) && isset($validation['discount_amount']) && $validation['discount_amount'] > 0) {
+                    if (!empty($validation['add_auto_discount']) && isset($validation['discount_amount']) && $validation['discount_amount'] != 0) {
                       $this->SavePOATDiscount(array('po_code' => $po_code, 'po_discount_name' => 'Auto-Discount to Match Invoice', 'discount_type' => 2, 'discount_amount' => $validation['discount_amount'], 'is_receiving' => 1));
                     }
                   }

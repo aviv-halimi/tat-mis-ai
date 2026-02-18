@@ -180,9 +180,9 @@ function runInvoiceValidationForPO($po_id)
     $payment_terms = array_key_exists('payment_terms', $result) && $result['payment_terms'] !== null ? (int) $result['payment_terms'] : null;
     $matched = (abs($ai_total - $r_total) <= 5);
     $variance = $r_total - $ai_total;
-    $add_auto_discount = ($matched && $variance > 0 && $variance <= 5);
+    $add_auto_discount = ($matched && $variance != 0 && abs($variance) < 5);
 
-    $debug_log[] = 'Result: AI total=' . $ai_total . ', DB r_total=' . $r_total . ', payment_terms=' . ($payment_terms !== null ? $payment_terms : 'null') . ', ' . ($matched ? 'Match' : 'No match') . ($add_auto_discount ? ', adding auto-discount ' . number_format($variance, 2) : '');
+    $debug_log[] = 'Result: AI total=' . $ai_total . ', DB r_total=' . $r_total . ', payment_terms=' . ($payment_terms !== null ? $payment_terms : 'null') . ', ' . ($matched ? 'Match' : 'No match') . ($add_auto_discount ? ', adding auto-adjustment ' . number_format($variance, 2) . ' (negative = credit to match invoice)' : '');
     if ($matched) {
         $update = array('invoice_validated' => 1);
         if ($payment_terms !== null) {
