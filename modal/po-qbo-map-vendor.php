@@ -30,7 +30,7 @@ $store_id = (int)$po['store_id'];
 <form method="post" id="f_po-qbo-map-vendor" class="ajax-form">
   <input type="hidden" name="c" value="<?php echo htmlspecialchars($po_code); ?>" />
   <input type="hidden" name="action" value="save_mapping" />
-  <input type="hidden" name="vendor_id" value="<?php echo (int)$vendor['vendor_id']; ?>" />
+  <input type="hidden" name="vendor_id" value="<?php echo (int)$po['vendor_id']; ?>" />
   <input type="hidden" name="store_id" id="qbo_map_store_id" value="<?php echo $store_id; ?>" />
   <div class="alert alert-info">Map this vendor to a QuickBooks Online vendor, then the bill will be created.</div>
   <div class="form-group">
