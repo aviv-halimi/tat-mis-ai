@@ -1380,7 +1380,11 @@ class POManager extends SessionManager {
                   }
                   else if ($po_status_id == 5) {
                     require_once dirname(__FILE__) . '/../inc/ai-invoice-gemini.php';
-                    runInvoiceValidationForPO($po_id);
+                    $validation = runInvoiceValidationForPO($po_id);
+                    if (!empty($validation['debug_log'])) {
+                      $note = 'AI Invoice Validation: ' . ($validation['matched'] ? 'Match' : 'No match') . "\n\n" . implode("\n", $validation['debug_log']);
+                      $this->SavePONote($po_id, $note, $_admin_id);
+                    }
                   }
                   $this->SavePONote($po_id, 'PO status changed from ' . getDisplayName('po_status', $r['po_status_id']) . ' to ' . getDisplayName('po_status', $po_status_id), $_admin_id);
                   $success = true;
