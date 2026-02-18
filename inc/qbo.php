@@ -38,25 +38,82 @@ function qbo_get_store_params($store_id) {
 }
 
 /**
+ * Save a new refresh token to the store's params (OAuth2 token rotation).
+ * Intuit may return a new refresh_token when you use the current one; you must store it for the next refresh.
+ *
+ * @param int $store_id
+ * @param string $new_refresh_token
+ * @return bool true if updated, false if store not found
+ */
+function qbo_update_refresh_token($store_id, $new_refresh_token) {
+    $rs = getRs("SELECT params FROM store WHERE store_id = ?", array($store_id));
+    if (!$rs || !($r = getRow($rs))) {
+        return false;
+    }
+    $params = is_array($r['params']) ? $r['params'] : (is_string($r['params']) ? json_decode($r['params'], true) : array());
+    if (!is_array($params)) {
+        $params = array();
+    }
+    $params['qbo_refresh_token'] = trim($new_refresh_token);
+    dbUpdate('store', array('params' => json_encode($params)), $store_id, 'store_id');
+    return true;
+}
+
+/**
  * Get OAuth2 access token for a store using refresh token.
  * @param int $store_id
- * @return array { access_token, realm_id } or null on failure
+ * @param array|null $request_log If provided, append request details (url, method, headers, body) for testing outside PHP
+ * @return array Success: { access_token, realm_id, ... }. Failure: { success => false, error => string, debug => array }
  */
-function qbo_get_access_token($store_id) {
+function qbo_get_access_token($store_id, &$request_log = null) {
     $params = qbo_get_store_params($store_id);
     if (!$params) {
-        return null;
+        $rs = getRs("SELECT params FROM store WHERE store_id = ? AND " . is_enabled(), array($store_id));
+        $has_store = $rs && getRow($rs);
+        return array(
+            'success' => false,
+            'error' => 'Store QBO params missing or invalid',
+            'debug' => array(
+                'step' => 'qbo_get_store_params',
+                'store_id' => $store_id,
+                'store_found' => (bool)$has_store,
+                'hint' => 'Store params (JSON) must include qbo_realm_id and qbo_refresh_token',
+            ),
+        );
     }
     $client_id = defined('QBO_CLIENT_ID') ? QBO_CLIENT_ID : (getenv('QBO_CLIENT_ID') ?: '');
     $client_secret = defined('QBO_CLIENT_SECRET') ? QBO_CLIENT_SECRET : (getenv('QBO_CLIENT_SECRET') ?: '');
     if ($client_id === '' || $client_secret === '') {
-        return null;
+        return array(
+            'success' => false,
+            'error' => 'QBO client credentials not set',
+            'debug' => array(
+                'step' => 'qbo_client_credentials',
+                'client_id_set' => $client_id !== '',
+                'client_secret_set' => $client_secret !== '',
+                'hint' => 'Set QBO_CLIENT_ID and QBO_CLIENT_SECRET in config or environment',
+            ),
+        );
     }
     $url = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
     $body = http_build_query(array(
         'grant_type' => 'refresh_token',
         'refresh_token' => $params['refresh_token'],
     ));
+    if (is_array($request_log)) {
+        $request_log[] = array(
+            'label' => '1. OAuth token (refresh)',
+            'url' => $url,
+            'method' => 'POST',
+            'headers' => array(
+                'Content-Type: application/x-www-form-urlencoded',
+                'Authorization: Basic ' . base64_encode($client_id . ':' . $client_secret),
+                'Accept: application/json',
+            ),
+            'body' => $body,
+            'curl' => 'curl -X POST "' . $url . '" -H "Content-Type: application/x-www-form-urlencoded" -H "Authorization: Basic ' . base64_encode($client_id . ':' . $client_secret) . '" -H "Accept: application/json" -d "' . str_replace('"', '\\"', $body) . '"',
+        );
+    }
     $opts = array(
         'http' => array(
             'method' => 'POST',
@@ -65,16 +122,50 @@ function qbo_get_access_token($store_id) {
                 'Accept: application/json',
             'content' => $body,
             'timeout' => 30,
+            'ignore_errors' => true,
         ),
     );
     $ctx = stream_context_create($opts);
     $response = @file_get_contents($url, false, $ctx);
     if ($response === false) {
-        return null;
+        $php_err = error_get_last();
+        return array(
+            'success' => false,
+            'error' => 'OAuth token request failed (connection/timeout)',
+            'debug' => array(
+                'step' => 'oauth_refresh_token',
+                'url_host' => 'oauth.platform.intuit.com',
+                'http_response_header' => (isset($http_response_header) && is_array($http_response_header)) ? $http_response_header : 'no response',
+                'php_error' => ($php_err && isset($php_err['message'])) ? $php_err['message'] : null,
+            ),
+        );
     }
     $data = json_decode($response, true);
     if (empty($data['access_token'])) {
-        return null;
+        $intuit_error = isset($data['error']) ? $data['error'] : '';
+        $intuit_desc = isset($data['error_description']) ? $data['error_description'] : '';
+        $err_msg = 'OAuth response missing access_token';
+        if ($intuit_error || $intuit_desc) {
+            $err_msg .= ': ' . $intuit_error . ($intuit_desc ? ' — ' . $intuit_desc : '');
+        }
+        $hint = 'Check refresh_token is valid and not revoked; Intuit may return error in oauth_response.';
+        if ($intuit_error === 'invalid_grant' && (stripos($intuit_desc, 'token type') !== false || stripos($intuit_desc, 'clientID') !== false)) {
+            $hint = 'Incorrect Token type or clientID usually means: (1) You stored an ACCESS token — use the REFRESH token in store params (refresh tokens are long-lived; access tokens expire in 1 hour). (2) The refresh token was issued by a different Intuit app — ensure QBO_CLIENT_ID and QBO_CLIENT_SECRET match the app where you connected the company and got the token.';
+        }
+        return array(
+            'success' => false,
+            'error' => $err_msg,
+            'debug' => array(
+                'step' => 'oauth_refresh_token',
+                'oauth_response' => $data,
+                'oauth_response_raw' => substr($response, 0, 500),
+                'hint' => $hint,
+            ),
+        );
+    }
+    // OAuth2 token rotation: Intuit may return a new refresh_token; save it so the next refresh uses it
+    if (!empty($data['refresh_token'])) {
+        qbo_update_refresh_token($store_id, $data['refresh_token']);
     }
     return array(
         'access_token' => $data['access_token'],
@@ -91,9 +182,10 @@ function qbo_get_access_token($store_id) {
  * @param string $method GET|POST
  * @param string $path e.g. "query?query=select * from Vendor"
  * @param mixed $body for POST, array (will be JSON encoded)
+ * @param array|null $request_log If provided, append request details for testing outside PHP
  * @return array { success, data, error }
  */
-function qbo_api_request($realm_id, $access_token, $method, $path, $body = null) {
+function qbo_api_request($realm_id, $access_token, $method, $path, $body = null, &$request_log = null) {
     $base = 'https://quickbooks.api.intuit.com/v3/company/' . $realm_id . '/';
     $url = $base . ltrim($path, '/');
     $headers = array(
@@ -103,20 +195,55 @@ function qbo_api_request($realm_id, $access_token, $method, $path, $body = null)
     if ($method === 'POST' && $body !== null) {
         $headers[] = 'Content-Type: application/json';
     }
+    $body_str = ($method === 'POST' && $body !== null) ? (is_string($body) ? $body : json_encode($body)) : null;
+    if (is_array($request_log)) {
+        $curl_headers = '-H "Authorization: Bearer ' . $access_token . '" -H "Accept: application/json"';
+        if ($method === 'POST' && $body_str !== null) {
+            $curl_headers .= ' -H "Content-Type: application/json"';
+        }
+        $entry = array(
+            'label' => '2. QBO API request',
+            'url' => $url,
+            'method' => $method,
+            'headers' => array(
+                'Authorization: Bearer ' . $access_token,
+                'Accept: application/json',
+            ),
+        );
+        if ($body_str !== null) {
+            $entry['body'] = $body_str;
+            $entry['curl'] = 'curl -X ' . $method . ' "' . $url . '" ' . $curl_headers . ' -d \'' . str_replace("'", "'\\''", $body_str) . '\'';
+        } else {
+            $entry['curl'] = 'curl -X ' . $method . ' "' . $url . '" ' . $curl_headers;
+        }
+        $request_log[] = $entry;
+    }
     $opts = array(
         'http' => array(
             'method' => $method,
             'header' => implode("\r\n", $headers),
             'timeout' => 30,
+            'ignore_errors' => true,
         ),
     );
-    if ($method === 'POST' && $body !== null) {
-        $opts['http']['content'] = is_string($body) ? $body : json_encode($body);
+    if ($method === 'POST' && $body_str !== null) {
+        $opts['http']['content'] = $body_str;
     }
     $ctx = stream_context_create($opts);
     $response = @file_get_contents($url, false, $ctx);
     if ($response === false) {
-        return array('success' => false, 'error' => 'Request failed');
+        $php_err = error_get_last();
+        $debug = array(
+            'step' => 'qbo_api_request',
+            'url_host' => parse_url($url, PHP_URL_HOST),
+            'path' => $path,
+            'realm_id' => $realm_id,
+            'http_response_header' => (isset($http_response_header) && is_array($http_response_header)) ? $http_response_header : 'no response (connection failed or timeout)',
+        );
+        if ($php_err && isset($php_err['message'])) {
+            $debug['php_error'] = $php_err['message'];
+        }
+        return array('success' => false, 'error' => 'Request failed', 'debug' => $debug);
     }
     $data = json_decode($response, true);
     if (isset($data['Fault'])) {
@@ -132,14 +259,26 @@ function qbo_api_request($realm_id, $access_token, $method, $path, $body = null)
  * @return array { success, vendors: [ { id, DisplayName } ], error }
  */
 function qbo_list_vendors($store_id) {
-    $token = qbo_get_access_token($store_id);
-    if (!$token) {
-        return array('success' => false, 'vendors' => array(), 'error' => 'QBO not configured or token failed');
+    $request_log = array();
+    $token = qbo_get_access_token($store_id, $request_log);
+    if (!is_array($token) || empty($token['access_token'])) {
+        $err = isset($token['error']) ? $token['error'] : 'QBO not configured or token failed';
+        $out = array('success' => false, 'vendors' => array(), 'error' => $err);
+        if (!empty($token['debug'])) {
+            $out['debug'] = $token['debug'];
+        }
+        $out['request_log'] = $request_log;
+        return $out;
     }
     $query = urlencode('SELECT * FROM Vendor MAXRESULTS 1000');
-    $result = qbo_api_request($token['realm_id'], $token['access_token'], 'GET', 'query?query=' . $query);
+    $result = qbo_api_request($token['realm_id'], $token['access_token'], 'GET', 'query?query=' . $query, null, $request_log);
     if (!$result['success']) {
-        return array('success' => false, 'vendors' => array(), 'error' => $result['error']);
+        $out = array('success' => false, 'vendors' => array(), 'error' => $result['error']);
+        if (!empty($result['debug'])) {
+            $out['debug'] = $result['debug'];
+        }
+        $out['request_log'] = $request_log;
+        return $out;
     }
     $vendors = array();
     if (isset($result['data']['QueryResponse']['Vendor'])) {
@@ -150,7 +289,7 @@ function qbo_list_vendors($store_id) {
             );
         }
     }
-    return array('success' => true, 'vendors' => $vendors);
+    return array('success' => true, 'vendors' => $vendors, 'request_log' => $request_log);
 }
 
 /**
@@ -166,8 +305,9 @@ function qbo_list_vendors($store_id) {
  */
 function qbo_create_bill($store_id, $vendor_ref_id, $subtotal, $discounts, $doc_number = '', $txn_date = null) {
     $token = qbo_get_access_token($store_id);
-    if (!$token) {
-        return array('success' => false, 'error' => 'QBO not configured or token failed');
+    if (!is_array($token) || empty($token['access_token'])) {
+        $err = (is_array($token) && isset($token['error'])) ? $token['error'] : 'QBO not configured or token failed';
+        return array('success' => false, 'error' => $err);
     }
     $account_products = $token['account_id_products'];
     $account_rebates = $token['account_id_rebates'];
