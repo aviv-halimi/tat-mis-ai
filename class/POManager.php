@@ -465,7 +465,11 @@ class POManager extends SessionManager {
             if ($r = getRow($rs)) {
               $po_id = $r['po_id'];              
               $po_discount_id = $this->GetCodeId('po_discount', $po_discount_code);
-              $params = array('po_id' => $po_id, 'vendor_id' => $vendor_id, 'brand_id' => $brand_id, 'category_id' => $category_id, 'po_discount_name' => $po_discount_name, 'discount_amount' => $discount_amount, 'discount_rate' => $discount_rate, 'is_after_tax' => $is_after_tax, 'is_enabled' => 1, 'is_receiving' => ($r['po_status_id'] == 3)?1:0);
+              $is_receiving = getVarAInt('is_receiving', $_p, null);
+              if ($is_receiving === null) {
+                $is_receiving = ($r['po_status_id'] == 3) ? 1 : 0;
+              }
+              $params = array('po_id' => $po_id, 'vendor_id' => $vendor_id, 'brand_id' => $brand_id, 'category_id' => $category_id, 'po_discount_name' => $po_discount_name, 'discount_amount' => $discount_amount, 'discount_rate' => $discount_rate, 'is_after_tax' => $is_after_tax, 'is_enabled' => 1, 'is_receiving' => $is_receiving);
               if ($po_discount_id) {
                 $response = 'Updated successfully';
                 if ($del) {
@@ -1384,6 +1388,9 @@ class POManager extends SessionManager {
                     if (!empty($validation['debug_log'])) {
                       $note = 'AI Invoice Validation: ' . ($validation['matched'] ? 'Match' : 'No match') . "\n\n" . implode("\n", $validation['debug_log']);
                       $this->SavePONote($po_id, $note, $_admin_id);
+                    }
+                    if (!empty($validation['add_auto_discount']) && isset($validation['discount_amount']) && $validation['discount_amount'] > 0) {
+                      $this->SavePOATDiscount(array('po_code' => $po_code, 'po_discount_name' => 'Auto-Discount to Match Invoice', 'discount_type' => 2, 'discount_amount' => $validation['discount_amount'], 'is_receiving' => 1));
                     }
                   }
                   $this->SavePONote($po_id, 'PO status changed from ' . getDisplayName('po_status', $r['po_status_id']) . ' to ' . getDisplayName('po_status', $po_status_id), $_admin_id);
