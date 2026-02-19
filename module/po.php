@@ -546,7 +546,7 @@ if (isset($t['po_status_id']) && (int)$t['po_status_id'] >= 5 && !empty($t['stor
   require_once(BASE_PATH . 'inc/qbo.php');
   $qbo_bill_id = isset($t['qbo_bill_id']) ? trim((string)$t['qbo_bill_id']) : '';
   if ($qbo_bill_id !== '' && function_exists('qbo_bill_url')) {
-    $qbo_bill_url = qbo_bill_url($t['store_id'], $qbo_bill_id);
+    $qbo_bill_url = qbo_bill_url($qbo_bill_id);
   }
   $store_rs = getRs("SELECT db FROM store WHERE store_id = ?", array($t['store_id']));
   $store_row = getRow($store_rs);

@@ -701,19 +701,14 @@ function po_qbo_push_bill($po_code) {
 
 /**
  * Get the QBO app URL to open a bill (for use in PO page link).
- * @param int $store_id
  * @param string $bill_id QBO Bill Id
- * @return string URL or empty if realm not available
+ * @return string URL
  */
-function qbo_bill_url($store_id, $bill_id) {
+function qbo_bill_url($bill_id) {
     if ($bill_id === '' || $bill_id === null) {
         return '';
     }
-    $token = qbo_get_access_token($store_id);
-    if (!is_array($token) || empty($token['realm_id'])) {
-        return '';
-    }
-    return 'https://qbo.intuit.com/app/company/' . $token['realm_id'] . '/bill?txnId=' . urlencode($bill_id);
+    return 'https://qbo.intuit.com/app/bill?txnId=' . urlencode($bill_id);
 }
 
 /**
@@ -729,9 +724,9 @@ function qbo_po_note_bill_created($po_id, $bill_id, $invoice_total, $store_id) {
         'Bill ID: ' . $bill_id,
         'Invoice total: $' . number_format((float)$invoice_total, 2),
     );
-    $token = qbo_get_access_token($store_id);
-    if (is_array($token) && !empty($token['realm_id'])) {
-        $lines[] = 'Bill (open in QBO): https://qbo.intuit.com/app/company/' . $token['realm_id'] . '/bill?txnId=' . urlencode($bill_id);
+    $bill_url = qbo_bill_url($bill_id);
+    if ($bill_url !== '') {
+        $lines[] = 'Bill (open in QBO): ' . $bill_url;
     }
     $description = implode("\n", $lines);
     $admin_id = isset($GLOBALS['_Session']->admin_id) ? (int)$GLOBALS['_Session']->admin_id : 0;
