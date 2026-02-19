@@ -104,6 +104,7 @@ function qbo_get_auth_url($store_id) {
  * @return array Success: { access_token, realm_id, ... }. Failure: { success => false, error => string, debug => array }
  */
 function qbo_get_access_token($store_id, &$request_log = null) {
+    $auth_url = function_exists('qbo_get_auth_url') ? qbo_get_auth_url($store_id) : '';
     $params = qbo_get_store_params($store_id);
     if (!$params) {
         $rs = getRs("SELECT params FROM store WHERE store_id = ? AND " . is_enabled(), array($store_id));
@@ -136,7 +137,6 @@ function qbo_get_access_token($store_id, &$request_log = null) {
             ),
         );
     }
-    $auth_url = function_exists('qbo_get_auth_url') ? qbo_get_auth_url($store_id) : '';
     if (is_array($request_log)) {
         $request_log[] = array(
             'label' => '1. OAuth token (refresh)',
