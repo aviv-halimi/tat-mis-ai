@@ -171,7 +171,7 @@ include_once('inc/header.php');
     <p class="text-muted">No vendors found for this store.</p>
     <?php } ?>
     <?php } elseif ($store_id && !$qbo_show_connect) { ?>
-    <div class="alert alert-warning">Could not load store or QBO not configured. Check store params (qbo_realm_id, qbo_refresh_token) and QBO_CLIENT_ID / QBO_CLIENT_SECRET.</div>
+    <div class="alert alert-warning">Could not load store or QBO not configured. Connect via &quot;Connect to QuickBooks&quot; or check QBO_CLIENT_ID / QBO_CLIENT_SECRET.</div>
     <?php } ?>
   </div>
 </div>

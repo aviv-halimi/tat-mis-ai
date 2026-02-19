@@ -278,24 +278,26 @@ function updateDialog2(url, title, a, c) {
 				function loadQboVendors() {
 					$.post('/ajax/qbo-vendors.php', { store_id: storeId }, function(res) {
 						$('#modal #vendor_qbo_connect_hint').remove();
-						if (res.needs_authorization && res.auth_url) {
+						var needConnect = res && res.auth_url && (!res.success || res.needs_authorization);
+						if (needConnect) {
 							$sel.find('option').remove();
 							$sel.append($('<option value="">— Connect to QuickBooks first —</option>'));
+							var authUrl = res.auth_url;
 							$('#modal .modal-body').prepend(
-								'<div id="vendor_qbo_connect_hint" class="alert alert-info">' +
+								'<div id="vendor_qbo_connect_hint" class="alert alert-info mb-3">' +
 								'<strong>Connect to QuickBooks</strong> — This store is not connected yet (or the connection expired). ' +
 								'<button type="button" class="btn btn-primary btn-sm ml-2" id="modal_qbo_connect_btn">Connect to QuickBooks</button>' +
 								'</div>'
 							);
-							$('#modal #modal_qbo_connect_btn').off('click').on('click', function() {
+							$('#modal').off('click.modal_qbo').on('click.modal_qbo', '#modal_qbo_connect_btn', function() {
 								if (typeof openQboAuthAndRetry === 'function') {
-									openQboAuthAndRetry(res.auth_url, loadQboVendors);
+									openQboAuthAndRetry(authUrl, loadQboVendors);
 								} else {
-									var w = window.open(res.auth_url, 'qbo_oauth', 'width=600,height=700,scrollbars=yes');
+									var w = window.open(authUrl, 'qbo_oauth', 'width=600,height=700,scrollbars=yes');
 									if (w) {
 										var t = setInterval(function() { if (w.closed) { clearInterval(t); loadQboVendors(); } }, 500);
 									} else {
-										window.location.href = res.auth_url;
+										window.location.href = authUrl;
 									}
 								}
 							});

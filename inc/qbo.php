@@ -2,8 +2,8 @@
 /**
  * QuickBooks Online API helpers (using official quickbooks/v3-php-sdk).
  * Tokens are acquired via OAuth2: use qbo-oauth-start (redirects to Intuit) and qbo-oauth-callback (saves tokens).
- * Per-store params (stored after auth): qbo_realm_id, qbo_refresh_token.
- * Optional: qbo_account_id_products (GL 14-100), qbo_account_id_rebates (40-102).
+ * Tokens stored in store table: store.qbo_realm_id, store.qbo_refresh_token (set by OAuth callback).
+ * Optional in store.params: qbo_account_id_products (GL 14-100), qbo_account_id_rebates (40-102).
  * Set QBO_CLIENT_ID, QBO_CLIENT_SECRET, and QBO_REDIRECT_URI (callback URL) in config or env.
  */
 
@@ -20,23 +20,23 @@ if (!class_exists('QuickBooksOnline\API\DataService\DataService', false)) {
 }
 
 /**
- * Get store's QBO params (realm_id, refresh_token, optional account IDs).
+ * Get store's QBO params: realm_id and refresh_token from store columns; account IDs from params.
  * @param int $store_id
  * @return array|null
  */
 function qbo_get_store_params($store_id) {
-    $rs = getRs("SELECT params FROM store WHERE store_id = ? AND " . is_enabled(), array($store_id));
+    $rs = getRs("SELECT params, qbo_realm_id, qbo_refresh_token FROM store WHERE store_id = ? AND " . is_enabled(), array($store_id));
     if (!$rs || !($r = getRow($rs))) {
+        return null;
+    }
+    $realm = isset($r['qbo_realm_id']) ? trim((string)$r['qbo_realm_id']) : '';
+    $refresh = isset($r['qbo_refresh_token']) ? trim((string)$r['qbo_refresh_token']) : '';
+    if ($realm === '' || $refresh === '') {
         return null;
     }
     $params = is_array($r['params']) ? $r['params'] : (is_string($r['params']) ? json_decode($r['params'], true) : array());
     if (!is_array($params)) {
         $params = array();
-    }
-    $realm = isset($params['qbo_realm_id']) ? trim($params['qbo_realm_id']) : '';
-    $refresh = isset($params['qbo_refresh_token']) ? trim($params['qbo_refresh_token']) : '';
-    if ($realm === '' || $refresh === '') {
-        return null;
     }
     return array(
         'realm_id' => $realm,
@@ -57,27 +57,19 @@ function qbo_update_refresh_token($store_id, $new_refresh_token) {
 }
 
 /**
- * Save QBO refresh token and optionally realm_id to the store's params.
+ * Save QBO refresh token and optionally realm_id to store columns (store.qbo_refresh_token, store.qbo_realm_id).
  * Used after OAuth2 callback or when rotating refresh token.
  * @param int $store_id
  * @param string $refresh_token
- * @param string|null $realm_id If provided, updates qbo_realm_id
+ * @param string|null $realm_id If provided, updates store.qbo_realm_id
  * @return bool
  */
 function qbo_save_tokens($store_id, $refresh_token, $realm_id = null) {
-    $rs = getRs("SELECT params FROM store WHERE store_id = ?", array($store_id));
-    if (!$rs || !($r = getRow($rs))) {
-        return false;
-    }
-    $params = is_array($r['params']) ? $r['params'] : (is_string($r['params']) ? json_decode($r['params'], true) : array());
-    if (!is_array($params)) {
-        $params = array();
-    }
-    $params['qbo_refresh_token'] = trim((string)$refresh_token);
+    $update = array('qbo_refresh_token' => trim((string)$refresh_token));
     if ($realm_id !== null && $realm_id !== '') {
-        $params['qbo_realm_id'] = trim((string)$realm_id);
+        $update['qbo_realm_id'] = trim((string)$realm_id);
     }
-    dbUpdate('store', array('params' => json_encode($params)), $store_id, 'store_id');
+    dbUpdate('store', $update, $store_id, 'store_id');
     return true;
 }
 
@@ -123,7 +115,7 @@ function qbo_get_access_token($store_id, &$request_log = null) {
                 'redirect_uri_configured' => $redirect_configured,
                 'hint' => $auth_url === ''
                     ? 'Set QBO_REDIRECT_URI in _config.php to your full callback URL (e.g. https://yoursite.com/ajax/qbo-oauth-callback.php), then reload. Must match Intuit app redirect URI.'
-                    : 'Connect QuickBooks via OAuth2 (open auth_url in popup) or add qbo_realm_id and qbo_refresh_token to store params',
+                    : 'Connect QuickBooks via OAuth2 (click Connect to QuickBooks and authorize in the popup).',
             ),
         );
         return $out;

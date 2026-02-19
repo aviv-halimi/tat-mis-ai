@@ -113,7 +113,7 @@ include_once('inc/header.php');
     <p class="text-muted">No payment term ranges yet. Add one above.</p>
     <?php } ?>
     <?php } elseif ($store_id) { ?>
-    <div class="alert alert-warning">Could not load store or QBO. Ensure the <code>payment_terms</code> table exists in the store DB (run doc/payment_terms-table.sql) and store QBO params are set.</div>
+    <div class="alert alert-warning">Could not load store or QBO. Ensure the <code>payment_terms</code> table exists in the store DB (run doc/payment_terms-table.sql) and the store is connected to QuickBooks (Connect to QuickBooks).</div>
     <?php } ?>
   </div>
 </div>
