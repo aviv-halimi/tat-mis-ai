@@ -350,6 +350,68 @@ function qbo_list_terms($store_id) {
 }
 
 /**
+ * List GL accounts (Account) from QBO for a store.
+ * @param int $store_id
+ * @param string $search Optional search term to filter by account name (substring match).
+ * @return array { success, accounts: [ { id, Name, AccountType?, AccountSubType? } ], error }
+ */
+function qbo_list_accounts($store_id, $search = '') {
+    $token = qbo_get_access_token($store_id);
+    if (!is_array($token) || empty($token['access_token'])) {
+        $err = (is_array($token) && isset($token['error'])) ? $token['error'] : 'QBO not configured or token failed';
+        $out = array('success' => false, 'accounts' => array(), 'error' => $err);
+        _qbo_forward_auth($out, $token);
+        return $out;
+    }
+    try {
+        $dataService = qbo_data_service($token);
+        if (!$dataService) {
+            return array('success' => false, 'accounts' => array(), 'error' => 'Could not create DataService');
+        }
+        $query = 'SELECT * FROM Account MAXRESULTS 1000';
+        if ($search !== null && trim($search) !== '') {
+            $safe = str_replace("'", "''", trim($search));
+            $query = "SELECT * FROM Account WHERE Name LIKE '%" . $safe . "%' MAXRESULTS 1000";
+        }
+        $accountsResult = $dataService->Query($query);
+        $error = $dataService->getLastError();
+        if ($error) {
+            return array(
+                'success' => false,
+                'accounts' => array(),
+                'error' => $error->getResponseBody() ?: $error->getOAuthHelperError() ?: 'QBO API error',
+            );
+        }
+        $list = array();
+        if (is_array($accountsResult)) {
+            foreach ($accountsResult as $a) {
+                $id = is_object($a) ? (isset($a->Id) ? $a->Id : null) : (isset($a['Id']) ? $a['Id'] : null);
+                $name = is_object($a) ? (isset($a->Name) ? $a->Name : '') : (isset($a['Name']) ? $a['Name'] : '');
+                $type = is_object($a) ? (isset($a->AccountType) ? $a->AccountType : '') : (isset($a['AccountType']) ? $a['AccountType'] : '');
+                $subType = is_object($a) ? (isset($a->AccountSubType) ? $a->AccountSubType : '') : (isset($a['AccountSubType']) ? $a['AccountSubType'] : '');
+                if ($id !== null) {
+                    $list[] = array('id' => $id, 'Name' => $name, 'AccountType' => $type, 'AccountSubType' => $subType);
+                }
+            }
+        } elseif (is_object($accountsResult) && isset($accountsResult->Account)) {
+            $arr = is_array($accountsResult->Account) ? $accountsResult->Account : array($accountsResult->Account);
+            foreach ($arr as $a) {
+                $id = is_object($a) ? (isset($a->Id) ? $a->Id : null) : (isset($a['Id']) ? $a['Id'] : null);
+                $name = is_object($a) ? (isset($a->Name) ? $a->Name : '') : (isset($a['Name']) ? $a['Name'] : '');
+                $type = is_object($a) ? (isset($a->AccountType) ? $a->AccountType : '') : (isset($a['AccountType']) ? $a['AccountType'] : '');
+                $subType = is_object($a) ? (isset($a->AccountSubType) ? $a->AccountSubType : '') : (isset($a['AccountSubType']) ? $a['AccountSubType'] : '');
+                if ($id !== null) {
+                    $list[] = array('id' => $id, 'Name' => $name, 'AccountType' => $type, 'AccountSubType' => $subType);
+                }
+            }
+        }
+        return array('success' => true, 'accounts' => $list);
+    } catch (\Exception $e) {
+        return array('success' => false, 'accounts' => array(), 'error' => $e->getMessage());
+    }
+}
+
+/**
  * Get the display name of a QBO Term by Id.
  * @param int $store_id
  * @param string $term_id QBO Term Id
