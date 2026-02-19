@@ -521,7 +521,13 @@ if (isset($t['po_status_id']) && (int)$t['po_status_id'] >= 5 && !empty($t['stor
     $qbo_term_display = $pt_lookup['qbo_term_name'] !== '' ? $pt_lookup['qbo_term_name'] : '—';
     $invoice_terms_po = ($_payment_terms !== '' && $_payment_terms !== null) ? (int)$_payment_terms : '—';
     $vendor_term = qbo_get_vendor_term_ref($t['store_id'], $qbo_id);
-    $qbo_terms_display = (!empty($vendor_term['term_ref_id'])) ? $vendor_term['term_ref_id'] : '—';
+    $qbo_terms_display = '—';
+    if (!empty($vendor_term['term_ref_id'])) {
+      $qbo_terms_display = qbo_get_term_name($t['store_id'], $vendor_term['term_ref_id']);
+      if ($qbo_terms_display === '') {
+        $qbo_terms_display = $vendor_term['term_ref_id'];
+      }
+    }
     $invoice_terms_log_line = 'Invoice Terms: ' . $invoice_terms_po . ' || QBO Payment Terms: ' . $qbo_terms_display;
   } else {
     $qbo_term_display = '—';

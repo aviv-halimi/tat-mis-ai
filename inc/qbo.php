@@ -291,6 +291,37 @@ function qbo_list_terms($store_id) {
 }
 
 /**
+ * Get the display name of a QBO Term by Id.
+ * @param int $store_id
+ * @param string $term_id QBO Term Id
+ * @return string Term name or empty string on failure
+ */
+function qbo_get_term_name($store_id, $term_id) {
+    if ($term_id === '' || $term_id === null) {
+        return '';
+    }
+    $token = qbo_get_access_token($store_id);
+    if (!is_array($token) || empty($token['access_token'])) {
+        return '';
+    }
+    try {
+        $dataService = qbo_data_service($token);
+        if (!$dataService) {
+            return '';
+        }
+        $term = $dataService->FindById('Term', $term_id);
+        $error = $dataService->getLastError();
+        if ($error || !$term) {
+            return '';
+        }
+        $name = is_object($term) ? (isset($term->Name) ? $term->Name : '') : (isset($term['Name']) ? $term['Name'] : '');
+        return $name !== null ? trim((string)$name) : '';
+    } catch (\Exception $e) {
+        return '';
+    }
+}
+
+/**
  * Look up QBO Term Id for a store by payment_terms (days). Uses store's payment_terms table (min_days <= days <= max_days).
  * @param string $store_db Store database name (e.g. blaze1)
  * @param int|null $payment_terms_days PO payment_terms (days) or null
