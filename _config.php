@@ -19,6 +19,7 @@ define('dbhost', 'mysql:host=172.26.5.61;dbname=theartisttree;');
 define('dbuser', 'dbuser');
 define('dbpass', 'Vtbk518&');
 define('MEDIA_PATH', '/var/www/vhosts/wantadigital.com/media/theartisttree/');
+define('QBO_REDIRECT_URI', 'https://mis-ai.theartisttree.com/ajax/qbo-oauth-callback.php');
 
 //define('QBO_CLIENT_ID','ABlCQrnxy6yYXtHToWKxfdbPdhv76gXdk0iHRK1G6pk7x5cvDs');
 //define('QBO_CLIENT_SECRET','P5LtNoBtVXFz6yDNu20lmsGSE2mnpbEV507d6RCS');
