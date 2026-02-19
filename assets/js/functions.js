@@ -277,14 +277,37 @@ function updateDialog2(url, title, a, c) {
 			if (storeId && $sel.length) {
 				function loadQboVendors() {
 					$.post('/ajax/qbo-vendors.php', { store_id: storeId }, function(res) {
+						$('#modal #vendor_qbo_connect_hint').remove();
 						if (res.needs_authorization && res.auth_url) {
-							openQboAuthAndRetry(res.auth_url, loadQboVendors);
+							$sel.find('option').remove();
+							$sel.append($('<option value="">— Connect to QuickBooks first —</option>'));
+							$('#modal .modal-body').prepend(
+								'<div id="vendor_qbo_connect_hint" class="alert alert-info">' +
+								'<strong>Connect to QuickBooks</strong> — This store is not connected yet (or the connection expired). ' +
+								'<button type="button" class="btn btn-primary btn-sm ml-2" id="modal_qbo_connect_btn">Connect to QuickBooks</button>' +
+								'</div>'
+							);
+							$('#modal #modal_qbo_connect_btn').off('click').on('click', function() {
+								if (typeof openQboAuthAndRetry === 'function') {
+									openQboAuthAndRetry(res.auth_url, loadQboVendors);
+								} else {
+									var w = window.open(res.auth_url, 'qbo_oauth', 'width=600,height=700,scrollbars=yes');
+									if (w) {
+										var t = setInterval(function() { if (w.closed) { clearInterval(t); loadQboVendors(); } }, 500);
+									} else {
+										window.location.href = res.auth_url;
+									}
+								}
+							});
+							if (typeof $sel.select2 === 'function') {
+								if ($sel.hasClass('select2-hidden-accessible')) $sel.select2('destroy');
+								$sel.select2({ dropdownParent: $('#modal'), minimumResultsForSearch: 0, width: '100%' });
+							}
 							return;
 						}
 						if (res.needs_authorization && !res.auth_url) {
 							$sel.find('option').remove();
 							$sel.append($('<option value="">Set QBO_REDIRECT_URI in config, or connect from Vendor Mapping page</option>'));
-							$('#modal #vendor_qbo_connect_hint').remove();
 							$('#modal .modal-body').prepend('<div id="vendor_qbo_connect_hint" class="alert alert-info">QuickBooks not connected. Set QBO_REDIRECT_URI in _config.php, or go to Vendor → QBO Mapping, select this store, and click Connect to QuickBooks.</div>');
 							if (typeof $sel.select2 === 'function') {
 								if ($sel.hasClass('select2-hidden-accessible')) $sel.select2('destroy');

@@ -1,11 +1,16 @@
 <?php
 require_once ('./_config.php');
 
-$ks = array('po_email', 'po_scheduling_email', 'max_daily_deliveries', 'target_days_of_inventory', 'daily_sales_lookback_period', 'appointment_duration', 'po_scheduled_email_bcc','boh_email', 'nabis_vendor_id', 'default_markup','qbo_realm_id','qbo_refresh_token','qbo_account_id_products','qbo_account_id_rebates');
+// Editable keys only. qbo_realm_id and qbo_refresh_token are set by OAuth (Connect to QuickBooks), not here.
+$ks = array('po_email', 'po_scheduling_email', 'max_daily_deliveries', 'target_days_of_inventory', 'daily_sales_lookback_period', 'appointment_duration', 'po_scheduled_email_bcc','boh_email', 'nabis_vendor_id', 'default_markup', 'qbo_account_id_products', 'qbo_account_id_rebates');
 
 if (isset($_POST['TableName'])) {
-    $params = array();
-    foreach($ks as $k) {
+    $rs = getRs("SELECT params FROM store WHERE store_id = ?", array($_Session->store_id));
+    $params = ($rs && ($row = getRow($rs)) && !empty($row['params'])) ? json_decode($row['params'], true) : array();
+    if (!is_array($params)) {
+        $params = array();
+    }
+    foreach ($ks as $k) {
         $params[$k] = getVar($k);
     }
     dbUpdate('store', array('params' => json_encode($params)), $_Session->store_id);
