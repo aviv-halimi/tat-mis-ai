@@ -109,16 +109,21 @@ function qbo_get_access_token($store_id, &$request_log = null) {
     if (!$params) {
         $rs = getRs("SELECT params FROM store WHERE store_id = ? AND " . is_enabled(), array($store_id));
         $has_store = $rs && getRow($rs);
+        $redirect_configured = (defined('QBO_REDIRECT_URI') && QBO_REDIRECT_URI !== '') || (defined('SITE_URL') && SITE_URL !== '');
         $out = array(
             'success' => false,
             'error' => 'Store QBO params missing or invalid',
-            'needs_authorization' => $auth_url !== '',
+            'needs_authorization' => true,
             'auth_url' => $auth_url,
             'debug' => array(
                 'step' => 'qbo_get_store_params',
                 'store_id' => $store_id,
                 'store_found' => (bool)$has_store,
-                'hint' => 'Connect QuickBooks via OAuth2 (open auth_url in popup) or add qbo_realm_id and qbo_refresh_token to store params',
+                'auth_url_empty' => $auth_url === '',
+                'redirect_uri_configured' => $redirect_configured,
+                'hint' => $auth_url === ''
+                    ? 'Set QBO_REDIRECT_URI in _config.php to your full callback URL (e.g. https://yoursite.com/ajax/qbo-oauth-callback.php), then reload. Must match Intuit app redirect URI.'
+                    : 'Connect QuickBooks via OAuth2 (open auth_url in popup) or add qbo_realm_id and qbo_refresh_token to store params',
             ),
         );
         return $out;
@@ -223,13 +228,17 @@ function qbo_data_service($token) {
 
 /**
  * Merge needs_authorization and auth_url from token into an error result for client popup/retry.
+ * Forwards even when auth_url is empty so the client can show "set QBO_REDIRECT_URI" hint.
  * @param array $out Result array (by reference)
  * @param array|null $token Result from qbo_get_access_token
  */
 function _qbo_forward_auth(&$out, $token) {
-    if (is_array($token) && !empty($token['needs_authorization']) && isset($token['auth_url']) && $token['auth_url'] !== '') {
-        $out['needs_authorization'] = true;
-        $out['auth_url'] = $token['auth_url'];
+    if (!is_array($token)) {
+        return;
+    }
+    if (!empty($token['needs_authorization']) || isset($token['auth_url'])) {
+        $out['needs_authorization'] = !empty($token['needs_authorization']);
+        $out['auth_url'] = isset($token['auth_url']) ? $token['auth_url'] : '';
     }
 }
 

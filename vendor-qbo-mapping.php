@@ -52,8 +52,10 @@ if ($store_id) {
         }
     }
 }
-$qbo_needs_auth = !empty($store_id) && !empty($qbo_result['needs_authorization']) && isset($qbo_result['auth_url']) && $qbo_result['auth_url'] !== '';
-$qbo_auth_url = $qbo_needs_auth ? $qbo_result['auth_url'] : '';
+$qbo_show_connect = !empty($store_id) && isset($qbo_result['success']) && !$qbo_result['success']
+    && (isset($qbo_result['needs_authorization']) || isset($qbo_result['auth_url']) || (isset($qbo_result['error']) && strpos((string)$qbo_result['error'], 'params missing') !== false));
+$qbo_auth_url = isset($qbo_result['auth_url']) ? $qbo_result['auth_url'] : '';
+$qbo_has_auth_url = $qbo_auth_url !== '';
 
 include_once('inc/header.php');
 ?>
@@ -80,9 +82,9 @@ include_once('inc/header.php');
     <?php if ($store_id && !empty($debug_log)) { ?>
     <div class="panel panel-default mt-3">
       <div class="panel-heading">
-        <a href="javascript:;" data-toggle="collapse" data-target="#vendor_qbo_debug" class="panel-title collapsed">Troubleshooting log (API / query results)</a>
+        <a href="javascript:;" data-toggle="collapse" data-target="#vendor_qbo_debug" class="panel-title <?php echo $qbo_show_connect ? '' : 'collapsed'; ?>">Troubleshooting log (API / query results)</a>
       </div>
-      <div id="vendor_qbo_debug" class="panel-collapse collapse">
+      <div id="vendor_qbo_debug" class="panel-collapse <?php echo $qbo_show_connect ? 'in' : 'collapse'; ?>">
         <div class="panel-body">
           <p class="text-muted mb-2"><strong>Last save (AJAX)</strong> — updated when you click Save</p>
           <pre id="vendor_qbo_ajax_log" class="mb-3" style="white-space: pre-wrap; word-break: break-all; font-size: 12px; min-height: 2em;">No save attempt yet.</pre>
@@ -93,11 +95,18 @@ include_once('inc/header.php');
     </div>
     <?php } ?>
 
-    <?php if ($qbo_needs_auth) { ?>
+    <?php if ($qbo_show_connect) { ?>
     <div class="alert alert-info mb-3" id="vendor_qbo_connect_alert">
       <strong>Connect to QuickBooks</strong> — This store is not connected to QuickBooks yet (or the connection expired).
-      <button type="button" class="btn btn-primary ml-2" id="vendor_qbo_connect_btn">Connect to QuickBooks</button>
+      <?php if ($qbo_has_auth_url) { ?>
+      <span class="d-inline-block mt-2">Click the button to open the authorization page in a new window, then return here.</span>
+      <button type="button" class="btn btn-primary ml-2 mt-2" id="vendor_qbo_connect_btn">Connect to QuickBooks</button>
+      <?php } else { ?>
+      <p class="mb-0 mt-2"><strong>To enable the Connect button:</strong> set <code>QBO_REDIRECT_URI</code> in <code>_config.php</code> to your full callback URL (e.g. <code>https://yourdomain.com/ajax/qbo-oauth-callback.php</code>). It must match the redirect URI in your Intuit Developer app. Then reload this page.</p>
+      <p class="mb-0 small text-muted">See the Troubleshooting log below for debug details (auth_url_empty, redirect_uri_configured).</p>
+      <?php } ?>
     </div>
+    <?php if ($qbo_has_auth_url) { ?>
     <script>
     (function() {
       var authUrl = <?php echo json_encode($qbo_auth_url); ?>;
@@ -109,6 +118,7 @@ include_once('inc/header.php');
       }
     })();
     </script>
+    <?php } ?>
     <?php } ?>
 
     <?php if ($store_id && $store_db) { ?>
@@ -148,7 +158,7 @@ include_once('inc/header.php');
     <?php if (empty($vendors)) { ?>
     <p class="text-muted">No vendors found for this store.</p>
     <?php } ?>
-    <?php } elseif ($store_id && !$qbo_needs_auth) { ?>
+    <?php } elseif ($store_id && !$qbo_show_connect) { ?>
     <div class="alert alert-warning">Could not load store or QBO not configured. Check store params (qbo_realm_id, qbo_refresh_token) and QBO_CLIENT_ID / QBO_CLIENT_SECRET.</div>
     <?php } ?>
   </div>

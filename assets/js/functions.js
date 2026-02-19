@@ -281,6 +281,17 @@ function updateDialog2(url, title, a, c) {
 							openQboAuthAndRetry(res.auth_url, loadQboVendors);
 							return;
 						}
+						if (res.needs_authorization && !res.auth_url) {
+							$sel.find('option').remove();
+							$sel.append($('<option value="">Set QBO_REDIRECT_URI in config, or connect from Vendor Mapping page</option>'));
+							$('#modal #vendor_qbo_connect_hint').remove();
+							$('#modal .modal-body').prepend('<div id="vendor_qbo_connect_hint" class="alert alert-info">QuickBooks not connected. Set QBO_REDIRECT_URI in _config.php, or go to Vendor → QBO Mapping, select this store, and click Connect to QuickBooks.</div>');
+							if (typeof $sel.select2 === 'function') {
+								if ($sel.hasClass('select2-hidden-accessible')) $sel.select2('destroy');
+								$sel.select2({ dropdownParent: $('#modal'), minimumResultsForSearch: 0, width: '100%' });
+							}
+							return;
+						}
 						$sel.find('option').remove();
 						$sel.append($('<option value="">— Select QBO vendor —</option>'));
 						if (res.success && res.vendors && res.vendors.length) {
