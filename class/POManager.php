@@ -1357,6 +1357,14 @@ class POManager extends SessionManager {
                   }
                 }
                 if (!str_len($response)) {
+                  $validation = null;
+                  if ($po_status_id == 5 && !getVarA('force_continue', $_p)) {
+                    require_once dirname(__FILE__) . '/../inc/ai-invoice-gemini.php';
+                    $validation = runInvoiceValidationForPO($po_id);
+                    if (!$validation['matched']) {
+                      return array('success' => false, 'show_validation_warning' => true, 'po_total' => $validation['r_total'], 'ai_total' => $validation['ai_total'], 'po_code' => $po_code, 'back' => $back ? 1 : 0, 'response' => 'AI validation mismatch');
+                    }
+                  }
                   $params = array('po_status_id' => $po_status_id);
                   if ($p['admin_field']) $params[$p['admin_field']] = $_admin_id;
                   dbUpdate('po', $params, $po_id);
@@ -1382,9 +1390,7 @@ class POManager extends SessionManager {
                     setRs("UPDATE po SET po_event_status_id = 3 WHERE po_event_status_id < 3 AND po_id = ?", array($po_id));
                     setRs("UPDATE po_event SET po_event_status_id = 3 WHERE po_event_status_id < 3 AND po_id = ?", array($po_id));
                   }
-                  else if ($po_status_id == 5) {
-                    require_once dirname(__FILE__) . '/../inc/ai-invoice-gemini.php';
-                    $validation = runInvoiceValidationForPO($po_id);
+                  else if ($po_status_id == 5 && $validation !== null) {
                     if (!empty($validation['debug_log'])) {
                       $note = 'AI Invoice Validation: ' . ($validation['matched'] ? 'Match' : 'No match') . "\n\n" . implode("\n", $validation['debug_log']);
                       $this->SavePONote($po_id, $note, $_admin_id);

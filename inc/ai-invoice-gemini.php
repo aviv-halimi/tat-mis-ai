@@ -151,14 +151,15 @@ PROMPT;
 
 /**
  * Run invoice validation for a single PO (e.g. when status is pushed to 5).
- * Loads PO r_total and invoice file, calls Gemini, updates invoice_validated and payment_terms.
- * Returns array('matched' => bool, 'ai_total' => float|null, 'payment_terms' => int|null, 'debug_log' => array) for optional use.
+ * Loads PO r_total and invoice file, calls Gemini, updates invoice_validated and payment_terms (unless $check_only).
+ * Returns array('matched' => bool, 'ai_total' => float|null, 'r_total' => float|null, 'payment_terms' => int|null, 'debug_log' => array) for optional use.
+ * When $check_only is true, no DB updates are performed; r_total is always set when PO row exists (for mismatch modal).
  */
-function runInvoiceValidationForPO($po_id)
+function runInvoiceValidationForPO($po_id, $check_only = false)
 {
     $po_id = (int) $po_id;
     if ($po_id <= 0) {
-        return array('matched' => false, 'ai_total' => null, 'payment_terms' => null, 'debug_log' => array());
+        return array('matched' => false, 'ai_total' => null, 'r_total' => null, 'payment_terms' => null, 'debug_log' => array());
     }
     $rs = getRs(
         "SELECT po.po_id, (po.r_total - COALESCE(SUM(pd.discount_amount), 0)) AS r_total, po.invoice_filename
@@ -170,18 +171,20 @@ function runInvoiceValidationForPO($po_id)
     );
     $r = getRow($rs);
     if (!$r) {
-        return array('matched' => false, 'ai_total' => null, 'payment_terms' => null, 'debug_log' => array());
+        return array('matched' => false, 'ai_total' => null, 'r_total' => null, 'payment_terms' => null, 'debug_log' => array());
     }
+    $r_total = (float) $r['r_total'];
     $full_path = MEDIA_PATH . 'po/' . $r['invoice_filename'];
     if (!file_exists($full_path)) {
-        return array('matched' => false, 'ai_total' => null, 'payment_terms' => null, 'debug_log' => array('Invoice file not found: ' . $full_path));
+        return array('matched' => false, 'ai_total' => null, 'r_total' => $r_total, 'payment_terms' => null, 'debug_log' => array('Invoice file not found: ' . $full_path));
     }
     $debug_log = array();
     $result = parseInvoiceFromPdfGemini($full_path, $debug_log);
-    $r_total = (float) $r['r_total'];
     if ($result === null || !isset($result['total'])) {
-        dbUpdate('po', array('invoice_validated' => 0, 'ai_total' => null), $po_id);
-        return array('matched' => false, 'ai_total' => null, 'payment_terms' => null, 'debug_log' => $debug_log);
+        if (!$check_only) {
+            dbUpdate('po', array('invoice_validated' => 0, 'ai_total' => null), $po_id);
+        }
+        return array('matched' => false, 'ai_total' => null, 'r_total' => $r_total, 'payment_terms' => null, 'debug_log' => $debug_log);
     }
     $ai_total = (float) $result['total'];
     $payment_terms = array_key_exists('payment_terms', $result) && $result['payment_terms'] !== null ? (int) $result['payment_terms'] : null;
@@ -190,6 +193,11 @@ function runInvoiceValidationForPO($po_id)
     $add_auto_discount = ($matched && $variance != 0 && abs($variance) < 5);
 
     $debug_log[] = 'Result: AI total=' . $ai_total . ', DB r_total=' . $r_total . ', payment_terms=' . ($payment_terms !== null ? $payment_terms : 'null') . ', ' . ($matched ? 'Match' : 'No match') . ($add_auto_discount ? ', adding auto-adjustment ' . number_format($variance, 2) . ' (negative = credit to match invoice)' : '');
+
+    if ($check_only) {
+        return array('matched' => $matched, 'ai_total' => $ai_total, 'r_total' => $r_total, 'payment_terms' => $payment_terms, 'debug_log' => $debug_log);
+    }
+
     if ($matched) {
         $update = array('invoice_validated' => 1, 'ai_total' => $ai_total);
         if ($payment_terms !== null) {
@@ -199,7 +207,7 @@ function runInvoiceValidationForPO($po_id)
     } else {
         dbUpdate('po', array('invoice_validated' => 0, 'ai_total' => $ai_total), $po_id);
     }
-    $out = array('matched' => $matched, 'ai_total' => $ai_total, 'payment_terms' => $payment_terms, 'debug_log' => $debug_log);
+    $out = array('matched' => $matched, 'ai_total' => $ai_total, 'r_total' => $r_total, 'payment_terms' => $payment_terms, 'debug_log' => $debug_log);
     if ($add_auto_discount) {
         $out['add_auto_discount'] = true;
         $out['discount_amount'] = round($variance, 2);

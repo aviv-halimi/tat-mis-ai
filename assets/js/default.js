@@ -554,14 +554,38 @@ function initAssets(select2) {
         postAjax('po-status', {po_code: $this.data('c'), back: $this.data('d')}, 'status_po', function(data) {
         }, function(data) { 
           $('.btn-status').show();
-          if (data.click) {
+          if (data && data.show_validation_warning) {
+            var poTotal = (data.po_total != null && data.po_total !== '') ? parseFloat(data.po_total).toFixed(2) : '—';
+            var aiTotal = (data.ai_total != null && data.ai_total !== '') ? parseFloat(data.ai_total).toFixed(2) : '—';
+            Swal.fire({
+              icon: 'warning',
+              title: 'Invoice / PO mismatch',
+              html: 'The AI analysis of this PO and Invoice PDF show a mismatch. While AI validation isn\'t always 100% accurate, the system determined PO total is <b>' + poTotal + '</b> but the amount due on the invoice is <b>' + aiTotal + '</b>. Do you still want to continue?',
+              showCancelButton: true,
+              confirmButtonText: 'Proceed Anyway',
+              cancelButtonText: 'Go Back',
+              confirmButtonColor: '#3085d6',
+              cancelButtonColor: '#d33'
+            }).then((result) => {
+              if (result.value) {
+                $('#status_po').addClass('mb-2');
+                postAjax('po-status', {po_code: data.po_code, back: data.back, force_continue: 1}, 'status_po', function(d) {}, function(d) {
+                  $('.btn-status').show();
+                  if (d && d.click) $(d.click).trigger('click');
+                  else Swal.fire({ icon: 'error', title: 'Something went wrong ...', text: (d && d.response) || '' });
+                });
+              }
+            });
+            return;
+          }
+          if (data && data.click) {
             $(data.click).trigger('click');
           }
           else {       
             Swal.fire({
               icon: 'error',
               title: 'Something went wrong ...',
-              text: data.response
+              text: (data && data.response) || ''
             });
           }
         });
