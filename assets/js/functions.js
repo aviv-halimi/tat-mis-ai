@@ -7,11 +7,18 @@ function bindForm(f, callback, callback2, path) {
 		var $btns = $('#f_' + f + ' .form-btns');
 		$btns.hide();
 		$form.find('.status').attr('id', 'status_' + f);
-		postAjaxFunc(path + f, $(this).serialize(), 'status_' + f, function(data) {
+		postAjaxFunc(path + f, $form.serialize(), 'status_' + f, function(data) {
 			if (typeof callback === 'function') callback(data);
 		}, function(data) {
+			if (data && data.needs_authorization && data.auth_url) {
+				openQboAuthAndRetry(data.auth_url, function() {
+					$form.trigger('submit');
+				});
+				return;
+			}
 			resetCaptcha();
 			$btns.show();
+			if (typeof callback2 === 'function') callback2(data);
 		});
 	});
 }
@@ -20,6 +27,34 @@ function abortAjax(a) {
 	if (a) {
 		a.abort();
 	}
+}
+
+/**
+ * Open QBO OAuth in a popup; on success (postMessage or window close) run retryFn.
+ * @param {string} authUrl - URL to open (qbo-oauth-start.php?store_id=...)
+ * @param {function} retryFn - Called after user authorizes or closes the window
+ */
+function openQboAuthAndRetry(authUrl, retryFn) {
+	var w = window.open(authUrl, 'qbo_oauth', 'width=600,height=700,scrollbars=yes');
+	if (!w) {
+		// Popup blocked: fallback to same window
+		window.location.href = authUrl;
+		return;
+	}
+	function onDone() {
+		window.removeEventListener('message', onMessage);
+		if (typeof retryFn === 'function') retryFn();
+	}
+	function onMessage(ev) {
+		if (ev.data === 'qbo-auth-done') onDone();
+	}
+	window.addEventListener('message', onMessage);
+	var checkClosed = setInterval(function() {
+		if (w.closed) {
+			clearInterval(checkClosed);
+			onDone();
+		}
+	}, 500);
 }
 
 function postAjax(url, data, status, callback, callback_error) {
@@ -239,26 +274,35 @@ function updateDialog2(url, title, a, c) {
 		if (url === 'po-qbo-map-vendor') {
 			var storeId = $('#modal #qbo_map_store_id').val();
 			var $sel = $('#modal #qbo_vendor_id');
-			if (storeId && $sel.length && typeof $sel.select2 === 'function') {
-				$.post('/ajax/qbo-vendors.php', { store_id: storeId }, function(res) {
-					$sel.find('option').remove();
-					$sel.append($('<option value="">— Select QBO vendor —</option>'));
-					if (res.success && res.vendors && res.vendors.length) {
-						res.vendors.forEach(function(v) {
-							$sel.append($('<option></option>').attr('value', v.id).text(v.DisplayName));
-						});
-					} else {
-						$sel.append($('<option value="">' + (res.error || 'No vendors or error') + '</option>'));
-					}
-					if ($sel.hasClass('select2-hidden-accessible')) {
-						$sel.select2('destroy');
-					}
-					$sel.select2({
-						dropdownParent: $('#modal'),
-						minimumResultsForSearch: 0,
-						width: '100%'
-					});
-				}, 'json');
+			if (storeId && $sel.length) {
+				function loadQboVendors() {
+					$.post('/ajax/qbo-vendors.php', { store_id: storeId }, function(res) {
+						if (res.needs_authorization && res.auth_url) {
+							openQboAuthAndRetry(res.auth_url, loadQboVendors);
+							return;
+						}
+						$sel.find('option').remove();
+						$sel.append($('<option value="">— Select QBO vendor —</option>'));
+						if (res.success && res.vendors && res.vendors.length) {
+							res.vendors.forEach(function(v) {
+								$sel.append($('<option></option>').attr('value', v.id).text(v.DisplayName));
+							});
+						} else {
+							$sel.append($('<option value="">' + (res.error || 'No vendors or error') + '</option>'));
+						}
+						if (typeof $sel.select2 === 'function') {
+							if ($sel.hasClass('select2-hidden-accessible')) {
+								$sel.select2('destroy');
+							}
+							$sel.select2({
+								dropdownParent: $('#modal'),
+								minimumResultsForSearch: 0,
+								width: '100%'
+							});
+						}
+					}, 'json');
+				}
+				loadQboVendors();
 			}
 		}
 	})

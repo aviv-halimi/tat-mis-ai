@@ -1,9 +1,10 @@
 <?php
 /**
  * QuickBooks Online API helpers (using official quickbooks/v3-php-sdk).
- * Requires per-store params: qbo_realm_id, qbo_refresh_token.
+ * Tokens are acquired via OAuth2: use qbo-oauth-start (redirects to Intuit) and qbo-oauth-callback (saves tokens).
+ * Per-store params (stored after auth): qbo_realm_id, qbo_refresh_token.
  * Optional: qbo_account_id_products (GL 14-100), qbo_account_id_rebates (40-102).
- * Set QBO_CLIENT_ID and QBO_CLIENT_SECRET in env or define in config.
+ * Set QBO_CLIENT_ID, QBO_CLIENT_SECRET, and QBO_REDIRECT_URI (callback URL) in config or env.
  */
 
 if (!defined('BASE_PATH')) {
@@ -52,6 +53,18 @@ function qbo_get_store_params($store_id) {
  * @return bool
  */
 function qbo_update_refresh_token($store_id, $new_refresh_token) {
+    return qbo_save_tokens($store_id, $new_refresh_token, null);
+}
+
+/**
+ * Save QBO refresh token and optionally realm_id to the store's params.
+ * Used after OAuth2 callback or when rotating refresh token.
+ * @param int $store_id
+ * @param string $refresh_token
+ * @param string|null $realm_id If provided, updates qbo_realm_id
+ * @return bool
+ */
+function qbo_save_tokens($store_id, $refresh_token, $realm_id = null) {
     $rs = getRs("SELECT params FROM store WHERE store_id = ?", array($store_id));
     if (!$rs || !($r = getRow($rs))) {
         return false;
@@ -60,9 +73,28 @@ function qbo_update_refresh_token($store_id, $new_refresh_token) {
     if (!is_array($params)) {
         $params = array();
     }
-    $params['qbo_refresh_token'] = trim($new_refresh_token);
+    $params['qbo_refresh_token'] = trim((string)$refresh_token);
+    if ($realm_id !== null && $realm_id !== '') {
+        $params['qbo_realm_id'] = trim((string)$realm_id);
+    }
     dbUpdate('store', array('params' => json_encode($params)), $store_id, 'store_id');
     return true;
+}
+
+/**
+ * Return the URL to start QBO OAuth2 (opens in popup; that page redirects to Intuit).
+ * Requires QBO_REDIRECT_URI or SITE_URL to be set for the callback URL.
+ * @param int $store_id
+ * @return string Empty if redirect URI not configured
+ */
+function qbo_get_auth_url($store_id) {
+    $base = defined('QBO_REDIRECT_URI') && QBO_REDIRECT_URI !== ''
+        ? rtrim(preg_replace('#/ajax/qbo-oauth-callback\.php.*$#', '', QBO_REDIRECT_URI), '/')
+        : (defined('SITE_URL') && SITE_URL !== '' ? rtrim(SITE_URL, '/') : '');
+    if ($base === '') {
+        return '';
+    }
+    return $base . '/ajax/qbo-oauth-start.php?store_id=' . (int)$store_id;
 }
 
 /**
@@ -76,16 +108,19 @@ function qbo_get_access_token($store_id, &$request_log = null) {
     if (!$params) {
         $rs = getRs("SELECT params FROM store WHERE store_id = ? AND " . is_enabled(), array($store_id));
         $has_store = $rs && getRow($rs);
-        return array(
+        $out = array(
             'success' => false,
             'error' => 'Store QBO params missing or invalid',
+            'needs_authorization' => $auth_url !== '',
+            'auth_url' => $auth_url,
             'debug' => array(
                 'step' => 'qbo_get_store_params',
                 'store_id' => $store_id,
                 'store_found' => (bool)$has_store,
-                'hint' => 'Store params (JSON) must include qbo_realm_id and qbo_refresh_token',
+                'hint' => 'Connect QuickBooks via OAuth2 (open auth_url in popup) or add qbo_realm_id and qbo_refresh_token to store params',
             ),
         );
+        return $out;
     }
     $client_id = defined('QBO_CLIENT_ID') ? QBO_CLIENT_ID : (getenv('QBO_CLIENT_ID') ?: '');
     $client_secret = defined('QBO_CLIENT_SECRET') ? QBO_CLIENT_SECRET : (getenv('QBO_CLIENT_SECRET') ?: '');
@@ -101,6 +136,7 @@ function qbo_get_access_token($store_id, &$request_log = null) {
             ),
         );
     }
+    $auth_url = function_exists('qbo_get_auth_url') ? qbo_get_auth_url($store_id) : '';
     if (is_array($request_log)) {
         $request_log[] = array(
             'label' => '1. OAuth token (refresh)',
@@ -126,10 +162,13 @@ function qbo_get_access_token($store_id, &$request_log = null) {
         );
     } catch (\QuickBooksOnline\API\Exception\ServiceException $e) {
         $msg = $e->getMessage();
-        $hint = 'Check refresh_token is valid and not revoked. If invalid_grant / Incorrect Token type or clientID: use REFRESH token (not access token) and ensure QBO_CLIENT_ID/QBO_CLIENT_SECRET match the app that issued the token.';
+        $needs_auth = (stripos($msg, 'invalid_grant') !== false || stripos($msg, 'refresh') !== false) && $auth_url !== '';
+        $hint = 'Check refresh_token is valid and not revoked. If invalid_grant: re-authorize via OAuth2 (open auth_url in popup).';
         return array(
             'success' => false,
             'error' => 'OAuth refresh failed: ' . $msg,
+            'needs_authorization' => $needs_auth,
+            'auth_url' => $auth_url,
             'debug' => array(
                 'step' => 'oauth_refresh_token',
                 'sdk_used' => true,
@@ -138,13 +177,17 @@ function qbo_get_access_token($store_id, &$request_log = null) {
             ),
         );
     } catch (\Exception $e) {
+        $msg = $e->getMessage();
+        $needs_auth = (stripos($msg, 'invalid_grant') !== false || stripos($msg, 'refresh') !== false) && $auth_url !== '';
         return array(
             'success' => false,
-            'error' => 'OAuth refresh failed: ' . $e->getMessage(),
+            'error' => 'OAuth refresh failed: ' . $msg,
+            'needs_authorization' => $needs_auth,
+            'auth_url' => $auth_url,
             'debug' => array(
                 'step' => 'oauth_refresh_token',
                 'sdk_used' => true,
-                'exception_message' => $e->getMessage(),
+                'exception_message' => $msg,
             ),
         );
     }
@@ -179,9 +222,21 @@ function qbo_data_service($token) {
 }
 
 /**
+ * Merge needs_authorization and auth_url from token into an error result for client popup/retry.
+ * @param array $out Result array (by reference)
+ * @param array|null $token Result from qbo_get_access_token
+ */
+function _qbo_forward_auth(&$out, $token) {
+    if (is_array($token) && !empty($token['needs_authorization']) && isset($token['auth_url']) && $token['auth_url'] !== '') {
+        $out['needs_authorization'] = true;
+        $out['auth_url'] = $token['auth_url'];
+    }
+}
+
+/**
  * List vendors from QBO for a store (using SDK).
  * @param int $store_id
- * @return array { success, vendors: [ { id, DisplayName } ], error, request_log? }
+ * @return array { success, vendors: [ { id, DisplayName } ], error, request_log?, needs_authorization?, auth_url? }
  */
 function qbo_list_vendors($store_id) {
     $request_log = array();
@@ -193,6 +248,7 @@ function qbo_list_vendors($store_id) {
             $out['debug'] = $token['debug'];
         }
         $out['request_log'] = $request_log;
+        _qbo_forward_auth($out, $token);
         return $out;
     }
     if (is_array($request_log)) {
@@ -258,7 +314,9 @@ function qbo_list_terms($store_id) {
     $token = qbo_get_access_token($store_id);
     if (!is_array($token) || empty($token['access_token'])) {
         $err = (is_array($token) && isset($token['error'])) ? $token['error'] : 'QBO not configured or token failed';
-        return array('success' => false, 'terms' => array(), 'error' => $err);
+        $out = array('success' => false, 'terms' => array(), 'error' => $err);
+        _qbo_forward_auth($out, $token);
+        return $out;
     }
     try {
         $dataService = qbo_data_service($token);
@@ -415,7 +473,9 @@ function qbo_get_vendor_term_ref($store_id, $vendor_ref_id) {
     $vendor_ref_id = trim((string)$vendor_ref_id);
     $token = qbo_get_access_token($store_id);
     if (!is_array($token) || empty($token['access_token'])) {
-        return array('success' => false, 'term_ref_id' => null, 'error' => 'QBO not configured or token failed');
+        $out = array('success' => false, 'term_ref_id' => null, 'error' => 'QBO not configured or token failed');
+        _qbo_forward_auth($out, $token);
+        return $out;
     }
     try {
         $dataService = qbo_data_service($token);
@@ -482,7 +542,9 @@ function qbo_create_bill($store_id, $vendor_ref_id, $subtotal, $discounts, $doc_
     $token = qbo_get_access_token($store_id);
     if (!is_array($token) || empty($token['access_token'])) {
         $err = (is_array($token) && isset($token['error'])) ? $token['error'] : 'QBO not configured or token failed';
-        return array('success' => false, 'error' => $err);
+        $out = array('success' => false, 'error' => $err);
+        _qbo_forward_auth($out, $token);
+        return $out;
     }
     $account_products = $token['account_id_products'];
     $account_rebates = $token['account_id_rebates'];
@@ -561,7 +623,9 @@ function qbo_attach_file_to_bill($store_id, $bill_id, $file_path, $file_name = '
     }
     $token = qbo_get_access_token($store_id);
     if (!is_array($token) || empty($token['access_token'])) {
-        return array('success' => false, 'error' => 'QBO not configured or token failed');
+        $out = array('success' => false, 'error' => 'QBO not configured or token failed');
+        _qbo_forward_auth($out, $token);
+        return $out;
     }
     $dataService = qbo_data_service($token);
     if (!$dataService) {
@@ -666,7 +730,12 @@ function po_qbo_push_bill($po_code) {
     $sales_term_ref_id = (!empty($vendor_term['success']) && !empty($vendor_term['term_ref_id'])) ? $vendor_term['term_ref_id'] : null;
     $result = qbo_create_bill($store_id, $qbo_id, $subtotal, $discounts, $doc_number, $txn_date, $private_note, $sales_term_ref_id);
     if (!$result['success']) {
-        return array('success' => false, 'response' => $result['error']);
+        $out = array('success' => false, 'response' => $result['error']);
+        if (!empty($result['needs_authorization']) && isset($result['auth_url'])) {
+            $out['needs_authorization'] = true;
+            $out['auth_url'] = $result['auth_url'];
+        }
+        return $out;
     }
     $bill_id = $result['BillId'];
     $attached = false;

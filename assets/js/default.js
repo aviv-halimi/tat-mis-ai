@@ -517,51 +517,58 @@ function initAssets(select2) {
   $('.btn-po-qbo-push').off('click').on('click', function(e) {
     e.preventDefault();
     var c = $(this).data('c');
-    postAjax('po-qbo-bill', { c: c }, 'status_po', function(data) {
-      if (data.need_mapping) {
-        updateDialog2('po-qbo-map-vendor', 'Map vendor to QuickBooks', null, c);
-        return;
-      }
-      if (data.success && data.BillId) {
-        Swal.fire({
-          title: 'Bill created in QuickBooks',
-          html: 'The bill was successfully created in QBO.',
-          icon: 'success',
-          showCancelButton: true,
-          confirmButtonText: "Proceed to 'Invoiced'",
-          cancelButtonText: "Stay in 'Ready for Invoicing'",
-          confirmButtonColor: '#3085d6',
-          cancelButtonColor: '#6c757d'
-        }).then(function(result) {
-          if (result.value) {
-            $('#status_po').addClass('mb-2');
-            postAjax('po-status', { po_code: c, back: 0 }, 'status_po', function(d) {
-              if (d.redirect === '{refresh}' || d.success) {
-                location.reload();
-              } else {
-                Swal.fire({ icon: 'error', title: 'Something went wrong', text: (d && d.response) || '' });
-              }
-            }, function(d) {
-              Swal.fire({ icon: 'error', title: 'Something went wrong', text: (d && d.response) || 'You do not have permission to update the status.' });
-            });
-          } else {
-            location.reload();
-          }
-        });
-        return;
-      }
-      if (!data.success && data.response) {
-        showStatus('status_po', data.response, 'error', true);
-      }
-    }, function(data) {
-      if (data && data.need_mapping && data.can_push_qbo) {
-        updateDialog2('po-qbo-map-vendor', 'Map vendor to QuickBooks', null, c);
-        return;
-      }
-      if (data && data.response) {
-        showStatus('status_po', data.response, 'error', true);
-      }
-    });
+    function doPush() {
+      postAjax('po-qbo-bill', { c: c }, 'status_po', function(data) {
+        if (data.need_mapping) {
+          updateDialog2('po-qbo-map-vendor', 'Map vendor to QuickBooks', null, c);
+          return;
+        }
+        if (data.success && data.BillId) {
+          Swal.fire({
+            title: 'Bill created in QuickBooks',
+            html: 'The bill was successfully created in QBO.',
+            icon: 'success',
+            showCancelButton: true,
+            confirmButtonText: "Proceed to 'Invoiced'",
+            cancelButtonText: "Stay in 'Ready for Invoicing'",
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#6c757d'
+          }).then(function(result) {
+            if (result.value) {
+              $('#status_po').addClass('mb-2');
+              postAjax('po-status', { po_code: c, back: 0 }, 'status_po', function(d) {
+                if (d.redirect === '{refresh}' || d.success) {
+                  location.reload();
+                } else {
+                  Swal.fire({ icon: 'error', title: 'Something went wrong', text: (d && d.response) || '' });
+                }
+              }, function(d) {
+                Swal.fire({ icon: 'error', title: 'Something went wrong', text: (d && d.response) || 'You do not have permission to update the status.' });
+              });
+            } else {
+              location.reload();
+            }
+          });
+          return;
+        }
+        if (!data.success && data.response) {
+          showStatus('status_po', data.response, 'error', true);
+        }
+      }, function(data) {
+        if (data && data.needs_authorization && data.auth_url) {
+          openQboAuthAndRetry(data.auth_url, doPush);
+          return;
+        }
+        if (data && data.need_mapping && data.can_push_qbo) {
+          updateDialog2('po-qbo-map-vendor', 'Map vendor to QuickBooks', null, c);
+          return;
+        }
+        if (data && data.response) {
+          showStatus('status_po', data.response, 'error', true);
+        }
+      });
+    }
+    doPush();
   });
 
   $('.btn-po-status').off('click').on('click', function(e) {
