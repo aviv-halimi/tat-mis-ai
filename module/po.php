@@ -11,13 +11,14 @@ $(document).ready(function(e) {
   $(document).on("click", ".btn-invoice-validate-po", function(e) {
     var btn = $(this);
     var poId = btn.data("po-id");
+    var poCode = btn.data("po-code");
     if (!poId) return;
     btn.prop("disabled", true).find(".fa").addClass("fa-spin");
     showStatus("status", "Running AI validation...", "info");
     $.ajax({
       url: "/ajax/invoice-validate-po",
       type: "POST",
-      data: { po_id: poId, _r: Math.random() },
+      data: { po_id: poId, po_code: poCode || "", _r: Math.random() },
       dataType: "json"
     }).done(function(res) {
       btn.prop("disabled", false).find(".fa").removeClass("fa-spin");
