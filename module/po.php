@@ -721,7 +721,11 @@ if ($t['po_status_id'] > 2) {
     
   }
 if ($t['po_status_id'] == 5) {
-  echo '<div class="btn-group m-b-5 m-r-5 float-right"><button type="button" class="btn btn-primary btn-po-qbo-push" data-c="' . htmlspecialchars($po_code) . '"><i class="fa fa-external-link-alt"></i> Push to QuickBooks</button></div>';
+  $status6_row = getRow(getRs("SELECT module_code FROM po_status WHERE po_status_id = 6"));
+  $can_push_qbo = $status6_row && $_Session->HasModulePermission($status6_row['module_code']);
+  if ($can_push_qbo) {
+    echo '<div class="btn-group m-b-5 m-r-5 float-right"><button type="button" class="btn btn-primary btn-po-qbo-push" data-c="' . htmlspecialchars($po_code) . '"><i class="fa fa-external-link-alt"></i> Push to QuickBooks</button></div>';
+  }
 }
 echo '
 </div>

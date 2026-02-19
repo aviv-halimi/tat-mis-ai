@@ -2,6 +2,7 @@
 /**
  * Push PO (status 5) to QuickBooks Online as a Bill.
  * POST: c = po_code [, action = 'save_mapping', vendor_id, qbo_vendor_id ]
+ * Requires same permission as moving PO to status 6 (Invoiced).
  */
 require_once('../_config.php');
 header('Content-Type: application/json');
@@ -13,6 +14,12 @@ $qbo_vendor_id = trim(getVar('qbo_vendor_id'));
 
 if (!$po_code) {
     echo json_encode(array('success' => false, 'response' => 'Missing PO code'));
+    exit;
+}
+
+$status6_row = getRow(getRs("SELECT module_code FROM po_status WHERE po_status_id = 6"));
+if (!$status6_row || !$_Session->HasModulePermission($status6_row['module_code'])) {
+    echo json_encode(array('success' => false, 'response' => 'You do not have the necessary credentials to push to QuickBooks. Only users who can move a PO to Invoiced may use this action.'));
     exit;
 }
 
@@ -45,5 +52,8 @@ if ($action === 'save_mapping' && $vendor_id && $qbo_vendor_id !== '') {
 }
 
 $result = po_qbo_push_bill($po_code);
+if (!empty($result['need_mapping'])) {
+    $result['can_push_qbo'] = true;
+}
 echo json_encode($result);
 exit;
