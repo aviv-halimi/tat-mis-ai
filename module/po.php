@@ -505,13 +505,24 @@ if (true) { //sizeof($rs)) {
   }
 
 $qbo_term_display = '';
-if (isset($t['po_status_id']) && (int)$t['po_status_id'] === 5 && !empty($t['store_id'])) {
+$invoice_terms_log_line = '';
+if (isset($t['po_status_id']) && (int)$t['po_status_id'] >= 5 && !empty($t['store_id'])) {
+  require_once(BASE_PATH . 'inc/qbo.php');
   $store_rs = getRs("SELECT db FROM store WHERE store_id = ?", array($t['store_id']));
   $store_row = getRow($store_rs);
   if ($store_row && !empty($store_row['db'])) {
-    require_once(BASE_PATH . 'inc/qbo.php');
+    $store_db = preg_replace('/[^a-z0-9_]/i', '', $store_row['db']);
+    $vr = getRow(getRs("SELECT QBO_ID FROM {$store_db}.vendor WHERE vendor_id = ?", array($t['vendor_id'])));
+    if (!$vr && !empty($t['vendor_id'])) {
+      $vr = getRow(getRs("SELECT QBO_ID FROM {$store_db}.vendor WHERE id = ?", array($t['vendor_id'])));
+    }
+    $qbo_id = ($vr && !empty($vr['QBO_ID'])) ? trim($vr['QBO_ID']) : '';
     $pt_lookup = qbo_lookup_payment_term($store_row['db'], isset($t['payment_terms']) ? $t['payment_terms'] : null);
     $qbo_term_display = $pt_lookup['qbo_term_name'] !== '' ? $pt_lookup['qbo_term_name'] : '—';
+    $invoice_terms_po = ($_payment_terms !== '' && $_payment_terms !== null) ? (int)$_payment_terms : '—';
+    $vendor_term = qbo_get_vendor_term_ref($t['store_id'], $qbo_id);
+    $qbo_terms_display = (!empty($vendor_term['term_ref_id'])) ? $vendor_term['term_ref_id'] : '—';
+    $invoice_terms_log_line = 'Invoice Terms: ' . $invoice_terms_po . ' || QBO Payment Terms: ' . $qbo_terms_display;
   } else {
     $qbo_term_display = '—';
   }
@@ -549,6 +560,11 @@ echo '
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
           <div class="col-sm-12 col-form-label">AI Invoice Validation: ' . (isset($t['invoice_validated']) && (int)$t['invoice_validated'] === 1 ? '<span class="badge badge-success">Match</span>' : '<span class="badge badge-warning">No match</span>') . '</div>
+        </div>
+      </div>' : '') . ($t['po_status_id'] >= 5 && $invoice_terms_log_line !== '' ? '
+      <div class="col-md-12 mt-2">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12 col-form-label text-muted small">' . htmlspecialchars($invoice_terms_log_line) . '</div>
         </div>
       </div>' : '') . '
     </div>

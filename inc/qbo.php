@@ -319,6 +319,46 @@ function qbo_lookup_payment_term($store_db, $payment_terms_days) {
 }
 
 /**
+ * Get the default payment term (TermRef) for a vendor in QBO.
+ * @param int $store_id
+ * @param string $vendor_ref_id QBO Vendor Id
+ * @return array { success, term_ref_id => string|null, error? }
+ */
+function qbo_get_vendor_term_ref($store_id, $vendor_ref_id) {
+    $out = array('success' => true, 'term_ref_id' => null);
+    if ($vendor_ref_id === '' || $vendor_ref_id === null) {
+        return $out;
+    }
+    $token = qbo_get_access_token($store_id);
+    if (!is_array($token) || empty($token['access_token'])) {
+        return array('success' => false, 'term_ref_id' => null, 'error' => 'QBO not configured or token failed');
+    }
+    try {
+        $dataService = qbo_data_service($token);
+        if (!$dataService) {
+            return array('success' => false, 'term_ref_id' => null, 'error' => 'Could not create DataService');
+        }
+        $vendor = $dataService->FindById('Vendor', $vendor_ref_id);
+        $error = $dataService->getLastError();
+        if ($error) {
+            return array('success' => false, 'term_ref_id' => null, 'error' => $error->getResponseBody() ?: $error->getOAuthHelperError() ?: 'QBO API error');
+        }
+        if ($vendor) {
+            $termRef = is_object($vendor) ? (isset($vendor->TermRef) ? $vendor->TermRef : null) : (isset($vendor['TermRef']) ? $vendor['TermRef'] : null);
+            if ($termRef !== null) {
+                $value = is_object($termRef) ? (isset($termRef->value) ? $termRef->value : null) : (isset($termRef['value']) ? $termRef['value'] : null);
+                if ($value !== null && trim((string)$value) !== '') {
+                    $out['term_ref_id'] = trim((string)$value);
+                }
+            }
+        }
+        return $out;
+    } catch (\Exception $e) {
+        return array('success' => false, 'term_ref_id' => null, 'error' => $e->getMessage());
+    }
+}
+
+/**
  * Create a Bill in QBO (using SDK).
  * @param int $store_id
  * @param string $vendor_ref_id QBO Vendor Id
@@ -514,8 +554,8 @@ function po_qbo_push_bill($po_code) {
             $private_note = 'Added via MIS by ' . $admin_name;
         }
     }
-    $term_lookup = qbo_lookup_payment_term($store_db, isset($po['payment_terms']) ? $po['payment_terms'] : null);
-    $sales_term_ref_id = !empty($term_lookup['qbo_term_id']) ? $term_lookup['qbo_term_id'] : null;
+    $vendor_term = qbo_get_vendor_term_ref($store_id, $qbo_id);
+    $sales_term_ref_id = (!empty($vendor_term['success']) && !empty($vendor_term['term_ref_id'])) ? $vendor_term['term_ref_id'] : null;
     $result = qbo_create_bill($store_id, $qbo_id, $subtotal, $discounts, $doc_number, $txn_date, $private_note, $sales_term_ref_id);
     if (!$result['success']) {
         return array('success' => false, 'response' => $result['error']);

@@ -38,19 +38,24 @@ if ($db === '') {
     exit;
 }
 
-try {
-    global $dbconn;
-    $table = "`{$db}`.`payment_terms`";
-    if ($id > 0) {
-        $stmt = $dbconn->prepare("UPDATE {$table} SET min_days = ?, max_days = ?, qbo_term_id = ?, qbo_term_name = ? WHERE id = ?");
-        $stmt->execute(array($min_days, $max_days, $qbo_term_id, $qbo_term_name, $id));
-    } else {
-        $stmt = $dbconn->prepare("INSERT INTO {$table} (is_enabled, is_active, min_days, max_days, qbo_term_id, qbo_term_name, date_created) VALUES (1, 1, ?, ?, ?, ?, NOW())");
-        $stmt->execute(array($min_days, $max_days, $qbo_term_id, $qbo_term_name));
-    }
-} catch (PDOException $e) {
-    echo json_encode(array('success' => false, 'response' => 'Database error: ' . $e->getMessage()));
-    exit;
+$table = $db . '.payment_terms';
+if ($id > 0) {
+    dbUpdate($table, array(
+        'min_days' => $min_days,
+        'max_days' => $max_days,
+        'qbo_term_id' => $qbo_term_id,
+        'qbo_term_name' => $qbo_term_name,
+    ), $id, 'id');
+} else {
+    dbPut($table, array(
+        'is_enabled' => 1,
+        'is_active' => 1,
+        'min_days' => $min_days,
+        'max_days' => $max_days,
+        'qbo_term_id' => $qbo_term_id,
+        'qbo_term_name' => $qbo_term_name,
+        'date_created' => 'NOW()',
+    ));
 }
 echo json_encode(array('success' => true, 'response' => $id > 0 ? 'Updated.' : 'Added.'));
 exit;
