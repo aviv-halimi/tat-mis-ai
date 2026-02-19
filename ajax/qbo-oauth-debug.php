@@ -34,11 +34,16 @@ $debug = array(
     'scope' => 'com.intuit.quickbooks.accounting',
     'state' => (string)$store_id,
 );
+$debug['client_id_looks_like_google'] = (strlen($client_id) >= 6 && substr($client_id, 0, 6) === 'AIzaSy');
 
 if (!class_exists('QuickBooksOnline\API\Core\OAuth\OAuth2\OAuth2LoginHelper', false)) {
     $autoload = BASE_PATH . 'vendor/autoload.php';
+    $debug['sdk_autoload_path'] = $autoload;
+    $debug['sdk_autoload_exists'] = is_file($autoload);
     if (is_file($autoload)) require_once $autoload;
 }
+$debug['sdk_class_loaded'] = class_exists('QuickBooksOnline\API\Core\OAuth\OAuth2\OAuth2LoginHelper', false);
+
 if ($client_id !== '' && $redirect_uri !== '' && class_exists('QuickBooksOnline\API\Core\OAuth\OAuth2\OAuth2LoginHelper', false)) {
     try {
         $oauth2Helper = new \QuickBooksOnline\API\Core\OAuth\OAuth2\OAuth2LoginHelper($client_id, $client_secret ?: 'dummy', $redirect_uri, $debug['scope'], $debug['state']);
@@ -77,6 +82,13 @@ if ($client_id !== '' && $redirect_uri !== '' && class_exists('QuickBooksOnline\
 </head>
 <body>
     <h1>QBO OAuth debug (store_id=<?php echo (int)$store_id; ?>)</h1>
+
+    <?php if (!empty($debug['client_id_looks_like_google'])) { ?>
+    <div style="background:#fff3cd; border:1px solid #ffc107; padding:1rem; margin-bottom:1rem;">
+        <strong>Wrong client ID.</strong> Your <code>QBO_CLIENT_ID</code> starts with <code>AIzaSy</code> — that is a <strong>Google</strong> API key, not an Intuit QuickBooks client ID. Intuit IDs usually look like <code>AB...</code> or <code>Q0...</code>. Set <code>QBO_CLIENT_ID</code> and <code>QBO_CLIENT_SECRET</code> in <code>_config.php</code> to your app’s values from the Intuit Developer Portal (Keys & credentials). If they are commented out, uncomment them.
+    </div>
+    <?php } ?>
+
     <p>Use this to make sure the <strong>Redirect URI</strong> matches exactly what you added in the Intuit Developer Portal (Keys & credentials → Redirect URIs).</p>
 
     <h2>1. Redirect URI we send</h2>
