@@ -8,6 +8,23 @@ $(document).ready(function(e) {
   $(".btn-po-discounts").on("click", function(e) {
     postAjax("po-discounts", {po_id: $(this).data("id")});
   });
+  $(document).on("click", ".btn-invoice-validate-po", function(e) {
+    var btn = $(this);
+    var poId = btn.data("po-id");
+    if (!poId) return;
+    btn.prop("disabled", true).find(".fa").addClass("fa-spin");
+    postAjax("invoice-validate-po", { po_id: poId }, "status", function(res) {
+      btn.prop("disabled", false).find(".fa").removeClass("fa-spin");
+      if (res && res.success) {
+        showStatus("status", res.message, res.matched ? "ok" : "warning", true);
+        location.reload();
+      } else {
+        showStatus("status", (res && res.error) ? res.error : "Validation failed.", "error", true);
+      }
+    }, function() {
+      btn.prop("disabled", false).find(".fa").removeClass("fa-spin");
+    });
+  });
 });
 </script>';
 
@@ -505,7 +522,17 @@ if (true) { //sizeof($rs)) {
   }
 
 $qbo_term_display = '';
-$invoice_terms_log_line = '';
+$po_amount_due = null;
+if (isset($t['po_status_id']) && (int)$t['po_status_id'] >= 5 && $_po_id) {
+  $amount_due_rs = getRs(
+    "SELECT po.po_id, (po.r_total - COALESCE(SUM(pd.discount_amount), 0)) AS r_total, po.invoice_filename FROM po " .
+    "LEFT JOIN po_discount pd ON pd.po_id = po.po_id AND pd.is_receiving = 1 AND pd.is_active = 1 AND pd.is_enabled = 1 " .
+    "WHERE " . is_enabled('po') . " AND po.po_id = ? GROUP BY po.po_id, po.r_total, po.invoice_filename",
+    array($_po_id)
+  );
+  $amount_due_row = getRow($amount_due_rs);
+  $po_amount_due = $amount_due_row ? (float)$amount_due_row['r_total'] : null;
+}
 if (isset($t['po_status_id']) && (int)$t['po_status_id'] >= 5 && !empty($t['store_id'])) {
   require_once(BASE_PATH . 'inc/qbo.php');
   $store_rs = getRs("SELECT db FROM store WHERE store_id = ?", array($t['store_id']));
@@ -517,17 +544,14 @@ if (isset($t['po_status_id']) && (int)$t['po_status_id'] >= 5 && !empty($t['stor
       $vr = getRow(getRs("SELECT QBO_ID FROM {$store_db}.vendor WHERE id = ?", array($t['vendor_id'])));
     }
     $qbo_id = ($vr && !empty($vr['QBO_ID'])) ? trim($vr['QBO_ID']) : '';
-    $invoice_terms_po = ($_payment_terms !== '' && $_payment_terms !== null) ? (int)$_payment_terms : '—';
     $vendor_term = qbo_get_vendor_term_ref($t['store_id'], $qbo_id);
-    $qbo_terms_display = '—';
+    $qbo_term_display = '—';
     if (!empty($vendor_term['term_ref_id'])) {
-      $qbo_terms_display = qbo_get_term_name($t['store_id'], $vendor_term['term_ref_id']);
-      if ($qbo_terms_display === '') {
-        $qbo_terms_display = $vendor_term['term_ref_id'];
+      $qbo_term_display = qbo_get_term_name($t['store_id'], $vendor_term['term_ref_id']);
+      if ($qbo_term_display === '') {
+        $qbo_term_display = $vendor_term['term_ref_id'];
       }
     }
-    $qbo_term_display = $qbo_terms_display;
-    $invoice_terms_log_line = 'Invoice Terms: ' . $invoice_terms_po . ' || QBO Payment Terms: ' . $qbo_terms_display;
   } else {
     $qbo_term_display = '—';
   }
@@ -554,22 +578,37 @@ echo '
       </div>
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label">Payment terms (days): <b>' . ($_payment_terms !== '' && $_payment_terms !== null ? (int)$_payment_terms : '—') . '</b></div>
+          <div class="col-sm-12 col-form-label">Invoice Payment Terms: <b>' . ($_payment_terms !== '' && $_payment_terms !== null ? (int)$_payment_terms : '—') . '</b></div>
         </div>
-      </div>' . ($t['po_status_id'] == 5 ? '
+      </div>' . ($t['po_status_id'] >= 5 ? '
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
           <div class="col-sm-12 col-form-label">QBO Payment Term: <b>' . htmlspecialchars($qbo_term_display) . '</b></div>
         </div>
-      </div>' : '') . ($t['po_status_id'] == 5 ? '
+      </div>
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
           <div class="col-sm-12 col-form-label">AI Invoice Validation: ' . (isset($t['invoice_validated']) && (int)$t['invoice_validated'] === 1 ? '<span class="badge badge-success">Match</span>' : '<span class="badge badge-warning">No match</span>') . '</div>
         </div>
-      </div>' : '') . ($t['po_status_id'] >= 5 && $invoice_terms_log_line !== '' ? '
-      <div class="col-md-12 mt-2">
+      </div>
+      <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label text-muted small">' . htmlspecialchars($invoice_terms_log_line) . '</div>
+          <div class="col-sm-12 col-form-label">Amount due: <b>' . ($po_amount_due !== null ? '$' . number_format($po_amount_due, 2) : '—') . '</b></div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12 col-form-label">AI total: <b>' . (isset($t['ai_total']) && $t['ai_total'] !== null && $t['ai_total'] !== '' ? '$' . number_format((float)$t['ai_total'], 2) : '—') . '</b></div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12 col-form-label">Pushed to QBO: <b>' . (isset($t['in_qbo']) && (int)$t['in_qbo'] === 1 ? '<span class="badge badge-success">Yes</span>' : '<span class="badge badge-secondary">No</span>') . '</b></div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12 col-form-label"><button type="button" class="btn btn-sm btn-outline-primary btn-invoice-validate-po" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-refresh"></i> Re-run AI validation</button></div>
         </div>
       </div>' : '') . '
     </div>

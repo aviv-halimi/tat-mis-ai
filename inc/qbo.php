@@ -677,6 +677,9 @@ function po_qbo_push_bill($po_code) {
             $attached = !empty($attach_result['success']);
             if (!$attached && !empty($attach_result['error'])) {
                 qbo_po_note_bill_created($po['po_id'], $bill_id, $subtotal - $discounts, $store_id);
+                if (function_exists('dbUpdate')) {
+                    dbUpdate('po', array('in_qbo' => 1), $po['po_id']);
+                }
                 return array(
                     'success' => true,
                     'response' => 'Bill created in QuickBooks (Bill #' . $bill_id . '). Invoice PDF could not be attached: ' . $attach_result['error'],
@@ -686,6 +689,9 @@ function po_qbo_push_bill($po_code) {
         }
     }
     qbo_po_note_bill_created($po['po_id'], $bill_id, $subtotal - $discounts, $store_id);
+    if (function_exists('dbUpdate')) {
+        dbUpdate('po', array('in_qbo' => 1), $po['po_id']);
+    }
     return array(
         'success' => true,
         'response' => 'Bill created in QuickBooks (Bill #' . $bill_id . ').' . ($attached ? ' Invoice PDF attached.' : ''),
