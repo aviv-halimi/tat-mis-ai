@@ -678,7 +678,7 @@ function po_qbo_push_bill($po_code) {
             if (!$attached && !empty($attach_result['error'])) {
                 qbo_po_note_bill_created($po['po_id'], $bill_id, $subtotal - $discounts, $store_id);
                 if (function_exists('dbUpdate')) {
-                    dbUpdate('po', array('in_qbo' => 1), $po['po_id']);
+                    dbUpdate('po', array('qbo_bill_id' => $bill_id), $po['po_id']);
                 }
                 return array(
                     'success' => true,
@@ -690,13 +690,30 @@ function po_qbo_push_bill($po_code) {
     }
     qbo_po_note_bill_created($po['po_id'], $bill_id, $subtotal - $discounts, $store_id);
     if (function_exists('dbUpdate')) {
-        dbUpdate('po', array('in_qbo' => 1), $po['po_id']);
+        dbUpdate('po', array('qbo_bill_id' => $bill_id), $po['po_id']);
     }
     return array(
         'success' => true,
         'response' => 'Bill created in QuickBooks (Bill #' . $bill_id . ').' . ($attached ? ' Invoice PDF attached.' : ''),
         'BillId' => $bill_id,
     );
+}
+
+/**
+ * Get the QBO app URL to open a bill (for use in PO page link).
+ * @param int $store_id
+ * @param string $bill_id QBO Bill Id
+ * @return string URL or empty if realm not available
+ */
+function qbo_bill_url($store_id, $bill_id) {
+    if ($bill_id === '' || $bill_id === null) {
+        return '';
+    }
+    $token = qbo_get_access_token($store_id);
+    if (!is_array($token) || empty($token['realm_id'])) {
+        return '';
+    }
+    return 'https://qbo.intuit.com/app/company/' . $token['realm_id'] . '/bill?txnId=' . urlencode($bill_id);
 }
 
 /**

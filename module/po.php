@@ -13,16 +13,23 @@ $(document).ready(function(e) {
     var poId = btn.data("po-id");
     if (!poId) return;
     btn.prop("disabled", true).find(".fa").addClass("fa-spin");
-    postAjax("invoice-validate-po", { po_id: poId }, "status", function(res) {
+    showStatus("status", "Running AI validation...", "info");
+    $.ajax({
+      url: "/ajax/invoice-validate-po",
+      type: "POST",
+      data: { po_id: poId, _r: Math.random() },
+      dataType: "json"
+    }).done(function(res) {
       btn.prop("disabled", false).find(".fa").removeClass("fa-spin");
       if (res && res.success) {
-        showStatus("status", res.message, res.matched ? "ok" : "warning", true);
-        setTimeout(function() { location.reload(); }, 600);
+        showStatus("status", res.message || "Done.", res.matched ? "ok" : "warning", true);
+        setTimeout(function() { location.reload(); }, 500);
       } else {
         showStatus("status", (res && res.error) ? res.error : "Validation failed.", "error", true);
       }
-    }, function() {
+    }).fail(function(xhr, status, err) {
       btn.prop("disabled", false).find(".fa").removeClass("fa-spin");
+      showStatus("status", "Request failed: " + (err || status), "error", true);
     });
   });
 });
@@ -533,8 +540,14 @@ if (isset($t['po_status_id']) && (int)$t['po_status_id'] >= 5 && $_po_id) {
   $amount_due_row = getRow($amount_due_rs);
   $po_amount_due = $amount_due_row ? (float)$amount_due_row['r_total'] : null;
 }
+$qbo_bill_id = '';
+$qbo_bill_url = '';
 if (isset($t['po_status_id']) && (int)$t['po_status_id'] >= 5 && !empty($t['store_id'])) {
   require_once(BASE_PATH . 'inc/qbo.php');
+  $qbo_bill_id = isset($t['qbo_bill_id']) ? trim((string)$t['qbo_bill_id']) : '';
+  if ($qbo_bill_id !== '' && function_exists('qbo_bill_url')) {
+    $qbo_bill_url = qbo_bill_url($t['store_id'], $qbo_bill_id);
+  }
   $store_rs = getRs("SELECT db FROM store WHERE store_id = ?", array($t['store_id']));
   $store_row = getRow($store_rs);
   if ($store_row && !empty($store_row['db'])) {
@@ -588,7 +601,7 @@ echo '
       </div>
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label">Pushed to QBO: <b>' . (isset($t['in_qbo']) && (int)$t['in_qbo'] === 1 ? '<span class="badge badge-success">Yes</span>' : '<span class="badge badge-secondary">No</span>') . '</b></div>
+          <div class="col-sm-12 col-form-label">QBO Bill: <b>' . ($qbo_bill_id === '' ? '<span class="text-muted">(Not pushed to QBO)</span>' : ($qbo_bill_url !== '' ? '<a href="' . htmlspecialchars($qbo_bill_url) . '" target="_blank" rel="noopener">#' . htmlspecialchars($qbo_bill_id) . '</a>' : '#' . htmlspecialchars($qbo_bill_id))) . '</b></div>
         </div>
       </div>
       <div class="col-md-4">
