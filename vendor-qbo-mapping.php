@@ -11,6 +11,7 @@ $store_id = getVarInt('store_id', 0, 0, 99999);
 $stores = getRs("SELECT store_id, store_name, db FROM store WHERE " . is_enabled() . " ORDER BY store_name");
 $vendors = array();
 $qbo_vendors = array();
+$qbo_result = array();
 $store_db = null;
 
 $debug_log = array(
@@ -51,6 +52,8 @@ if ($store_id) {
         }
     }
 }
+$qbo_needs_auth = !empty($store_id) && !empty($qbo_result['needs_authorization']) && isset($qbo_result['auth_url']) && $qbo_result['auth_url'] !== '';
+$qbo_auth_url = $qbo_needs_auth ? $qbo_result['auth_url'] : '';
 
 include_once('inc/header.php');
 ?>
@@ -90,6 +93,24 @@ include_once('inc/header.php');
     </div>
     <?php } ?>
 
+    <?php if ($qbo_needs_auth) { ?>
+    <div class="alert alert-info mb-3" id="vendor_qbo_connect_alert">
+      <strong>Connect to QuickBooks</strong> — This store is not connected to QuickBooks yet (or the connection expired).
+      <button type="button" class="btn btn-primary ml-2" id="vendor_qbo_connect_btn">Connect to QuickBooks</button>
+    </div>
+    <script>
+    (function() {
+      var authUrl = <?php echo json_encode($qbo_auth_url); ?>;
+      var btn = document.getElementById('vendor_qbo_connect_btn');
+      if (btn && authUrl && typeof openQboAuthAndRetry === 'function') {
+        btn.addEventListener('click', function() {
+          openQboAuthAndRetry(authUrl, function() { location.reload(); });
+        });
+      }
+    })();
+    </script>
+    <?php } ?>
+
     <?php if ($store_id && $store_db) { ?>
     <input type="hidden" id="vendor_qbo_store_id_loaded" value="<?php echo (int)$store_id; ?>" />
     <div id="vendor_qbo_status" class="status"></div>
@@ -127,7 +148,7 @@ include_once('inc/header.php');
     <?php if (empty($vendors)) { ?>
     <p class="text-muted">No vendors found for this store.</p>
     <?php } ?>
-    <?php } elseif ($store_id) { ?>
+    <?php } elseif ($store_id && !$qbo_needs_auth) { ?>
     <div class="alert alert-warning">Could not load store or QBO not configured. Check store params (qbo_realm_id, qbo_refresh_token) and QBO_CLIENT_ID / QBO_CLIENT_SECRET.</div>
     <?php } ?>
   </div>
