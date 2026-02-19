@@ -17,7 +17,8 @@ if (!$po_code || !$vendor_id || $qbo_vendor_id === '') {
 
 $rs = getRs("SELECT p.vendor_id, s.db AS store_db FROM po p INNER JOIN store s ON s.store_id = p.store_id WHERE p.po_code = ? AND " . is_enabled('p,s'), array($po_code));
 $po = getRow($rs);
-if (!$po || (int)$po['vendor_id'] !== $vendor_id) {
+$po_vendor_id = isset($po['vendor_id']) ? (int)$po['vendor_id'] : (isset($po['Vendor_id']) ? (int)$po['Vendor_id'] : null);
+if (!$po || $po_vendor_id === null || $po_vendor_id !== (int)$vendor_id) {
     echo json_encode(array('success' => false, 'response' => 'PO or vendor mismatch.'));
     exit;
 }
@@ -28,7 +29,7 @@ if ($db === '') {
 }
 $table = $db . '.vendor';
 dbUpdate($table, array('QBO_ID' => $qbo_vendor_id), $vendor_id, 'vendor_id');
-dbUpdate($table, array('QBO_ID' => $qbo_vendor_id), $vendor_id, 'id');
+//dbUpdate($table, array('QBO_ID' => $qbo_vendor_id), $vendor_id, 'id');
 $check = getRow(getRs("SELECT 1 FROM {$table} WHERE (vendor_id = ? OR id = ?) AND QBO_ID = ?", array($vendor_id, $vendor_id, $qbo_vendor_id)));
 if (!$check) {
     echo json_encode(array('success' => false, 'response' => 'No row updated. Check that the vendor exists in ' . $db . '.vendor and that column QBO_ID exists.'));

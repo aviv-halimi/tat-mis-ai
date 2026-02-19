@@ -517,8 +517,6 @@ if (isset($t['po_status_id']) && (int)$t['po_status_id'] >= 5 && !empty($t['stor
       $vr = getRow(getRs("SELECT QBO_ID FROM {$store_db}.vendor WHERE id = ?", array($t['vendor_id'])));
     }
     $qbo_id = ($vr && !empty($vr['QBO_ID'])) ? trim($vr['QBO_ID']) : '';
-    $pt_lookup = qbo_lookup_payment_term($store_row['db'], isset($t['payment_terms']) ? $t['payment_terms'] : null);
-    $qbo_term_display = $pt_lookup['qbo_term_name'] !== '' ? $pt_lookup['qbo_term_name'] : '—';
     $invoice_terms_po = ($_payment_terms !== '' && $_payment_terms !== null) ? (int)$_payment_terms : '—';
     $vendor_term = qbo_get_vendor_term_ref($t['store_id'], $qbo_id);
     $qbo_terms_display = '—';
@@ -528,6 +526,7 @@ if (isset($t['po_status_id']) && (int)$t['po_status_id'] >= 5 && !empty($t['stor
         $qbo_terms_display = $vendor_term['term_ref_id'];
       }
     }
+    $qbo_term_display = $qbo_terms_display;
     $invoice_terms_log_line = 'Invoice Terms: ' . $invoice_terms_po . ' || QBO Payment Terms: ' . $qbo_terms_display;
   } else {
     $qbo_term_display = '—';

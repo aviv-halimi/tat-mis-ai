@@ -350,16 +350,69 @@ function qbo_lookup_payment_term($store_db, $payment_terms_days) {
 }
 
 /**
+ * Extract TermRef value from a vendor entity (object or array from QBO).
+ * Handles TermRef/termRef and value/Value for different serialization formats.
+ * @param object|array $vendor Vendor entity from FindById or Query
+ * @return string|null Term id or null
+ */
+function qbo_vendor_term_ref_value($vendor) {
+    if ($vendor === null) {
+        return null;
+    }
+    $termRef = null;
+    if (is_object($vendor)) {
+        if (isset($vendor->TermRef)) {
+            $termRef = $vendor->TermRef;
+        } elseif (isset($vendor->termRef)) {
+            $termRef = $vendor->termRef;
+        }
+    } else {
+        if (isset($vendor['TermRef'])) {
+            $termRef = $vendor['TermRef'];
+        } elseif (isset($vendor['termRef'])) {
+            $termRef = $vendor['termRef'];
+        }
+    }
+    if ($termRef === null) {
+        return null;
+    }
+    if (is_scalar($termRef)) {
+        $val = trim((string)$termRef);
+        return $val === '' ? null : $val;
+    }
+    $value = null;
+    if (is_object($termRef)) {
+        if (isset($termRef->value)) {
+            $value = $termRef->value;
+        } elseif (isset($termRef->Value)) {
+            $value = $termRef->Value;
+        }
+    } else {
+        if (isset($termRef['value'])) {
+            $value = $termRef['value'];
+        } elseif (isset($termRef['Value'])) {
+            $value = $termRef['Value'];
+        }
+    }
+    if ($value === null || trim((string)$value) === '') {
+        return null;
+    }
+    return trim((string)$value);
+}
+
+/**
  * Get the default payment term (TermRef) for a vendor in QBO.
+ * Tries FindById first, then Query (SELECT TermRef FROM Vendor WHERE Id = ?) if needed.
  * @param int $store_id
  * @param string $vendor_ref_id QBO Vendor Id
- * @return array { success, term_ref_id => string|null, error? }
+ * @return array { success, term_ref_id => string|null, error?, _debug? }
  */
 function qbo_get_vendor_term_ref($store_id, $vendor_ref_id) {
     $out = array('success' => true, 'term_ref_id' => null);
     if ($vendor_ref_id === '' || $vendor_ref_id === null) {
         return $out;
     }
+    $vendor_ref_id = trim((string)$vendor_ref_id);
     $token = qbo_get_access_token($store_id);
     if (!is_array($token) || empty($token['access_token'])) {
         return array('success' => false, 'term_ref_id' => null, 'error' => 'QBO not configured or token failed');
@@ -369,19 +422,43 @@ function qbo_get_vendor_term_ref($store_id, $vendor_ref_id) {
         if (!$dataService) {
             return array('success' => false, 'term_ref_id' => null, 'error' => 'Could not create DataService');
         }
+
+        $termId = null;
         $vendor = $dataService->FindById('Vendor', $vendor_ref_id);
         $error = $dataService->getLastError();
         if ($error) {
             return array('success' => false, 'term_ref_id' => null, 'error' => $error->getResponseBody() ?: $error->getOAuthHelperError() ?: 'QBO API error');
         }
         if ($vendor) {
-            $termRef = is_object($vendor) ? (isset($vendor->TermRef) ? $vendor->TermRef : null) : (isset($vendor['TermRef']) ? $vendor['TermRef'] : null);
-            if ($termRef !== null) {
-                $value = is_object($termRef) ? (isset($termRef->value) ? $termRef->value : null) : (isset($termRef['value']) ? $termRef['value'] : null);
-                if ($value !== null && trim((string)$value) !== '') {
-                    $out['term_ref_id'] = trim((string)$value);
+            $termId = qbo_vendor_term_ref_value($vendor);
+        }
+
+        if ($termId === null && $dataService) {
+            $safe_id = str_replace("'", "''", $vendor_ref_id);
+            $query = "SELECT TermRef FROM Vendor WHERE Id = '" . $safe_id . "'";
+            $results = $dataService->Query($query);
+            if ($dataService->getLastError()) {
+                $results = null;
+            }
+            if ($results !== null) {
+                if (is_array($results) && !empty($results)) {
+                    $first = isset($results[0]) ? $results[0] : reset($results);
+                    $termId = qbo_vendor_term_ref_value($first);
+                } else {
+                    $termId = qbo_vendor_term_ref_value($results);
                 }
             }
+        }
+
+        if ($termId !== null) {
+            $out['term_ref_id'] = $termId;
+        }
+        if (defined('QBO_DEBUG_VENDOR_TERM') && QBO_DEBUG_VENDOR_TERM && $termId === null && $vendor) {
+            $out['_debug'] = array(
+                'vendor_id' => $vendor_ref_id,
+                'has_vendor' => true,
+                'term_ref_raw' => is_object($vendor) ? (isset($vendor->TermRef) ? $vendor->TermRef : null) : (isset($vendor['TermRef']) ? $vendor['TermRef'] : null),
+            );
         }
         return $out;
     } catch (\Exception $e) {
@@ -599,6 +676,7 @@ function po_qbo_push_bill($po_code) {
             $attach_result = qbo_attach_file_to_bill($store_id, $bill_id, $invoice_path, $po['invoice_filename']);
             $attached = !empty($attach_result['success']);
             if (!$attached && !empty($attach_result['error'])) {
+                qbo_po_note_bill_created($po['po_id'], $bill_id, $subtotal - $discounts, $store_id);
                 return array(
                     'success' => true,
                     'response' => 'Bill created in QuickBooks (Bill #' . $bill_id . '). Invoice PDF could not be attached: ' . $attach_result['error'],
@@ -607,9 +685,32 @@ function po_qbo_push_bill($po_code) {
             }
         }
     }
+    qbo_po_note_bill_created($po['po_id'], $bill_id, $subtotal - $discounts, $store_id);
     return array(
         'success' => true,
         'response' => 'Bill created in QuickBooks (Bill #' . $bill_id . ').' . ($attached ? ' Invoice PDF attached.' : ''),
         'BillId' => $bill_id,
     );
+}
+
+/**
+ * Add a PO note (Files/Notes) when a QBO bill is created: Bill ID, invoice total, and link to bill if realm available.
+ * @param int $po_id
+ * @param string $bill_id QBO Bill Id
+ * @param float $invoice_total subtotal - discounts
+ * @param int $store_id for realm_id / link
+ */
+function qbo_po_note_bill_created($po_id, $bill_id, $invoice_total, $store_id) {
+    $lines = array(
+        'QBO Bill created.',
+        'Bill ID: ' . $bill_id,
+        'Invoice total: $' . number_format((float)$invoice_total, 2),
+    );
+    $token = qbo_get_access_token($store_id);
+    if (is_array($token) && !empty($token['realm_id'])) {
+        $lines[] = 'Bill (open in QBO): https://qbo.intuit.com/app/company/' . $token['realm_id'] . '/bill?txnId=' . urlencode($bill_id);
+    }
+    $description = implode("\n", $lines);
+    $admin_id = isset($GLOBALS['_Session']->admin_id) ? (int)$GLOBALS['_Session']->admin_id : 0;
+    setRs("INSERT INTO file (re_tbl, re_id, admin_id, description, is_auto) VALUES ('po', ?, ?, ?, 1)", array($po_id, $admin_id, $description));
 }
