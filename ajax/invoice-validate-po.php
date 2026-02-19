@@ -22,6 +22,11 @@ $matched = !empty($result['matched']);
 $ai_total = isset($result['ai_total']) ? $result['ai_total'] : null;
 $payment_terms = isset($result['payment_terms']) ? $result['payment_terms'] : null;
 
+if (!empty($result['debug_log'])) {
+    $note = 'AI Invoice Validation: ' . ($matched ? 'Match' : 'No match') . "\n\n" . implode("\n", $result['debug_log']);
+    $_PO->SavePONote($po_id, $note, isset($_Session->admin_id) ? $_Session->admin_id : null);
+}
+
 $message = $matched
     ? 'Invoice total matches. Validation saved.'
     : 'Invoice total does not match. AI total saved for reference.';
