@@ -160,7 +160,14 @@ function runInvoiceValidationForPO($po_id)
     if ($po_id <= 0) {
         return array('matched' => false, 'ai_total' => null, 'payment_terms' => null, 'debug_log' => array());
     }
-    $rs = getRs("SELECT po_id, r_total, invoice_filename FROM po WHERE " . is_enabled() . " AND po_id = ? AND LENGTH(invoice_filename) > 0 AND r_total > 0", array($po_id));
+    $rs = getRs(
+        "SELECT po.po_id, (po.r_total - COALESCE(SUM(pd.discount_amount), 0)) AS r_total, po.invoice_filename
+         FROM po
+         LEFT JOIN po_discount pd ON pd.po_id = po.po_id AND pd.is_receiving = 1 AND pd.is_enabled = 1 AND pd.is_active = 1
+         WHERE " . is_enabled('po') . " AND po.po_id = ? AND LENGTH(po.invoice_filename) > 0 AND po.r_total > 0
+         GROUP BY po.po_id, po.r_total, po.invoice_filename",
+        array($po_id)
+    );
     $r = getRow($rs);
     if (!$r) {
         return array('matched' => false, 'ai_total' => null, 'payment_terms' => null, 'debug_log' => array());
@@ -173,7 +180,7 @@ function runInvoiceValidationForPO($po_id)
     $result = parseInvoiceFromPdfGemini($full_path, $debug_log);
     $r_total = (float) $r['r_total'];
     if ($result === null || !isset($result['total'])) {
-        dbUpdate('po', array('invoice_validated' => 0), $po_id);
+        dbUpdate('po', array('invoice_validated' => 0, 'ai_total' => null), $po_id);
         return array('matched' => false, 'ai_total' => null, 'payment_terms' => null, 'debug_log' => $debug_log);
     }
     $ai_total = (float) $result['total'];
@@ -184,13 +191,13 @@ function runInvoiceValidationForPO($po_id)
 
     $debug_log[] = 'Result: AI total=' . $ai_total . ', DB r_total=' . $r_total . ', payment_terms=' . ($payment_terms !== null ? $payment_terms : 'null') . ', ' . ($matched ? 'Match' : 'No match') . ($add_auto_discount ? ', adding auto-adjustment ' . number_format($variance, 2) . ' (negative = credit to match invoice)' : '');
     if ($matched) {
-        $update = array('invoice_validated' => 1);
+        $update = array('invoice_validated' => 1, 'ai_total' => $ai_total);
         if ($payment_terms !== null) {
             $update['payment_terms'] = $payment_terms;
         }
         dbUpdate('po', $update, $po_id);
     } else {
-        dbUpdate('po', array('invoice_validated' => 0), $po_id);
+        dbUpdate('po', array('invoice_validated' => 0, 'ai_total' => $ai_total), $po_id);
     }
     $out = array('matched' => $matched, 'ai_total' => $ai_total, 'payment_terms' => $payment_terms, 'debug_log' => $debug_log);
     if ($add_auto_discount) {

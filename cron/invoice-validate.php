@@ -48,19 +48,16 @@ if ($isCli) {
     status('Invoice validation started (Gemini).', $isCli);
 
     $rs = getRs(
-        "SELECT p.po_id, p.po_number, p.po_code, r_total - SUM(d.discount_amount) AS r_total, p.invoice_filename
+        "SELECT p.po_id, p.po_number, p.po_code, (p.r_total - COALESCE(SUM(d.discount_amount), 0)) AS r_total, p.invoice_filename
          FROM po p
-         	LEFT JOIN po_discount d ON p.po_id = d.po_id
-         WHERE po_status_id = 5 
-          AND p.is_active = 1 
+         LEFT JOIN po_discount d ON d.po_id = p.po_id AND d.is_receiving = 1 AND d.is_enabled = 1 AND d.is_active = 1
+         WHERE p.po_status_id = 5
+          AND p.is_active = 1
           AND p.is_enabled = 1
-          AND LENGTH(invoice_filename) 
-          AND r_total > 0 
-          AND d.is_enabled = 1 
-          AND d.is_active = 1 
-          AND d.is_receiving = 1
-         GROUP BY p.po_id
-         LIMIT 5;",
+          AND LENGTH(p.invoice_filename) > 0
+          AND p.r_total > 0
+         GROUP BY p.po_id, p.po_number, p.po_code, p.r_total, p.invoice_filename
+         LIMIT 5",
         array()
     );
 
@@ -132,7 +129,7 @@ if ($isCli) {
         status("PO {$po_number}: AI total = {$ai_total}, DB r_total = {$r_total}" . ($payment_terms !== null ? ", payment_terms = {$payment_terms}" : ", payment_terms = (none)") . ".", $isCli);
 
         if (abs($ai_total - $r_total) <= 5) {
-            $update = array('invoice_validated' => 1);
+            $update = array('invoice_validated' => 1, 'ai_total' => $ai_total);
             if ($payment_terms !== null) {
                 $update['payment_terms'] = $payment_terms;
             }
@@ -140,6 +137,7 @@ if ($isCli) {
             status("PO {$po_number}: match – invoice_validated set to 1" . ($payment_terms !== null ? ", payment_terms = {$payment_terms}" : "") . ".", $isCli);
             $validated++;
         } else {
+            dbUpdate('po', array('invoice_validated' => 0, 'ai_total' => $ai_total), $po_id);
             status("PO {$po_number}: mismatch – no update.", $isCli);
             $mismatch++;
         }
