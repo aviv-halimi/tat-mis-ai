@@ -6,7 +6,7 @@
 require_once('../_config.php');
 header('Content-Type: application/json');
 
-$store_id = getVarInt('store_id');
+$store_id = getVarInt('store_id', 0, 0, 99999);
 if (!$store_id) {
     echo json_encode(array('success' => false, 'vendors' => array()));
     exit;
