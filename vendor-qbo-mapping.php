@@ -82,9 +82,9 @@ include_once('inc/header.php');
     <?php if ($store_id && !empty($debug_log)) { ?>
     <div class="panel panel-default mt-3">
       <div class="panel-heading">
-        <a href="javascript:;" data-toggle="collapse" data-target="#vendor_qbo_debug" class="panel-title <?php echo $qbo_show_connect ? '' : 'collapsed'; ?>">Troubleshooting log (API / query results)</a>
+        <a href="javascript:;" data-toggle="collapse" data-target="#vendor_qbo_debug" class="panel-title collapsed">Troubleshooting log (API / query results)</a>
       </div>
-      <div id="vendor_qbo_debug" class="panel-collapse <?php echo $qbo_show_connect ? 'in' : 'collapse'; ?>">
+      <div id="vendor_qbo_debug" class="panel-collapse collapse">
         <div class="panel-body">
           <p class="text-muted mb-2"><strong>Last save (AJAX)</strong> — updated when you click Save</p>
           <pre id="vendor_qbo_ajax_log" class="mb-3" style="white-space: pre-wrap; word-break: break-all; font-size: 12px; min-height: 2em;">No save attempt yet.</pre>
@@ -111,9 +111,20 @@ include_once('inc/header.php');
     (function() {
       var authUrl = <?php echo json_encode($qbo_auth_url); ?>;
       var btn = document.getElementById('vendor_qbo_connect_btn');
-      if (btn && authUrl && typeof openQboAuthAndRetry === 'function') {
+      if (btn && authUrl) {
         btn.addEventListener('click', function() {
-          openQboAuthAndRetry(authUrl, function() { location.reload(); });
+          if (typeof openQboAuthAndRetry === 'function') {
+            openQboAuthAndRetry(authUrl, function() { location.reload(); });
+          } else {
+            var w = window.open(authUrl, 'qbo_oauth', 'width=600,height=700,scrollbars=yes');
+            if (!w) {
+              window.location.href = authUrl;
+            } else {
+              var t = setInterval(function() {
+                if (w.closed) { clearInterval(t); location.reload(); }
+              }, 500);
+            }
+          }
         });
       }
     })();
