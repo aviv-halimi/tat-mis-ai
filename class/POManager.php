@@ -1362,6 +1362,10 @@ class POManager extends SessionManager {
                     require_once dirname(__FILE__) . '/../inc/ai-invoice-gemini.php';
                     $validation = runInvoiceValidationForPO($po_id);
                     if (!$validation['matched']) {
+                      if (!empty($validation['debug_log'])) {
+                        $note = 'AI Invoice Validation: No match' . "\n\n" . implode("\n", $validation['debug_log']);
+                        $this->SavePONote($po_id, $note, $_admin_id);
+                      }
                       return array('success' => false, 'show_validation_warning' => true, 'po_total' => $validation['r_total'], 'ai_total' => $validation['ai_total'], 'po_code' => $po_code, 'back' => $back ? 1 : 0, 'response' => 'AI validation mismatch');
                     }
                   }
