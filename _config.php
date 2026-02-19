@@ -19,11 +19,11 @@ define('dbhost', 'mysql:host=172.26.5.61;dbname=theartisttree;');
 define('dbuser', 'dbuser');
 define('dbpass', 'Vtbk518&');
 define('MEDIA_PATH', '/var/www/vhosts/wantadigital.com/media/theartisttree/');
+define('QBO_REDIRECT_URI', 'https://mis-ai.theartisttree.com/ajax/qbo-oauth-callback.php');
 
-// QBO: set via Apache env (SetEnv) or server env — QBO_CLIENT_ID, QBO_CLIENT_SECRET, QBO_REDIRECT_URI
+// QBO: client id and secret set via Apache env (SetEnv) — QBO_CLIENT_ID, QBO_CLIENT_SECRET
 // define('QBO_CLIENT_ID','...');
 // define('QBO_CLIENT_SECRET','...');
-// define('QBO_REDIRECT_URI', 'https://your-domain.com/ajax/qbo-oauth-callback.php');
 # Gemini API key: set in Plesk env (see doc) so it is not overwritten by git. Fallback constant below if needed.
 // define('GEMINI_API_KEY', '');
 # Report all PHP errors
