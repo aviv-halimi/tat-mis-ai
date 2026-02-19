@@ -17,7 +17,7 @@ $(document).ready(function(e) {
       btn.prop("disabled", false).find(".fa").removeClass("fa-spin");
       if (res && res.success) {
         showStatus("status", res.message, res.matched ? "ok" : "warning", true);
-        location.reload();
+        setTimeout(function() { location.reload(); }, 600);
       } else {
         showStatus("status", (res && res.error) ? res.error : "Validation failed.", "error", true);
       }
@@ -588,7 +588,7 @@ echo '
       </div>
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label">AI Invoice Validation: ' . (isset($t['invoice_validated']) && (int)$t['invoice_validated'] === 1 ? '<span class="badge badge-success">Match</span>' : '<span class="badge badge-warning">No match</span>') . '</div>
+          <div class="col-sm-12 col-form-label">Pushed to QBO: <b>' . (isset($t['in_qbo']) && (int)$t['in_qbo'] === 1 ? '<span class="badge badge-success">Yes</span>' : '<span class="badge badge-secondary">No</span>') . '</b></div>
         </div>
       </div>
       <div class="col-md-4">
@@ -603,7 +603,7 @@ echo '
       </div>
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label">Pushed to QBO: <b>' . (isset($t['in_qbo']) && (int)$t['in_qbo'] === 1 ? '<span class="badge badge-success">Yes</span>' : '<span class="badge badge-secondary">No</span>') . '</b></div>
+          <div class="col-sm-12 col-form-label">AI Invoice Validation: ' . (isset($t['invoice_validated']) && (int)$t['invoice_validated'] === 1 ? '<span class="badge badge-success">Match</span>' : '<span class="badge badge-warning">No match</span>') . '</div>
         </div>
       </div>
       <div class="col-md-4">
@@ -637,9 +637,6 @@ if (in_array($_Session->admin_group_id,array(1,3,11,12,15))) {
   <div class="btn-group m-b-5 m-r-5">
   <a href="../module/notify_andrew.php?poid=' . $_po_id . '" class="btn btn-info"><i class="fa fa-file"></i> Notify Andrew </a>
   </div>';
-}
-if ($t['po_status_id'] == 5) {
-  echo '<div class="btn-group m-b-5 m-r-5"><button type="button" class="btn btn-primary btn-po-qbo-push" data-c="' . htmlspecialchars($po_code) . '"><i class="fa fa-external-link-alt"></i> Push to QuickBooks</button></div> ';
 }
 echo '
 <div class="btn-group m-b-5 m-r-5">
@@ -710,7 +707,9 @@ if ($t['po_status_id'] > 2) {
     echo '<div class="float-right coa-filenames"' . iif($_coa_filenames, ' style="display:none;"') . '>' . uploadWidget('po', 'coa_filenames', $_coa_filenames, '', 'multiple', 'Upload COA file(s)...') . '</div>';
     
   }
-
+if ($t['po_status_id'] == 5) {
+  echo '<div class="btn-group m-b-5 m-r-5 float-right"><button type="button" class="btn btn-primary btn-po-qbo-push" data-c="' . htmlspecialchars($po_code) . '"><i class="fa fa-external-link-alt"></i> Push to QuickBooks</button></div>';
+}
 echo '
 </div>
 </form>
