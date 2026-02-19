@@ -2,6 +2,9 @@
 /**
  * Start QBO OAuth2: redirects the user to Intuit's authorization page.
  * GET store_id (required). User must be logged in; store_id is passed as state and used after callback.
+ *
+ * If Intuit shows "Sorry, but undefined didn't connect": set your app's display name in the
+ * Intuit Developer Portal (developer.intuit.com) → Your app → App settings → App name / Company name.
  */
 require_once dirname(__FILE__) . '/../_config.php';
 
@@ -27,7 +30,8 @@ if (!$rs || !getRow($rs)) {
 
 $client_id    = defined('QBO_CLIENT_ID') ? QBO_CLIENT_ID : (getenv('QBO_CLIENT_ID') ?: '');
 $client_secret = defined('QBO_CLIENT_SECRET') ? QBO_CLIENT_SECRET : (getenv('QBO_CLIENT_SECRET') ?: '');
-$redirect_uri = defined('QBO_REDIRECT_URI') ? QBO_REDIRECT_URI : (getenv('QBO_REDIRECT_URI') ?: '');
+$redirect_uri = trim(defined('QBO_REDIRECT_URI') ? QBO_REDIRECT_URI : (getenv('QBO_REDIRECT_URI') ?: ''));
+$redirect_uri = rtrim($redirect_uri, '/');
 if ($client_id === '' || $client_secret === '' || $redirect_uri === '') {
     header('Content-Type: text/html; charset=utf-8');
     echo '<!DOCTYPE html><html><body><p>QBO OAuth not configured (QBO_CLIENT_ID, QBO_CLIENT_SECRET, QBO_REDIRECT_URI).</p></body></html>';

@@ -101,6 +101,7 @@ include_once('inc/header.php');
       <?php if ($qbo_has_auth_url) { ?>
       <span class="d-inline-block mt-2">Click the button to open the authorization page in a new window, then return here.</span>
       <button type="button" class="btn btn-primary ml-2 mt-2" id="vendor_qbo_connect_btn">Connect to QuickBooks</button>
+      <span class="d-inline-block mt-2 ml-2"><a href="<?php echo htmlspecialchars(BASE_URL . 'ajax/qbo-oauth-debug.php?store_id=' . (int)$store_id); ?>" target="_blank" rel="noopener">OAuth debug</a></span>
       <?php } else { ?>
       <p class="mb-0 mt-2"><strong>To enable the Connect button:</strong> set <code>QBO_REDIRECT_URI</code> in <code>_config.php</code> to your full callback URL (e.g. <code>https://yourdomain.com/ajax/qbo-oauth-callback.php</code>). It must match the redirect URI in your Intuit Developer app. Then reload this page.</p>
       <p class="mb-0 small text-muted">See the Troubleshooting log below for debug details (auth_url_empty, redirect_uri_configured).</p>

@@ -25,7 +25,8 @@ if ($store_id <= 0) {
 
 $client_id     = defined('QBO_CLIENT_ID') ? QBO_CLIENT_ID : (getenv('QBO_CLIENT_ID') ?: '');
 $client_secret = defined('QBO_CLIENT_SECRET') ? QBO_CLIENT_SECRET : (getenv('QBO_CLIENT_SECRET') ?: '');
-$redirect_uri  = defined('QBO_REDIRECT_URI') ? QBO_REDIRECT_URI : (getenv('QBO_REDIRECT_URI') ?: '');
+$redirect_uri  = trim(defined('QBO_REDIRECT_URI') ? QBO_REDIRECT_URI : (getenv('QBO_REDIRECT_URI') ?: ''));
+$redirect_uri  = rtrim($redirect_uri, '/');
 if ($client_id === '' || $client_secret === '' || $redirect_uri === '') {
     echo '<!DOCTYPE html><html><head><title>QBO Connect</title></head><body><p>QBO OAuth not configured.</p></body></html>';
     exit;
