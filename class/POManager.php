@@ -1638,10 +1638,11 @@ class POManager extends SessionManager {
     $rn = getRs("SELECT *, CAST(orderCreationDate AS datetime) AS OrderDate FROM nabis WHERE nabis_id = ?", array($nabis_id));
     if ($n = getRow($rn)) {
       $po_name = $n['brandDoingBusinessAs'] . ' - ' . $n['orderNumber'];
-	  $createDate = $n['OrderDate'];
+      $invoice_num = substr($n['brandDoingBusinessAs'], 0, 20 - strlen($n['orderNumber'])) . '-' . $n['orderNumber'];
+      $createDate = $n['OrderDate'];
       $rs = getRs("SELECT * FROM nabis_product WHERE nabis_id = ? AND " . is_active() . " ORDER BY sort, nabis_product_id", array($nabis_id));
-      $po_id = dbPut('po', array('store_id' => $this->store_id, 'po_event_status_id' => $po_event_status_id, 'po_status_id' => $po_status_id, 'admin_id' => $this->admin_id, 'po_name' => $po_name, 'vendor_id' => $vendor_id, 'email' => $email, 'po_type_id' => $po_type_id, 'vendor_name' => dbFieldName('vendor', $vendor_id, 'name', $this->db), 'po_reorder_type_id' => $po_reorder_type_id, 'num_products' => sizeof($rs),  'at_discount' => 0, 'tax_rate' => $this->GetSetting('tax'), 'date_schedule_delivery' => toMySqlDT($date_schedule_delivery), 'date_created' => $createDate));
-      $num_products = 0;
+       $po_id = dbPut('po', array('store_id' => $this->store_id, 'po_event_status_id' => $po_event_status_id, 'po_status_id' => $po_status_id, 'admin_id' => $this->admin_id, 'po_name' => $po_name, 'vendor_id' => $vendor_id, 'email' => $email, 'po_type_id' => $po_type_id, 'vendor_name' => dbFieldName('vendor', $vendor_id, 'name', $this->db), 'po_reorder_type_id' => $po_reorder_type_id, 'num_products' => sizeof($rs),  'at_discount' => 0, 'tax_rate' => $this->GetSetting('tax'), 'date_schedule_delivery' => toMySqlDT($date_schedule_delivery), 'date_created' => $createDate, 'invoice_number' => $invoice_num));
+       $num_products = 0;
       foreach($rs as $r) {
         $num_products ++;
         $po_product_id = dbPut('po_product', array('po_id' => $po_id, 'product_id' => $r['product_id'], 'po_product_name' => $r['product_name'], 'product_name' => $r['product_name'], 'price' => $r['price'], 'order_qty' => $r['quantity'], 'category_id' => $r['category_id'], 'brand_id' => $r['brand_id'], 'flower_type' => nicefy($r['flower_type'])));

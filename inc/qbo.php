@@ -777,11 +777,7 @@ function po_qbo_push_bill($po_code) {
     $po_name = trim(!empty($po['po_name']) ? $po['po_name'] : '');
     $vendor_table_id = isset($vendor['id']) ? trim((string)$vendor['id']) : '';
     $use_po_name = $vendor_table_id !== '' && in_array($vendor_table_id, array_map('trim', explode(',', QBO_DOCNUMBER_WITH_PO_NAME_IDS)), true);
-    if ($use_po_name && $invoice_num !== '' && $po_name !== '') {
-        $doc_number = mb_substr($invoice_num . '-' . $po_name, 0, 21);
-    } else {
-        $doc_number = $invoice_num !== '' ? mb_substr($invoice_num, 0, 21) : ('PO ' . $po['po_number']);
-    }
+    $doc_number = $invoice_num !== '' ? mb_substr($invoice_num, 0, 21) : ('PO ' . $po['po_number']);
     $private_note = '';
     if (function_exists('getAdminName') && !empty($GLOBALS['_Session']->admin_id)) {
         $admin_name = getAdminName($GLOBALS['_Session']->admin_id);
