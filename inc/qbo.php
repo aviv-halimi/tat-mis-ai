@@ -778,13 +778,18 @@ function po_qbo_push_bill($po_code) {
     $vendor_table_id = isset($vendor['id']) ? trim((string)$vendor['id']) : '';
     $use_po_name = $vendor_table_id !== '' && in_array($vendor_table_id, array_map('trim', explode(',', QBO_DOCNUMBER_WITH_PO_NAME_IDS)), true);
     $doc_number = $invoice_num !== '' ? mb_substr($invoice_num, 0, 21) : ('PO ' . $po['po_number']);
-    $private_note = '';
+    $note_lines = array();
     if (function_exists('getAdminName') && !empty($GLOBALS['_Session']->admin_id)) {
         $admin_name = getAdminName($GLOBALS['_Session']->admin_id);
         if ($admin_name !== '') {
-            $private_note = 'Added via MIS by ' . $admin_name;
+            $note_lines[] = 'Added via MIS by ' . $admin_name;
         }
     }
+    $po_base = (defined('SITE_URL') && SITE_URL !== '') ? rtrim(SITE_URL, '/') : (function_exists('getCurrentHost') ? rtrim(getCurrentHost(), '/') : '');
+    if ($po_base !== '') {
+        $note_lines[] = $po_base . '/po/' . $po_code;
+    }
+    $private_note = implode("\n", $note_lines);
     $vendor_term = qbo_get_vendor_term_ref($store_id, $qbo_id);
     $sales_term_ref_id = (!empty($vendor_term['success']) && !empty($vendor_term['term_ref_id'])) ? $vendor_term['term_ref_id'] : null;
     $result = qbo_create_bill($store_id, $qbo_id, $subtotal, $discounts, $doc_number, $txn_date, $private_note, $sales_term_ref_id);
