@@ -571,58 +571,76 @@ if (isset($t['po_status_id']) && (int)$t['po_status_id'] >= 5 && !empty($t['stor
   }
 }
 if ($t['po_status_id'] > 3) {
+  $_inv_num = isset($t['invoice_number']) && $t['invoice_number'] !== null && (string)$t['invoice_number'] !== '' ? $t['invoice_number'] : '—';
+  $_ai_inv_num = isset($t['ai_invoice_number']) && $t['ai_invoice_number'] !== null && (string)$t['ai_invoice_number'] !== '' ? $t['ai_invoice_number'] : '—';
 echo '
 <div class="panel mt-3">
   <div class="panel-body">
     <div class="row">
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label">Date Ordered: <b>' . $_date_ordered . '</b></div>
+          <div class="col-sm-12 col-form-label">Date Ordered</div>
+          <div class="col-sm-12"><b>' . $_date_ordered . '</b></div>
         </div>
       </div>
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label">Date Received: <b>' . $_date_received . '</b></div>
+          <div class="col-sm-12 col-form-label">Date Received</div>
+          <div class="col-sm-12"><b>' . $_date_received . '</b></div>
         </div>
       </div>
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label">Invoice #: <b>' . $_invoice_number . '</b></div>
+          <div class="col-sm-12 col-form-label">Invoice Payment Terms</div>
+          <div class="col-sm-12"><b>' . ($_payment_terms !== '' && $_payment_terms !== null ? (int)$_payment_terms . ' days' : '—') . '</b></div>
         </div>
       </div>
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label">Invoice Payment Terms: <b>' . ($_payment_terms !== '' && $_payment_terms !== null ? (int)$_payment_terms : '—') . '</b></div>
+          <div class="col-sm-12 col-form-label">Invoice #</div>
+          <div class="col-sm-12"><b>' . htmlspecialchars($_inv_num) . '</b></div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12 col-form-label">AI Invoice #</div>
+          <div class="col-sm-12"><b>' . htmlspecialchars($_ai_inv_num) . '</b></div>
         </div>
       </div>' . ($t['po_status_id'] >= 5 ? '
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label">QBO Payment Term: <b>' . htmlspecialchars($qbo_term_display) . '</b></div>
+          <div class="col-sm-12 col-form-label">Amount due</div>
+          <div class="col-sm-12"><b>' . ($po_amount_due !== null ? '$' . number_format($po_amount_due, 2) : '—') . '</b></div>
         </div>
       </div>
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label">QBO Bill: <b>' . ($qbo_bill_id === '' ? '<span class="text-muted">(Not pushed to QBO)</span>' : ($qbo_bill_url !== '' ? '<a href="' . htmlspecialchars($qbo_bill_url) . '" target="_blank" rel="noopener">#' . htmlspecialchars($qbo_bill_id) . '</a>' : '#' . htmlspecialchars($qbo_bill_id))) . '</b></div>
+          <div class="col-sm-12 col-form-label">QBO Payment Term</div>
+          <div class="col-sm-12"><b>' . htmlspecialchars($qbo_term_display) . '</b></div>
         </div>
       </div>
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label">Amount due: <b>' . ($po_amount_due !== null ? '$' . number_format($po_amount_due, 2) : '—') . '</b></div>
+          <div class="col-sm-12 col-form-label">QBO Bill</div>
+          <div class="col-sm-12"><b>' . ($qbo_bill_id === '' ? '<span class="text-muted">(Not pushed to QBO)</span>' : ($qbo_bill_url !== '' ? '<a href="' . htmlspecialchars($qbo_bill_url) . '" target="_blank" rel="noopener">#' . htmlspecialchars($qbo_bill_id) . '</a>' : '#' . htmlspecialchars($qbo_bill_id))) . '</b></div>
         </div>
       </div>
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label">AI total: <b>' . (isset($t['ai_total']) && $t['ai_total'] !== null && $t['ai_total'] !== '' ? '$' . number_format((float)$t['ai_total'], 2) : '—') . '</b></div>
+          <div class="col-sm-12 col-form-label">AI total</div>
+          <div class="col-sm-12"><b>' . (isset($t['ai_total']) && $t['ai_total'] !== null && $t['ai_total'] !== '' ? '$' . number_format((float)$t['ai_total'], 2) : '—') . '</b></div>
         </div>
       </div>
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label">AI Invoice Validation: ' . (isset($t['invoice_validated']) && (int)$t['invoice_validated'] === 1 ? '<span class="badge badge-success">Match</span>' : '<span class="badge badge-warning">No match</span>') . '</div>
+          <div class="col-sm-12 col-form-label">AI Validation</div>
+          <div class="col-sm-12">' . (isset($t['invoice_validated']) && (int)$t['invoice_validated'] === 1 ? '<span class="badge badge-success">Match</span>' : '<span class="badge badge-warning">No match</span>') . '</div>
         </div>
       </div>
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label"><button type="button" class="btn btn-sm btn-outline-primary btn-invoice-validate-po" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-refresh"></i> Re-run AI validation</button></div>
+          <div class="col-sm-12 col-form-label">&nbsp;</div>
+          <div class="col-sm-12"><button type="button" class="btn btn-sm btn-outline-primary btn-invoice-validate-po" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-refresh"></i> Re-run AI validation</button></div>
         </div>
       </div>' : '') . '
     </div>
