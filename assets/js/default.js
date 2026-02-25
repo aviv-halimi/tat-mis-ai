@@ -868,6 +868,29 @@ function initAssets(select2) {
   $('.po-data #payment_terms').off('change').on('change', function(e) {
     postAjax('po-data', {c: $('#po_code').val(), f: 'payment_terms', v: $(this).val()}, 'status');
   });
+  $('.btn-po-save-invoice').off('click').on('click', function(e) {
+    e.preventDefault();
+    var c = $('#po_code').val();
+    var statusEl = 'status';
+    if (!c) return;
+    showStatus(statusEl, 'Saving...', 'info');
+    var requests = [];
+    if ($('#invoice_number').length) requests.push({f: 'invoice_number', v: $('#invoice_number').val()});
+    if ($('#date_received').length) requests.push({f: 'date_received', v: $('#date_received').val()});
+    if ($('#payment_terms').length) requests.push({f: 'payment_terms', v: $('#payment_terms').val()});
+    var done = 0;
+    var total = requests.length;
+    if (total === 0) {
+      showStatus(statusEl, 'Nothing to save.', 'ok', true);
+      return;
+    }
+    requests.forEach(function(r) {
+      postAjax('po-data', {c: c, f: r.f, v: r.v}, statusEl, function() {
+        done++;
+        if (done === total) showStatus(statusEl, 'Invoice info saved.', 'ok', true);
+      });
+    });
+  });
   $('.po-data #invoice_filename').off('change').on('change', function(e) {
     postAjax('po-data', {c: $('#po_code').val(), f: 'invoice_filename', v: $(this).val()}, 'status');
   });

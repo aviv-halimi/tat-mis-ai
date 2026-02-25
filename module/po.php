@@ -825,6 +825,11 @@ echo iif($t['po_status_id'] == 3, '
           <div class="col-sm-12">' . uploadWidget('po', 'invoice_filename', $_invoice_filename) . '</div>
         </div>
       </div>
+      <div class="col-md-12">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12"><button type="button" class="btn btn-secondary btn-po-save-invoice"><i class="fa fa-save mr-1"></i> Save invoice info</button></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -876,6 +881,57 @@ echo iif($t['po_status_id'] == 4, '
         <div class="row form-input-flat mb-2">
           <div class="col-sm-12 col-form-label">Receiving Document:</div>
           <div class="col-sm-12">' . uploadWidget('po', 'invoice_filename', $_invoice_filename) . '</div>
+        </div>
+      </div>
+      <div class="col-md-12">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12"><button type="button" class="btn btn-secondary btn-po-save-invoice"><i class="fa fa-save mr-1"></i> Save invoice info</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</form>');
+
+echo iif($t['po_status_id'] == 5, '
+<form action="" method="post" class="po-data">
+<div class="panel panel-danger mt-3">
+  <div class="panel-heading">
+    <h4 class="panel-title">Receiving / Invoice Information</h4>
+  </div>
+  <div class="panel-body">
+    <div class="row">
+      <div class="col-md-4">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12 col-form-label">Date Received:</div>
+          <div class="col-sm-12">
+            <input type="hidden" id="date_ordered" value="' . $_date_ordered . '" />
+            <div class="date">
+              <div class="input-group date datepicker date-received" data-date-format="mm/dd/yyyy">
+                <input type="text" class="form-control" placeholder="mm/dd/yy" id="date_received" name="date_received" value="' . $_date_received . '" />
+                <div class="input-group-addon">
+                  <i class="fa fa-calendar"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12 col-form-label">Invoice #:</div>
+          <div class="col-sm-12"><input type="text" class="form-control" placeholder="" id="invoice_number" name="invoice_number" value="' . $_invoice_number . '" /></div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12 col-form-label">Payment terms (days):</div>
+          <div class="col-sm-12"><input type="number" class="form-control" placeholder="e.g. 30" id="payment_terms" name="payment_terms" value="' . ($_payment_terms !== '' && $_payment_terms !== null ? (int)$_payment_terms : '') . '" min="0" /></div>
+        </div>
+      </div>
+      <div class="col-md-12">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12"><button type="button" class="btn btn-secondary btn-po-save-invoice"><i class="fa fa-save mr-1"></i> Save invoice info</button></div>
         </div>
       </div>
     </div>
