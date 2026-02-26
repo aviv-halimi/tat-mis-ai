@@ -367,7 +367,11 @@ function updateDialog2(url, title, a, c) {
 		}
 	})
   	.fail(function(xhr, status, error) {
-    	$('#modal .modal-body').html('<div class="alert alert-danger" role="alert"><i class="fe fe-exclamation"></i> Error while contacting server: ' + error + '</div>');
+		var msg = 'Error while contacting server: ' + (error || status || 'unknown');
+		if (xhr && xhr.status) msg += ' (HTTP ' + xhr.status + ')';
+		if (xhr && xhr.responseText && xhr.responseText.length < 500) msg += ' — ' + xhr.responseText.replace(/<[^>]+>/g, ' ').trim();
+		$('#modal .modal-body').html('<div class="alert alert-danger" role="alert"><i class="fe fe-exclamation"></i> ' + msg + '</div>');
+		if (typeof ddReportQboLog === 'function') ddReportQboLog('Modal load FAILED: url=' + url + ' status=' + status + ' xhr.status=' + (xhr && xhr.status) + ' ' + (xhr && xhr.responseText ? xhr.responseText.substring(0, 300) : ''));
   	});
 }
 

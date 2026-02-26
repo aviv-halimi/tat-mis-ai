@@ -973,24 +973,52 @@ function initDailyDiscountReportBtn() {
   });
 }
 
+function ddReportQboLog(msg) {
+  var ts = new Date().toLocaleTimeString();
+  var $box = $('#dd-report-qbo-log-box');
+  var $log = $('#dd-report-qbo-log');
+  if ($log.length) {
+    $box.show();
+    $log.append(ts + ' ' + msg + '\n');
+    $log[0].scrollTop = $log[0].scrollHeight;
+  }
+  if (typeof console !== 'undefined' && console.log) console.log('[DD-QBO]', msg);
+}
+
 function initPushDailyDiscountReportQbo() {
+  ddReportQboLog('Init: Push to QBO / Map vendors handlers attached.');
   $(document).off('click', '.btn-dd-report-qbo-map-vendor').on('click', '.btn-dd-report-qbo-map-vendor', function(e) {
     e.preventDefault();
     var brandId = $(this).data('daily-discount-report-brand-id');
-    if (brandId && typeof updateDialog2 === 'function') {
-      updateDialog2('daily-discount-report-qbo-map-vendor', 'Map brand to QBO vendor', null, brandId);
+    ddReportQboLog('Map vendors clicked, brandId=' + brandId);
+    if (!brandId) {
+      ddReportQboLog('Map vendors: no brandId, abort.');
+      return;
     }
+    if (typeof updateDialog2 !== 'function') {
+      ddReportQboLog('Map vendors: updateDialog2 not found.');
+      return;
+    }
+    ddReportQboLog('Loading modal: POST /modal/daily-discount-report-qbo-map-vendor c=' + brandId);
+    updateDialog2('daily-discount-report-qbo-map-vendor', 'Map brand to QBO vendor', null, brandId);
   });
   $(document).off('click', '.btn-push-dd-report-qbo').on('click', '.btn-push-dd-report-qbo', function(e) {
     e.preventDefault();
     var $btn = $(this);
     var brandId = $btn.data('daily-discount-report-brand-id');
-    if (!brandId) return;
+    ddReportQboLog('Push to QBO clicked, brandId=' + brandId);
+    if (!brandId) {
+      ddReportQboLog('Push to QBO: no brandId, abort.');
+      return;
+    }
     $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Checking…');
+    ddReportQboLog('Preflight: POST /ajax/daily-discount-report-qbo-push.php action=preflight');
     function runPreflight(thenPush) {
       $.post('/ajax/daily-discount-report-qbo-push.php', { action: 'preflight', daily_discount_report_brand_id: brandId }, function(res) {
+        ddReportQboLog('Preflight response: ok=' + (res && res.ok) + (res && res.need_auth && res.need_auth.length ? ' need_auth=' + res.need_auth.length : '') + (res && res.need_mapping && res.need_mapping.length ? ' need_mapping=' + res.need_mapping.length : ''));
         if (res && res.need_auth && res.need_auth.length > 0) {
           $btn.prop('disabled', false).html('<i class="fa fa-cloud-upload-alt"></i> Push to QBO');
+          ddReportQboLog('Preflight: showing QBO connect modal.');
           var msg = 'Connect QuickBooks for: ' + res.need_auth.map(function(s) { return s.store_name; }).join(', ');
           var html = '<div class="p-3"><p>' + msg + '</p><div class="mb-2">';
           res.need_auth.forEach(function(s) {
@@ -1022,6 +1050,7 @@ function initPushDailyDiscountReportQbo() {
         }
         if (res && res.need_mapping && res.need_mapping.length > 0) {
           $btn.prop('disabled', false).html('<i class="fa fa-cloud-upload-alt"></i> Push to QBO');
+          ddReportQboLog('Preflight: opening Map vendors modal.');
           if (typeof updateDialog2 === 'function') {
             updateDialog2('daily-discount-report-qbo-map-vendor', 'Map brand to QBO vendor', null, brandId);
           } else {
@@ -1036,11 +1065,13 @@ function initPushDailyDiscountReportQbo() {
           return;
         }
         if (thenPush && res && res.ok) {
+          ddReportQboLog('Preflight OK, calling push.');
           doPush(brandId, $btn);
         } else {
           $btn.prop('disabled', false).html('<i class="fa fa-cloud-upload-alt"></i> Push to QBO');
         }
-      }, 'json').fail(function() {
+      }, 'json').fail(function(xhr, status, errMsg) {
+        ddReportQboLog('Preflight FAILED: status=' + status + ' err=' + (errMsg || '') + ' xhr.status=' + (xhr && xhr.status) + (xhr && xhr.responseText ? ' response=' + xhr.responseText.substring(0, 200) : ''));
         $btn.prop('disabled', false).html('<i class="fa fa-cloud-upload-alt"></i> Push to QBO');
       });
     }
@@ -1049,8 +1080,10 @@ function initPushDailyDiscountReportQbo() {
 }
 
 function doPush(brandId, $btn) {
+  ddReportQboLog('Push: POST /ajax/daily-discount-report-qbo-push.php action=push');
   $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Pushing…');
   $.post('/ajax/daily-discount-report-qbo-push.php', { action: 'push', daily_discount_report_brand_id: brandId }, function(res) {
+    ddReportQboLog('Push response: success=' + (res && res.success));
     $btn.prop('disabled', false).html('<i class="fa fa-cloud-upload-alt"></i> Push to QBO');
     if (!res || !res.success) {
       if (typeof showStatus === 'function') showStatus('status', res && res.response ? res.response : 'Push failed', 'error', true);
@@ -1069,7 +1102,8 @@ function doPush(brandId, $btn) {
     } else {
       alert(msg);
     }
-  }, 'json').fail(function() {
+  }, 'json').fail(function(xhr, status, errMsg) {
+    ddReportQboLog('Push FAILED: status=' + status + ' xhr.status=' + (xhr && xhr.status));
     $btn.prop('disabled', false).html('<i class="fa fa-cloud-upload-alt"></i> Push to QBO');
   });
 }

@@ -3,7 +3,7 @@
  * Modal: Map daily discount report brand to QBO vendor per store (for Push to QBO).
  * GET/POST: c = daily_discount_report_brand_id
  */
-require_once('../_config.php');
+require_once(dirname(__DIR__) . '/_config.php');
 $daily_discount_report_brand_id = getVarInt('c', 0, 0, 999999);
 if (!$daily_discount_report_brand_id) {
     echo '<div class="alert alert-danger">Missing report brand.</div>';
@@ -29,8 +29,16 @@ foreach ($stores as $s) {
     $store_db = isset($s['store_db']) ? preg_replace('/[^a-z0-9_]/i', '', $s['store_db']) : '';
     $current = '';
     if ($store_db !== '') {
-        $br = getRow(getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE brand_id = ?", array($brand_id)));
-        $current = isset($br['qbo_vendor_id']) ? trim((string)$br['qbo_vendor_id']) : '';
+        try {
+            $col_check = getRs("SELECT COUNT(*) AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME = 'qbo_vendor_id'", array($store_db));
+            $has_col = $col_check && (int)getRow($col_check)['c'] > 0;
+            if ($has_col) {
+                $br = getRow(getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE brand_id = ?", array($brand_id)));
+                $current = isset($br['qbo_vendor_id']) ? trim((string)$br['qbo_vendor_id']) : '';
+            }
+        } catch (Exception $e) {
+            $current = '';
+        }
     }
     $store_rows[] = array(
         'store_id' => (int)$s['store_id'],
