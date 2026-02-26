@@ -1015,6 +1015,12 @@ function initPushDailyDiscountReportQbo() {
     ddReportQboLog('Preflight: POST /ajax/daily-discount-report-qbo-push.php action=preflight');
     function runPreflight(thenPush) {
       $.post('/ajax/daily-discount-report-qbo-push.php', { action: 'preflight', daily_discount_report_brand_id: brandId }, function(res) {
+        if (res && res.success === false && res.response) {
+          $btn.prop('disabled', false).html('<i class="fa fa-cloud-upload-alt"></i> Push to QBO');
+          ddReportQboLog('Preflight error: ' + (res.response || '') + (res.error_detail ? ' (' + res.error_detail + ')' : ''));
+          if (typeof showStatus === 'function') showStatus('status', res.response, 'error', true);
+          return;
+        }
         ddReportQboLog('Preflight response: ok=' + (res && res.ok) + (res && res.need_auth && res.need_auth.length ? ' need_auth=' + res.need_auth.length : '') + (res && res.need_mapping && res.need_mapping.length ? ' need_mapping=' + res.need_mapping.length : ''));
         if (res && res.need_auth && res.need_auth.length > 0) {
           $btn.prop('disabled', false).html('<i class="fa fa-cloud-upload-alt"></i> Push to QBO');
