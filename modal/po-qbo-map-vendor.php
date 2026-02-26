@@ -3,7 +3,7 @@
  * Modal: Map PO vendor to QuickBooks Online vendor (when pushing a bill and vendor has no QBO_ID).
  * GET/POST: c = po_code
  */
-require_once('../_config.php');
+require_once(__DIR__ . '/../_config.php');
 $po_code = getVar('c');
 if (!$po_code) {
     echo '<div class="alert alert-danger">Missing PO code.</div>';

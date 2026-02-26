@@ -342,6 +342,7 @@ function updateDialog2(url, title, a, c) {
 			}
 		}
 		else if (url === 'daily-discount-report-qbo-map-vendor') {
+			// Same QBO stack as po-qbo-map-vendor: single store_id per request to /ajax/qbo-vendors.php
 			var selects = [];
 			$('#modal .dd-report-qbo-vendor-select').each(function() {
 				var $sel = $(this);
@@ -353,6 +354,47 @@ function updateDialog2(url, title, a, c) {
 				var item = selects[index];
 				var $sel = item.$sel;
 				$.post('/ajax/qbo-vendors.php', { store_id: item.storeId }, function(res) {
+					$('#modal #vendor_qbo_connect_hint').remove();
+					var needConnect = res && res.auth_url && (!res.success || res.needs_authorization);
+					if (needConnect) {
+						$sel.find('option').remove();
+						$sel.append($('<option value="">— Connect to QuickBooks first —</option>'));
+						var authUrl = res.auth_url;
+						$('#modal .modal-body').prepend(
+							'<div id="vendor_qbo_connect_hint" class="alert alert-info mb-3">' +
+							'<strong>Connect to QuickBooks</strong> — Store ' + item.storeId + ' is not connected (or connection expired). ' +
+							'<button type="button" class="btn btn-primary btn-sm ml-2" id="modal_qbo_connect_btn">Connect to QuickBooks</button>' +
+							'</div>'
+						);
+						$('#modal').off('click.modal_qbo_dd').on('click.modal_qbo_dd', '#modal_qbo_connect_btn', function() {
+							if (typeof openQboAuthAndRetry === 'function') {
+								openQboAuthAndRetry(authUrl, function() { loadOne(index); });
+							} else {
+								var w = window.open(authUrl, 'qbo_oauth', 'width=600,height=700,scrollbars=yes');
+								if (w) {
+									var t = setInterval(function() { if (w.closed) { clearInterval(t); loadOne(index); } }, 500);
+								} else {
+									window.location.href = authUrl;
+								}
+							}
+						});
+						if (typeof $sel.select2 === 'function') {
+							if ($sel.hasClass('select2-hidden-accessible')) $sel.select2('destroy');
+							$sel.select2({ dropdownParent: $('#modal'), minimumResultsForSearch: 0, width: '100%' });
+						}
+						loadOne(index + 1);
+						return;
+					}
+					if (res && res.needs_authorization && !res.auth_url) {
+						$sel.find('option').remove();
+						$sel.append($('<option value="">Set QBO_REDIRECT_URI in config, or connect from Vendor Mapping page</option>'));
+						if (typeof $sel.select2 === 'function') {
+							if ($sel.hasClass('select2-hidden-accessible')) $sel.select2('destroy');
+							$sel.select2({ dropdownParent: $('#modal'), minimumResultsForSearch: 0, width: '100%' });
+						}
+						loadOne(index + 1);
+						return;
+					}
 					$sel.find('option').remove();
 					$sel.append($('<option value="">— Select QBO vendor —</option>'));
 					if (res && res.success && res.vendors && res.vendors.length) {
@@ -361,7 +403,9 @@ function updateDialog2(url, title, a, c) {
 						});
 						if (item.currentVal) $sel.val(item.currentVal);
 					} else {
-						$sel.append($('<option value="">' + (res && res.auth_url ? 'Connect to QuickBooks first' : (res && res.error) || 'No vendors') + '</option>'));
+						var errMsg = (res && res.error) || 'No vendors';
+						$sel.append($('<option value="">' + errMsg + '</option>'));
+						if (typeof ddReportQboLog === 'function' && res && res.error) ddReportQboLog('QBO vendors storeId=' + item.storeId + ': ' + (res.error_detail || res.error));
 					}
 					if (typeof $sel.select2 === 'function') {
 						if ($sel.hasClass('select2-hidden-accessible')) $sel.select2('destroy');
