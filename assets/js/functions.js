@@ -440,10 +440,16 @@ function updateDialog2(url, title, a, c) {
 					$sel.append($('<option value="">— Select QBO vendor —</option>'));
 					$sel.append($('<option value="">Error: ' + (xhr && xhr.status ? 'HTTP ' + xhr.status : status) + '</option>'));
 					if (typeof ddReportQboLog === 'function') {
-						ddReportQboLog('QBO vendors failed storeId=' + item.storeId + ' status=' + (xhr && xhr.status));
-						if (xhr && xhr.responseText) {
+						var len = (xhr && xhr.responseText) ? xhr.responseText.length : 0;
+						ddReportQboLog('QBO vendors failed storeId=' + item.storeId + ' status=' + (xhr && xhr.status) + ' responseLength=' + len);
+						if (len > 0) {
 							var txt = xhr.responseText.replace(/\s+/g, ' ').trim();
-							if (txt.length > 600) txt = txt.substring(0, 600) + '…';
+							// If server returned JSON (e.g. PHP fatal from shutdown handler), show error clearly
+							try {
+								var j = JSON.parse(xhr.responseText);
+								if (j && (j.error || j.error_detail)) ddReportQboLog('QBO vendors storeId=' + item.storeId + ' server error: ' + (j.error || '') + (j.error_detail ? ' at ' + j.error_detail : ''));
+							} catch (e) { /* not JSON */ }
+							if (txt.length > 800) txt = txt.substring(0, 800) + '…';
 							ddReportQboLog('QBO vendors storeId=' + item.storeId + ' response body: ' + txt);
 						}
 					}
