@@ -347,22 +347,33 @@ function updateDialog2(url, title, a, c) {
 				var storeId = $sel.data('store-id');
 				var currentVal = $('#modal .dd-report-qbo-vendor-current[data-store-id="' + storeId + '"]').val() || '';
 				if (!storeId) return;
-				$.post('/ajax/qbo-vendors.php', { store_id: storeId }, function(res) {
+				$.ajax({
+					url: '/ajax/qbo-vendors.php',
+					type: 'POST',
+					data: { store_id: storeId },
+					dataType: 'json'
+				}).done(function(res) {
 					$sel.find('option').remove();
 					$sel.append($('<option value="">— Select QBO vendor —</option>'));
 					if (res && res.success && res.vendors && res.vendors.length) {
 						res.vendors.forEach(function(v) {
-							$sel.append($('<option></option>').attr('value', v.id).text(v.DisplayName));
+							$sel.append($('<option></option>').attr('value', v.id).text(v.DisplayName || v.id));
 						});
 						if (currentVal) $sel.val(currentVal);
 					} else {
-						$sel.append($('<option value="">' + (res && res.auth_url ? 'Connect to QuickBooks first' : (res && res.error) || 'No vendors') + '</option>'));
+						var hint = (res && res.auth_url) ? 'Connect to QuickBooks first' : (res && res.error) || (res && res.needs_authorization) ? 'Reconnect to QBO' : 'No vendors';
+						$sel.append($('<option value="">' + hint + '</option>'));
 					}
 					if (typeof $sel.select2 === 'function') {
 						if ($sel.hasClass('select2-hidden-accessible')) $sel.select2('destroy');
 						$sel.select2({ dropdownParent: $('#modal'), minimumResultsForSearch: 0, width: '100%' });
 					}
-				}, 'json');
+				}).fail(function(xhr, status, err) {
+					$sel.find('option').remove();
+					$sel.append($('<option value="">— Select QBO vendor —</option>'));
+					$sel.append($('<option value="">Error loading: ' + (xhr && xhr.status ? 'HTTP ' + xhr.status : status) + '</option>'));
+					if (typeof ddReportQboLog === 'function') ddReportQboLog('QBO vendors load failed storeId=' + storeId + ' status=' + status + ' xhr.status=' + (xhr && xhr.status));
+				});
 			});
 		}
 	})

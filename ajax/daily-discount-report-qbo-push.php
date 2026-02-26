@@ -3,9 +3,8 @@
  * Daily Discount Report → QBO: preflight (check connections/mapping/account) and push (create Vendor Credits).
  * POST: action = 'preflight' | 'push', daily_discount_report_brand_id
  */
-require_once('../_config.php');
+require_once(dirname(__DIR__) . '/_config.php');
 require_once(BASE_PATH . 'inc/qbo.php');
-require_once(BASE_PATH . 'inc/pdf-report.php');
 
 header('Content-Type: application/json');
 
@@ -65,8 +64,12 @@ foreach ($stores as $s) {
         $need_mapping[] = array('store_id' => $store_id, 'store_name' => $store_name);
         continue;
     }
-    $br = getRow(getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE brand_id = ?", array($brand_id)));
-    $qbo_vendor_id = isset($br['qbo_vendor_id']) ? trim((string)$br['qbo_vendor_id']) : '';
+    $qbo_vendor_id = '';
+    $col_check = getRs("SELECT COUNT(*) AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME = 'qbo_vendor_id'", array($store_db));
+    if ($col_check && (int)getRow($col_check)['c'] > 0) {
+        $br = getRow(getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE brand_id = ?", array($brand_id)));
+        $qbo_vendor_id = isset($br['qbo_vendor_id']) ? trim((string)$br['qbo_vendor_id']) : '';
+    }
     if ($qbo_vendor_id === '') {
         $need_mapping[] = array('store_id' => $store_id, 'store_name' => $store_name);
     }
@@ -98,6 +101,7 @@ if (!$ok) {
 }
 
 // ——— Push ———
+require_once(BASE_PATH . 'inc/pdf-report.php');
 $log = array('date' => date('Y-m-d H:i:s'), 'by_admin_id' => (isset($_Session) && isset($_Session->admin_id)) ? $_Session->admin_id : null, 'stores' => array());
 $dir = MEDIA_PATH . 'daily_discount_report_brand/';
 $filename = isset($rb['filename']) ? trim($rb['filename']) : '';
@@ -145,8 +149,12 @@ foreach ($stores as $s) {
         continue;
     }
 
-    $br = getRow(getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE brand_id = ?", array($brand_id)));
-    $qbo_vendor_id = isset($br['qbo_vendor_id']) ? trim((string)$br['qbo_vendor_id']) : '';
+    $qbo_vendor_id = '';
+    $col_check = getRs("SELECT COUNT(*) AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME = 'qbo_vendor_id'", array($store_db));
+    if ($col_check && (int)getRow($col_check)['c'] > 0) {
+        $br = getRow(getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE brand_id = ?", array($brand_id)));
+        $qbo_vendor_id = isset($br['qbo_vendor_id']) ? trim((string)$br['qbo_vendor_id']) : '';
+    }
     if ($qbo_vendor_id === '') {
         $entry['error'] = 'Brand not mapped to QBO vendor';
         $log['stores'][] = $entry;
