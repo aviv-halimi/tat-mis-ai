@@ -37,6 +37,36 @@ $need_auth = array();
 $need_account = array();
 $need_mapping = array();
 
+// Connection status only: return per-store QBO connection (for connection-status modal)
+if ($action === 'connection_status') {
+    $status_stores = array();
+    foreach ($stores as $s) {
+        $store_id = (int)$s['store_id'];
+        $store_name = isset($s['store_name']) ? $s['store_name'] : 'Store ' . $store_id;
+        $params = qbo_get_store_params($store_id);
+        $connected = false;
+        $auth_url = '';
+        if ($params && !empty($params['realm_id']) && !empty($params['refresh_token'])) {
+            $token = qbo_get_access_token($store_id);
+            $connected = is_array($token) && !empty($token['access_token']);
+            if (!$connected && isset($token['auth_url'])) {
+                $auth_url = $token['auth_url'];
+            }
+        }
+        if (!$connected && $auth_url === '' && function_exists('qbo_get_auth_url')) {
+            $auth_url = qbo_get_auth_url($store_id);
+        }
+        $status_stores[] = array(
+            'store_id' => $store_id,
+            'store_name' => $store_name,
+            'connected' => $connected,
+            'auth_url' => $auth_url,
+        );
+    }
+    echo json_encode(array('success' => true, 'stores' => $status_stores));
+    exit;
+}
+
 foreach ($stores as $s) {
     $store_id = (int)$s['store_id'];
     $store_name = isset($s['store_name']) ? $s['store_name'] : 'Store ' . $store_id;

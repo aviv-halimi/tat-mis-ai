@@ -73,13 +73,23 @@ Adjust `8.3` to the PHP version configured for the domain.
 
 ---
 
-## Step 5: Confirm the QBO SDK is present
+## Step 5: Confirm the QBO SDK and dependencies are present
 
 ```bash
 ls -la vendor/quickbooks/v3-php-sdk
+ls -la vendor/ralouphie/getallheaders/src/getallheaders.php
 ```
 
-You should see the SDK files. The app loads them via `vendor/autoload.php` in `inc/qbo.php`.
+You should see the SDK files and the `ralouphie/getallheaders` package (required by the QBO SDK). The app loads them via `vendor/autoload.php` in `inc/qbo.php`.
+
+**If you see:** `PHP fatal: Failed opening required '.../vendor/composer/../ralouphie/getallheaders/src/getallheaders.php'`  
+**Cause:** The `vendor/` folder on the server is missing that dependency (e.g. `vendor/` was not deployed or `composer install` was not run).  
+**Fix:** From the project root on the server run:
+
+```bash
+cd /var/www/vhosts/wantadigital.com/www/theartisttree-mis-ai-dd   # your actual path
+/opt/plesk/php/8.3/bin/php $(which composer) install --no-dev
+```
 
 ---
 

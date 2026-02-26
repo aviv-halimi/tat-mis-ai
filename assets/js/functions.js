@@ -271,7 +271,58 @@ function updateDialog2(url, title, a, c) {
 		$('#modal .modal-body').html(data);
 		initAssets();
 		bindForm(url);
-		if (url === 'po-qbo-map-vendor') {
+		if (url === 'daily-discount-report-qbo-connection-status') {
+			var $container = $('#modal .dd-qbo-connection-status');
+			var brandId = $container.data('daily-discount-report-brand-id') || $container.attr('data-daily-discount-report-brand-id') || c;
+			function loadConnectionStatus() {
+				var $tbody = $('#modal #dd-qbo-connection-status-tbody');
+				$tbody.html('<tr><td colspan="3" class="text-center text-muted py-2"><i class="fa fa-spinner fa-spin"></i> Loading…</td></tr>');
+				$.post('/ajax/daily-discount-report-qbo-push.php', { action: 'connection_status', daily_discount_report_brand_id: brandId }, function(res) {
+					if (!res || !res.success || !res.stores) {
+						$tbody.html('<tr><td colspan="3" class="text-danger">Failed to load status.</td></tr>');
+						return;
+					}
+					var rows = [];
+					res.stores.forEach(function(s) {
+						var statusHtml = s.connected
+							? '<span class="text-success"><i class="fa fa-check-circle"></i> Connected</span>'
+							: '<span class="text-warning"><i class="fa fa-exclamation-circle"></i> Not connected</span>';
+						var actionHtml = s.connected
+							? '—'
+							: (s.auth_url
+								? '<button type="button" class="btn btn-primary btn-sm btn-dd-qbo-connect-store" data-auth-url="' + (s.auth_url || '').replace(/"/g, '&quot;') + '" data-store-name="' + (s.store_name || '').replace(/"/g, '&quot;') + '">Connect</button>'
+								: '<span class="text-muted">Set QBO_REDIRECT_URI in config</span>');
+						rows.push('<tr><td>' + (s.store_name || 'Store ' + s.store_id) + '</td><td>' + statusHtml + '</td><td>' + actionHtml + '</td></tr>');
+					});
+					$tbody.html(rows.join(''));
+					$('#modal').off('click.dd_qbo_conn').on('click.dd_qbo_conn', '.btn-dd-qbo-connect-store', function() {
+						var authUrl = $(this).data('auth-url');
+						if (!authUrl) return;
+						if (typeof openQboAuthAndRetry === 'function') {
+							openQboAuthAndRetry(authUrl, loadConnectionStatus);
+						} else {
+							var w = window.open(authUrl, 'qbo_oauth', 'width=600,height=700,scrollbars=yes');
+							if (w) {
+								var t = setInterval(function() { if (w.closed) { clearInterval(t); loadConnectionStatus(); } }, 500);
+							} else {
+								window.location.href = authUrl;
+							}
+						}
+					});
+				}, 'json').fail(function() {
+					$('#modal #dd-qbo-connection-status-tbody').html('<tr><td colspan="3" class="text-danger">Request failed.</td></tr>');
+				});
+			}
+			loadConnectionStatus();
+			$('#modal').off('click.dd_qbo_conn_refresh').on('click.dd_qbo_conn_refresh', '#dd-qbo-connection-refresh', loadConnectionStatus);
+			$('#modal').off('click.dd_qbo_conn_continue').on('click.dd_qbo_conn_continue', '#dd-qbo-connection-continue-to-mapping', function() {
+				$('#modal').modal('hide');
+				if (typeof updateDialog2 === 'function') {
+					updateDialog2('daily-discount-report-qbo-map-vendor', 'Map brand to QBO vendor', null, brandId);
+				}
+			});
+		}
+		else if (url === 'po-qbo-map-vendor') {
 			var storeId = $('#modal #qbo_map_store_id').val();
 			var $sel = $('#modal #qbo_vendor_id');
 			if (storeId && $sel.length) {
