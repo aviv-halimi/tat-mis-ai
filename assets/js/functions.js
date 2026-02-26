@@ -316,10 +316,13 @@ function updateDialog2(url, title, a, c) {
 			loadConnectionStatus();
 			$('#modal').off('click.dd_qbo_conn_refresh').on('click.dd_qbo_conn_refresh', '#dd-qbo-connection-refresh', loadConnectionStatus);
 			$('#modal').off('click.dd_qbo_conn_continue').on('click.dd_qbo_conn_continue', '#dd-qbo-connection-continue-to-mapping', function() {
+				var id = brandId;
+				$('#modal').one('hidden.bs.modal', function() {
+					if (typeof updateDialog2 === 'function') {
+						updateDialog2('daily-discount-report-qbo-map-vendor', 'Map brand to QBO vendor', null, id);
+					}
+				});
 				$('#modal').modal('hide');
-				if (typeof updateDialog2 === 'function') {
-					updateDialog2('daily-discount-report-qbo-map-vendor', 'Map brand to QBO vendor', null, brandId);
-				}
 			});
 		}
 		else if (url === 'po-qbo-map-vendor') {
