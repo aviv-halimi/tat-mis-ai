@@ -180,6 +180,11 @@ foreach($rs as $row) {
 		  }
 	  }
   }
+  if ($TableName == 'daily_discount_report_brand') {
+	  $bid = (int)$row['daily_discount_report_brand_id'];
+	  $dd .= ' <button type="button" class="btn btn-success btn-xs ml-1 btn-push-dd-report-qbo" data-daily-discount-report-brand-id="' . $bid . '" title="Push to QuickBooks"><i class="fa fa-cloud-upload-alt"></i> Push to QBO</button>';
+	  $dd .= ' <button type="button" class="btn btn-outline-secondary btn-xs ml-1 btn-dd-report-qbo-map-vendor" data-daily-discount-report-brand-id="' . $bid . '" title="Map brand to QBO vendor per store">Map vendors</button>';
+  }
  
  	 if ($AllowDelete) {
 		$dd .= '<a href="" class="btn btn-danger btn-xs btn-del ml-1" data-url="' . $PageName . '" data-title="Edit ' . $PageTitle . '" data-id="' . $row[$arr_FieldNames[0]] . '"><i class="ion-trash-b"></i> Archive</a>';

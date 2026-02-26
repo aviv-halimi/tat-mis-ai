@@ -2,7 +2,7 @@
 require_once ('./_config.php');
 
 // Editable keys only. qbo_realm_id and qbo_refresh_token are set by OAuth (Connect to QuickBooks), not here.
-$ks = array('po_email', 'po_scheduling_email', 'max_daily_deliveries', 'target_days_of_inventory', 'daily_sales_lookback_period', 'appointment_duration', 'po_scheduled_email_bcc','boh_email', 'nabis_vendor_id', 'default_markup', 'qbo_account_id_products', 'qbo_account_id_rebates');
+$ks = array('po_email', 'po_scheduling_email', 'max_daily_deliveries', 'target_days_of_inventory', 'daily_sales_lookback_period', 'appointment_duration', 'po_scheduled_email_bcc','boh_email', 'nabis_vendor_id', 'default_markup', 'qbo_account_id_products', 'qbo_account_id_rebates', 'qbo_account_id_daily_discount');
 
 if (isset($_POST['TableName'])) {
     $rs = getRs("SELECT params FROM store WHERE store_id = ?", array($_Session->store_id));

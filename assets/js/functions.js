@@ -341,6 +341,30 @@ function updateDialog2(url, title, a, c) {
 				loadQboVendors();
 			}
 		}
+		else if (url === 'daily-discount-report-qbo-map-vendor') {
+			$('#modal .dd-report-qbo-vendor-select').each(function() {
+				var $sel = $(this);
+				var storeId = $sel.data('store-id');
+				var currentVal = $('#modal .dd-report-qbo-vendor-current[data-store-id="' + storeId + '"]').val() || '';
+				if (!storeId) return;
+				$.post('/ajax/qbo-vendors.php', { store_id: storeId }, function(res) {
+					$sel.find('option').remove();
+					$sel.append($('<option value="">— Select QBO vendor —</option>'));
+					if (res && res.success && res.vendors && res.vendors.length) {
+						res.vendors.forEach(function(v) {
+							$sel.append($('<option></option>').attr('value', v.id).text(v.DisplayName));
+						});
+						if (currentVal) $sel.val(currentVal);
+					} else {
+						$sel.append($('<option value="">' + (res && res.auth_url ? 'Connect to QuickBooks first' : (res && res.error) || 'No vendors') + '</option>'));
+					}
+					if (typeof $sel.select2 === 'function') {
+						if ($sel.hasClass('select2-hidden-accessible')) $sel.select2('destroy');
+						$sel.select2({ dropdownParent: $('#modal'), minimumResultsForSearch: 0, width: '100%' });
+					}
+				}, 'json');
+			});
+		}
 	})
   	.fail(function(xhr, status, error) {
     	$('#modal .modal-body').html('<div class="alert alert-danger" role="alert"><i class="fe fe-exclamation"></i> Error while contacting server: ' + error + '</div>');

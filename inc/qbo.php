@@ -43,6 +43,7 @@ function qbo_get_store_params($store_id) {
         'refresh_token' => $refresh,
         'account_id_products' => isset($params['qbo_account_id_products']) ? trim($params['qbo_account_id_products']) : '',
         'account_id_rebates' => isset($params['qbo_account_id_rebates']) ? trim($params['qbo_account_id_rebates']) : '',
+        'account_id_daily_discount' => isset($params['qbo_account_id_daily_discount']) ? trim($params['qbo_account_id_daily_discount']) : '',
     );
 }
 
@@ -156,6 +157,7 @@ function qbo_get_access_token($store_id, &$request_log = null) {
             'realm_id' => $params['realm_id'],
             'account_id_products' => $params['account_id_products'],
             'account_id_rebates' => $params['account_id_rebates'],
+            'account_id_daily_discount' => isset($params['account_id_daily_discount']) ? $params['account_id_daily_discount'] : '',
         );
     } catch (\QuickBooksOnline\API\Exception\ServiceException $e) {
         $msg = $e->getMessage();
@@ -673,14 +675,15 @@ function qbo_create_bill($store_id, $vendor_ref_id, $subtotal, $discounts, $doc_
 }
 
 /**
- * Attach a file (e.g. invoice PDF) to an existing QBO Bill.
+ * Attach a file to an existing QBO entity (Bill, VendorCredit, etc.).
  * @param int $store_id
- * @param string $bill_id QBO Bill Id
+ * @param string $entity_type QBO entity type (e.g. 'Bill', 'VendorCredit')
+ * @param string $entity_id QBO entity Id
  * @param string $file_path Full path to the file
- * @param string $file_name Filename for the attachment (e.g. invoice.pdf)
+ * @param string $file_name Filename for the attachment (e.g. report.pdf)
  * @return array { success, error? }
  */
-function qbo_attach_file_to_bill($store_id, $bill_id, $file_path, $file_name = '') {
+function qbo_attach_file_to_entity($store_id, $entity_type, $entity_id, $file_path, $file_name = '') {
     if ($file_name === '') {
         $file_name = basename($file_path);
     }
@@ -708,7 +711,7 @@ function qbo_attach_file_to_bill($store_id, $bill_id, $file_path, $file_name = '
         }
     }
     try {
-        $entityRef = new \QuickBooksOnline\API\Data\IPPReferenceType(array('value' => $bill_id, 'type' => 'Bill'));
+        $entityRef = new \QuickBooksOnline\API\Data\IPPReferenceType(array('value' => $entity_id, 'type' => $entity_type));
         $attachableRef = new \QuickBooksOnline\API\Data\IPPAttachableRef(array('EntityRef' => $entityRef));
         $objAttachable = new \QuickBooksOnline\API\Data\IPPAttachable();
         $objAttachable->FileName = $file_name;
@@ -720,6 +723,88 @@ function qbo_attach_file_to_bill($store_id, $bill_id, $file_path, $file_name = '
             return array('success' => false, 'error' => $error->getResponseBody() ?: $error->getOAuthHelperError() ?: 'Upload failed');
         }
         return array('success' => true);
+    } catch (\Exception $e) {
+        return array('success' => false, 'error' => $e->getMessage());
+    }
+}
+
+/**
+ * Attach a file (e.g. invoice PDF) to an existing QBO Bill.
+ * @param int $store_id
+ * @param string $bill_id QBO Bill Id
+ * @param string $file_path Full path to the file
+ * @param string $file_name Filename for the attachment (e.g. invoice.pdf)
+ * @return array { success, error? }
+ */
+function qbo_attach_file_to_bill($store_id, $bill_id, $file_path, $file_name = '') {
+    return qbo_attach_file_to_entity($store_id, 'Bill', $bill_id, $file_path, $file_name);
+}
+
+/**
+ * Create a Vendor Credit in QBO for daily discount rebate (single line, one lump amount).
+ * @param int $store_id
+ * @param string $vendor_ref_id QBO Vendor Id
+ * @param float $amount Credit amount (positive; Vendor Credit reduces AP)
+ * @param string $account_id_daily_discount QBO GL account Id for daily discount
+ * @param string $doc_number Optional DocNumber
+ * @param string|null $txn_date Y-m-d
+ * @param string|null $private_note Optional note
+ * @return array { success, VendorCreditId, error?, needs_authorization?, auth_url? }
+ */
+function qbo_create_vendor_credit($store_id, $vendor_ref_id, $amount, $account_id_daily_discount, $doc_number = '', $txn_date = null, $private_note = null) {
+    $token = qbo_get_access_token($store_id);
+    if (!is_array($token) || empty($token['access_token'])) {
+        $err = (is_array($token) && isset($token['error'])) ? $token['error'] : 'QBO not configured or token failed';
+        $out = array('success' => false, 'error' => $err);
+        _qbo_forward_auth($out, $token);
+        return $out;
+    }
+    $account_daily = isset($token['account_id_daily_discount']) ? trim($token['account_id_daily_discount']) : '';
+    if ($account_id_daily_discount !== '') {
+        $account_daily = $account_id_daily_discount;
+    }
+    if ($account_daily === '') {
+        return array('success' => false, 'error' => 'QBO account ID for daily discount (qbo_account_id_daily_discount) must be set in store params');
+    }
+    if ($amount <= 0) {
+        return array('success' => false, 'error' => 'Vendor credit amount must be greater than zero');
+    }
+    $lines = array(
+        array(
+            'DetailType' => 'AccountBasedExpenseLineDetail',
+            'Amount' => round($amount, 2),
+            'Description' => 'Daily discount rebate',
+            'AccountBasedExpenseLineDetail' => array(
+                'AccountRef' => array('value' => $account_daily),
+            ),
+        ),
+    );
+    $payload = array(
+        'VendorRef' => array('value' => $vendor_ref_id),
+        'Line' => $lines,
+    );
+    if ($doc_number !== '') {
+        $payload['DocNumber'] = $doc_number;
+    }
+    if ($txn_date !== null && $txn_date !== '') {
+        $payload['TxnDate'] = $txn_date;
+    }
+    if ($private_note !== null && $private_note !== '') {
+        $payload['PrivateNote'] = $private_note;
+    }
+    try {
+        $dataService = qbo_data_service($token);
+        if (!$dataService) {
+            return array('success' => false, 'error' => 'Could not create DataService');
+        }
+        $vcObj = \QuickBooksOnline\API\Facades\VendorCredit::create($payload);
+        $resultObj = $dataService->Add($vcObj);
+        $error = $dataService->getLastError();
+        if ($error) {
+            return array('success' => false, 'error' => $error->getResponseBody() ?: $error->getOAuthHelperError() ?: 'QBO API error');
+        }
+        $vc_id = is_object($resultObj) && isset($resultObj->Id) ? $resultObj->Id : (is_array($resultObj) && isset($resultObj['Id']) ? $resultObj['Id'] : null);
+        return array('success' => true, 'VendorCreditId' => $vc_id);
     } catch (\Exception $e) {
         return array('success' => false, 'error' => $e->getMessage());
     }
