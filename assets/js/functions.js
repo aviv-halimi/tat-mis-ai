@@ -349,11 +349,34 @@ function updateDialog2(url, title, a, c) {
 				var storeId = $sel.data('store-id');
 				if (storeId) selects.push({ $sel: $sel, storeId: storeId, currentVal: $('#modal .dd-report-qbo-vendor-current[data-store-id="' + storeId + '"]').val() || '' });
 			});
+			function logConnection(storeId, res) {
+				if (typeof ddReportQboLog !== 'function' || !res) return;
+				ddReportQboLog('storeId=' + storeId + ' response: success=' + (res.success ? 'true' : 'false') + (res.error ? ' error=' + res.error : ''));
+				if (res.request_log && Array.isArray(res.request_log)) {
+					res.request_log.forEach(function(entry) {
+						var line = 'storeId=' + storeId + ' ' + (entry.label || '');
+						if (entry.note) line += ' ' + entry.note;
+						if (entry.error) line += ' | ' + entry.error;
+						if (entry.hint) line += ' | ' + entry.hint;
+						if (entry.store_found !== undefined) line += ' store_found=' + entry.store_found;
+						if (entry.auth_url_empty !== undefined) line += ' auth_url_empty=' + entry.auth_url_empty;
+						if (entry.redirect_uri_configured !== undefined) line += ' redirect_uri_configured=' + entry.redirect_uri_configured;
+						if (entry.client_id_set !== undefined) line += ' client_id_set=' + entry.client_id_set;
+						if (entry.client_secret_set !== undefined) line += ' client_secret_set=' + entry.client_secret_set;
+						ddReportQboLog(line);
+					});
+				}
+				if (res.debug && typeof res.debug === 'object') {
+					ddReportQboLog('storeId=' + storeId + ' debug: ' + JSON.stringify(res.debug));
+				}
+			}
 			function loadOne(index) {
 				if (index >= selects.length) return;
 				var item = selects[index];
 				var $sel = item.$sel;
+				if (typeof ddReportQboLog === 'function') ddReportQboLog('QBO vendors: requesting storeId=' + item.storeId);
 				$.post('/ajax/qbo-vendors.php', { store_id: item.storeId }, function(res) {
+					logConnection(item.storeId, res);
 					$('#modal #vendor_qbo_connect_hint').remove();
 					var needConnect = res && res.auth_url && (!res.success || res.needs_authorization);
 					if (needConnect) {
@@ -416,7 +439,14 @@ function updateDialog2(url, title, a, c) {
 					$sel.find('option').remove();
 					$sel.append($('<option value="">— Select QBO vendor —</option>'));
 					$sel.append($('<option value="">Error: ' + (xhr && xhr.status ? 'HTTP ' + xhr.status : status) + '</option>'));
-					if (typeof ddReportQboLog === 'function') ddReportQboLog('QBO vendors failed storeId=' + item.storeId + ' status=' + (xhr && xhr.status));
+					if (typeof ddReportQboLog === 'function') {
+						ddReportQboLog('QBO vendors failed storeId=' + item.storeId + ' status=' + (xhr && xhr.status));
+						if (xhr && xhr.responseText) {
+							var txt = xhr.responseText.replace(/\s+/g, ' ').trim();
+							if (txt.length > 600) txt = txt.substring(0, 600) + '…';
+							ddReportQboLog('QBO vendors storeId=' + item.storeId + ' response body: ' + txt);
+						}
+					}
 					loadOne(index + 1);
 				});
 			}

@@ -98,11 +98,25 @@ function qbo_get_auth_url($store_id) {
  */
 function qbo_get_access_token($store_id, &$request_log = null) {
     $auth_url = function_exists('qbo_get_auth_url') ? qbo_get_auth_url($store_id) : '';
+    if (is_array($request_log)) {
+        $request_log[] = array('label' => 'Connection: Get store QBO params', 'store_id' => $store_id);
+    }
     $params = qbo_get_store_params($store_id);
     if (!$params) {
         $rs = getRs("SELECT params FROM store WHERE store_id = ? AND " . is_enabled(), array($store_id));
         $has_store = $rs && getRow($rs);
         $redirect_configured = (defined('QBO_REDIRECT_URI') && QBO_REDIRECT_URI !== '') || (defined('SITE_URL') && SITE_URL !== '');
+        if (is_array($request_log)) {
+            $request_log[] = array(
+                'label' => 'Connection: Store params missing',
+                'store_found' => (bool)$has_store,
+                'auth_url_empty' => $auth_url === '',
+                'redirect_uri_configured' => $redirect_configured,
+                'hint' => $auth_url === ''
+                    ? 'Set QBO_REDIRECT_URI in _config.php. Then connect via OAuth from Vendor Mapping or Connect button.'
+                    : 'Connect QuickBooks via OAuth2 (Connect to QuickBooks in popup).',
+            );
+        }
         $out = array(
             'success' => false,
             'error' => 'Store QBO params missing or invalid',
@@ -121,9 +135,19 @@ function qbo_get_access_token($store_id, &$request_log = null) {
         );
         return $out;
     }
+    if (is_array($request_log)) {
+        $request_log[] = array('label' => 'Connection: Store params OK', 'realm_id_set' => !empty($params['realm_id']));
+    }
     $client_id = defined('QBO_CLIENT_ID') ? QBO_CLIENT_ID : (getenv('QBO_CLIENT_ID') ?: '');
     $client_secret = defined('QBO_CLIENT_SECRET') ? QBO_CLIENT_SECRET : (getenv('QBO_CLIENT_SECRET') ?: '');
     if ($client_id === '' || $client_secret === '') {
+        if (is_array($request_log)) {
+            $request_log[] = array(
+                'label' => 'Connection: Client credentials missing',
+                'client_id_set' => $client_id !== '',
+                'client_secret_set' => $client_secret !== '',
+            );
+        }
         return array(
             'success' => false,
             'error' => 'QBO client credentials not set',
@@ -136,10 +160,13 @@ function qbo_get_access_token($store_id, &$request_log = null) {
         );
     }
     if (is_array($request_log)) {
+        $request_log[] = array('label' => 'Connection: Client credentials OK');
+    }
+    if (is_array($request_log)) {
         $request_log[] = array(
-            'label' => '1. OAuth token (refresh)',
+            'label' => 'Connection: OAuth refresh token',
             'sdk_used' => true,
-            'note' => 'QuickBooks V3 PHP SDK OAuth2LoginHelper::refreshAccessTokenWithRefreshToken()',
+            'note' => 'OAuth2LoginHelper::refreshAccessTokenWithRefreshToken()',
         );
     }
     try {
@@ -151,6 +178,9 @@ function qbo_get_access_token($store_id, &$request_log = null) {
             qbo_update_refresh_token($store_id, $new_refresh);
         }
         $effective_refresh = ($new_refresh !== '' ? $new_refresh : $params['refresh_token']);
+        if (is_array($request_log)) {
+            $request_log[] = array('label' => 'Connection: OAuth refresh OK');
+        }
         return array(
             'access_token' => $access_token,
             'refresh_token' => $effective_refresh,
@@ -161,6 +191,9 @@ function qbo_get_access_token($store_id, &$request_log = null) {
         );
     } catch (\QuickBooksOnline\API\Exception\ServiceException $e) {
         $msg = $e->getMessage();
+        if (is_array($request_log)) {
+            $request_log[] = array('label' => 'Connection: OAuth refresh FAILED', 'error' => $msg);
+        }
         $needs_auth = (stripos($msg, 'invalid_grant') !== false || stripos($msg, 'refresh') !== false) && $auth_url !== '';
         $hint = 'Check refresh_token is valid and not revoked. If invalid_grant: re-authorize via OAuth2 (open auth_url in popup).';
         return array(
@@ -177,6 +210,9 @@ function qbo_get_access_token($store_id, &$request_log = null) {
         );
     } catch (\Exception $e) {
         $msg = $e->getMessage();
+        if (is_array($request_log)) {
+            $request_log[] = array('label' => 'Connection: OAuth refresh FAILED', 'error' => $msg);
+        }
         $needs_auth = (stripos($msg, 'invalid_grant') !== false || stripos($msg, 'refresh') !== false) && $auth_url !== '';
         return array(
             'success' => false,
