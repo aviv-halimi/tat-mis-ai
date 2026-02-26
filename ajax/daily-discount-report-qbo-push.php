@@ -3,11 +3,12 @@
  * Daily Discount Report → QBO: preflight (check connections/mapping/account) and push (create Vendor Credits).
  * POST: action = 'preflight' | 'push', daily_discount_report_brand_id
  */
-require_once(dirname(__DIR__) . '/_config.php');
+require_once('../_config.php');
 require_once(BASE_PATH . 'inc/qbo.php');
 
 header('Content-Type: application/json');
 
+try {
 $action = isset($_POST['action']) ? trim($_POST['action']) : (isset($_GET['action']) ? trim($_GET['action']) : '');
 $daily_discount_report_brand_id = getVarInt('daily_discount_report_brand_id', 0, 0, 999999);
 
@@ -190,4 +191,9 @@ echo json_encode(array(
     'ok' => true,
     'log' => $log,
 ));
+} catch (Exception $e) {
+    echo json_encode(array('success' => false, 'response' => 'Server error: ' . $e->getMessage(), 'ok' => false, 'error_detail' => $e->getFile() . ':' . $e->getLine()));
+} catch (Throwable $e) {
+    echo json_encode(array('success' => false, 'response' => 'Server error: ' . $e->getMessage(), 'ok' => false, 'error_detail' => $e->getFile() . ':' . $e->getLine()));
+}
 exit;

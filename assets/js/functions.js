@@ -342,39 +342,41 @@ function updateDialog2(url, title, a, c) {
 			}
 		}
 		else if (url === 'daily-discount-report-qbo-map-vendor') {
+			var selects = [];
 			$('#modal .dd-report-qbo-vendor-select').each(function() {
 				var $sel = $(this);
 				var storeId = $sel.data('store-id');
-				var currentVal = $('#modal .dd-report-qbo-vendor-current[data-store-id="' + storeId + '"]').val() || '';
-				if (!storeId) return;
-				$.ajax({
-					url: '/ajax/qbo-vendors.php',
-					type: 'POST',
-					data: { store_id: storeId },
-					dataType: 'json'
-				}).done(function(res) {
+				if (storeId) selects.push({ $sel: $sel, storeId: storeId, currentVal: $('#modal .dd-report-qbo-vendor-current[data-store-id="' + storeId + '"]').val() || '' });
+			});
+			function loadOne(index) {
+				if (index >= selects.length) return;
+				var item = selects[index];
+				var $sel = item.$sel;
+				$.post('/ajax/qbo-vendors.php', { store_id: item.storeId }, function(res) {
 					$sel.find('option').remove();
 					$sel.append($('<option value="">— Select QBO vendor —</option>'));
 					if (res && res.success && res.vendors && res.vendors.length) {
 						res.vendors.forEach(function(v) {
 							$sel.append($('<option></option>').attr('value', v.id).text(v.DisplayName || v.id));
 						});
-						if (currentVal) $sel.val(currentVal);
+						if (item.currentVal) $sel.val(item.currentVal);
 					} else {
-						var hint = (res && res.auth_url) ? 'Connect to QuickBooks first' : (res && res.error) || (res && res.needs_authorization) ? 'Reconnect to QBO' : 'No vendors';
-						$sel.append($('<option value="">' + hint + '</option>'));
+						$sel.append($('<option value="">' + (res && res.auth_url ? 'Connect to QuickBooks first' : (res && res.error) || 'No vendors') + '</option>'));
 					}
 					if (typeof $sel.select2 === 'function') {
 						if ($sel.hasClass('select2-hidden-accessible')) $sel.select2('destroy');
 						$sel.select2({ dropdownParent: $('#modal'), minimumResultsForSearch: 0, width: '100%' });
 					}
-				}).fail(function(xhr, status, err) {
+					loadOne(index + 1);
+				}, 'json').fail(function(xhr, status) {
 					$sel.find('option').remove();
 					$sel.append($('<option value="">— Select QBO vendor —</option>'));
-					$sel.append($('<option value="">Error loading: ' + (xhr && xhr.status ? 'HTTP ' + xhr.status : status) + '</option>'));
-					if (typeof ddReportQboLog === 'function') ddReportQboLog('QBO vendors load failed storeId=' + storeId + ' status=' + status + ' xhr.status=' + (xhr && xhr.status));
+					$sel.append($('<option value="">Error: ' + (xhr && xhr.status ? 'HTTP ' + xhr.status : status) + '</option>'));
+					if (typeof ddReportQboLog === 'function') ddReportQboLog('QBO vendors failed storeId=' + item.storeId + ' status=' + (xhr && xhr.status));
+					loadOne(index + 1);
 				});
-			});
+			}
+			loadOne(0);
 		}
 	})
   	.fail(function(xhr, status, error) {

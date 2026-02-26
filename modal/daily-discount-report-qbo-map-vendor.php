@@ -3,7 +3,7 @@
  * Modal: Map daily discount report brand to QBO vendor per store (for Push to QBO).
  * GET/POST: c = daily_discount_report_brand_id
  */
-require_once(dirname(__DIR__) . '/_config.php');
+require_once('../_config.php');
 $daily_discount_report_brand_id = getVarInt('c', 0, 0, 999999);
 if (!$daily_discount_report_brand_id) {
     echo '<div class="alert alert-danger">Missing report brand.</div>';

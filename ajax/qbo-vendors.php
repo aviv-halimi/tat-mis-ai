@@ -2,8 +2,9 @@
 /**
  * List QBO vendors for a store (for mapping dropdown).
  * POST: store_id
+ * Same pattern as used by PO Push to QBO (po-qbo-map-vendor modal).
  */
-require_once(dirname(__DIR__) . '/_config.php');
+require_once('../_config.php');
 header('Content-Type: application/json');
 
 $store_id = getVarInt('store_id', 0, 0, 99999);
