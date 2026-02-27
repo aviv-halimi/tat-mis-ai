@@ -979,11 +979,34 @@ function ddReportQboLog(msg) {
   var $log = $('#dd-report-qbo-log');
   if ($log.length) {
     $box.show();
-    $log.append(ts + ' ' + msg + '\n');
+    var isHtml = typeof msg === 'string' && msg.indexOf('<') !== -1;
+    var $line = $('<div class="dd-log-line"/>').append(document.createTextNode(ts + ' ')).append(isHtml ? $('<span>').html(msg) : document.createTextNode(msg));
+    $log.append($line);
     $log[0].scrollTop = $log[0].scrollHeight;
   }
   if (typeof console !== 'undefined' && console.log) console.log('[DD-QBO]', msg);
 }
+
+function showDdQboPushLogModal(brandId) {
+  var $m = $('#dd-qbo-push-log-modal');
+  if (!$m.length) {
+    $m = $('<div class="modal fade" id="dd-qbo-push-log-modal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">QBO Push Log</h5><button type="button" class="close" data-dismiss="modal"><span>&times;</span></button></div><div class="modal-body"></div></div></div></div>');
+    $('body').append($m);
+  }
+  $m.find('.modal-body').html('<p class="text-muted">Loading…</p>');
+  $m.modal('show');
+  $.post('/ajax/daily-discount-report-qbo-push.php', { action: 'get_log', daily_discount_report_brand_id: brandId }, function(res) {
+    $m.find('.modal-body').html(res && res.html ? res.html : '<p class="text-muted">No log available.</p>');
+  }, 'json').fail(function() {
+    $m.find('.modal-body').html('<p class="text-danger">Failed to load log.</p>');
+  });
+}
+
+$(document).off('click', '.dd-view-push-log').on('click', '.dd-view-push-log', function(e) {
+  e.preventDefault();
+  var brandId = $(this).data('daily-discount-report-brand-id');
+  if (brandId) showDdQboPushLogModal(brandId);
+});
 
 function initPushDailyDiscountReportQbo() {
   ddReportQboLog('Init: Push to QBO / Map vendors handlers attached.');
@@ -1110,10 +1133,20 @@ function doPush(brandId, $btn) {
     });
     var msg = (ok ? ok + ' store(s) pushed. ' : '') + (err ? err + ' failed.' : '') + (lines.length ? '\n' + lines.join('\n') : '');
     if (typeof Swal !== 'undefined') {
-      Swal.fire({ title: 'Push to QBO', text: msg, icon: err ? 'warning' : 'success' });
+      Swal.fire({
+        title: 'Push to QBO',
+        text: msg,
+        icon: err ? 'warning' : 'success',
+        showCancelButton: true,
+        confirmButtonText: 'View detailed log',
+        cancelButtonText: 'Close'
+      }).then(function(result) {
+        if (result && result.isConfirmed) showDdQboPushLogModal(brandId);
+      });
     } else {
       alert(msg);
     }
+    ddReportQboLog('Pushed successfully. <a href="#" class="dd-view-push-log" data-daily-discount-report-brand-id="' + brandId + '">View detailed log</a>');
   }, 'json').fail(function(xhr, status, errMsg) {
     ddReportQboLog('Push FAILED: status=' + status + ' xhr.status=' + (xhr && xhr.status));
     $btn.prop('disabled', false).html('<i class="fa fa-cloud-upload-alt"></i> Push to QBO');
