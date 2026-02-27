@@ -59,7 +59,7 @@ for ($i = 0; $i < count($stores); $i++) {
         $qbo_id = trim((string)$qbo_id);
     }
     $table = $store_db . '.brand';
-    dbUpdate($table, array('qbo_vendor_id' => $qbo_id === '' ? null : $qbo_id), $brand_id, 'brand_id');
+    dbUpdate($table, array('qbo_vendor_id' => $qbo_id === '' ? null : $qbo_id), $brand_id, 'master_brand_id');
     $updated++;
 }
 

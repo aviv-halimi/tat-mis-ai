@@ -98,7 +98,7 @@ foreach ($stores as $s) {
     $qbo_vendor_id = '';
     $col_check = getRs("SELECT COUNT(*) AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME = 'qbo_vendor_id'", array($store_db));
     if ($col_check && (int)getRow($col_check)['c'] > 0) {
-        $br = getRow(getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE brand_id = ?", array($brand_id)));
+        $br = getRow(getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE master_brand_id = ?", array($brand_id)));
         $qbo_vendor_id = isset($br['qbo_vendor_id']) ? trim((string)$br['qbo_vendor_id']) : '';
     }
     if ($qbo_vendor_id === '') {
@@ -174,7 +174,7 @@ if ($action === 'preview_push') {
     if ($store_db !== '') {
         $col_check = getRs("SELECT COUNT(*) AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME = 'qbo_vendor_id'", array($store_db));
         if ($col_check && (int)getRow($col_check)['c'] > 0) {
-            $br = getRow(getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE brand_id = ?", array($brand_id)));
+            $br = getRow(getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE master_brand_id = ?", array($brand_id)));
             $qbo_vendor_id = isset($br['qbo_vendor_id']) ? trim((string)$br['qbo_vendor_id']) : '';
         }
     }
@@ -256,7 +256,7 @@ foreach ($stores as $s) {
     $qbo_vendor_id = '';
     $col_check = getRs("SELECT COUNT(*) AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME = 'qbo_vendor_id'", array($store_db));
     if ($col_check && (int)getRow($col_check)['c'] > 0) {
-        $br = getRow(getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE brand_id = ?", array($brand_id)));
+        $br = getRow(getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE master_brand_id = ?", array($brand_id)));
         $qbo_vendor_id = isset($br['qbo_vendor_id']) ? trim((string)$br['qbo_vendor_id']) : '';
     }
     if ($qbo_vendor_id === '') {

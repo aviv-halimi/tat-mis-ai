@@ -36,7 +36,7 @@ for ($i = 0; $i < count($stores); $i++) {
             $col_check = getRs("SELECT COUNT(*) AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME = 'qbo_vendor_id'", array($store_db));
             $has_col = $col_check && (int)getRow($col_check)['c'] > 0;
             if ($has_col) {
-                $br_rs = getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE brand_id = ?", array($brand_id));
+                $br_rs = getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE master_brand_id = ?", array($brand_id));
                 $br = (is_array($br_rs) && count($br_rs) > 0) ? $br_rs[0] : null;
                 if ($br !== null && isset($br['qbo_vendor_id']) && (string)$br['qbo_vendor_id'] !== '') {
                     $current = trim((string)$br['qbo_vendor_id']);
