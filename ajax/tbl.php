@@ -19,7 +19,7 @@ $params_kw = array();
 
 if (str_len($ListSql) == 0) {
 	//$sql = "SELECT {$PrimaryKey},{$FieldNames}" . iif(str_len($ExtraFields), ",{$ExtraFields}") . " FROM {$TableName} WHERE is_active = 1" . iif(str_len($Where), " AND {$Where}");
-	$sql = "SELECT " . implode(',', $arr_SqlFieldNames) . iif(str_len($DetailsUrl), ", t1." . $TableName . "_code") . ", " . iif($ActiveRecords, "t1.is_enabled", "1") . " AS is_enabled FROM {$TableSql} WHERE 1 = 1" . iif($ActiveRecords, " AND t1.is_active = 1") . iif(str_len($Where), " AND {$Where}");
+	$sql = "SELECT " . implode(',', $arr_SqlFieldNames) . iif(str_len($DetailsUrl), ", t1." . $TableName . "_code") . ", " . iif($ActiveRecords, "t1.is_enabled", "1") . " AS is_enabled" . ($TableName === 'daily_discount_report_brand' ? ", t1.qbo_push_log" : "") . " FROM {$TableSql} WHERE 1 = 1" . iif($ActiveRecords, " AND t1.is_active = 1") . iif(str_len($Where), " AND {$Where}");
 }
 else {
 	$sql = $ListSql;
@@ -289,7 +289,28 @@ function formatField($row, $i, $type, $ref) {
 		$v = '<span class="span-daily-discount-report-total-' . $row[$TableName . '_id'] . '">' . (($v)?currency_format($v):'') . '</span>';
 	}
 	elseif ($TableName == 'daily_discount_report_brand' && $i === 'qbo_pushed_at') {
-		$v = !empty($v) ? '<span class="text-success" title="' . htmlspecialchars(getLongDate($v), ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-check-circle"></i> Yes</span>' : '<span class="text-muted">—</span>';
+		if (!empty($v)) {
+			$qbo_url = '';
+			if (!empty($row['qbo_push_log'])) {
+				$log = @json_decode($row['qbo_push_log'], true);
+				if (is_array($log) && !empty($log['stores'])) {
+					foreach ($log['stores'] as $_s) {
+						if (!empty($_s['qbo_vendor_credit_url'])) {
+							$qbo_url = $_s['qbo_vendor_credit_url'];
+							break;
+						}
+					}
+				}
+			}
+			$title_attr = htmlspecialchars(getLongDate($v), ENT_QUOTES, 'UTF-8');
+			if ($qbo_url !== '') {
+				$v = '<a href="' . htmlspecialchars($qbo_url, ENT_QUOTES, 'UTF-8') . '" target="_blank" rel="noopener" class="text-success" title="' . $title_attr . '"><i class="fa fa-check-circle"></i> Yes</a>';
+			} else {
+				$v = '<span class="text-success" title="' . $title_attr . '"><i class="fa fa-check-circle"></i> Yes</span>';
+			}
+		} else {
+			$v = '<span class="text-muted">—</span>';
+		}
 	}
 	elseif ($TableName == 'daily_discount_report_brand' && $i === 'email_sent_at') {
 		$v = !empty($v) ? '<span class="text-success" title="' . htmlspecialchars(getLongDate($v), ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-check-circle"></i> Yes</span>' : '<span class="text-muted">—</span>';
