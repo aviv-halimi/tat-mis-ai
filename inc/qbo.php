@@ -966,6 +966,18 @@ function qbo_bill_url($bill_id) {
 }
 
 /**
+ * URL to open a Vendor Credit in QBO in the browser.
+ * @param string $vendor_credit_id QBO Vendor Credit Id
+ * @return string
+ */
+function qbo_vendor_credit_url($vendor_credit_id) {
+    if ($vendor_credit_id === '' || $vendor_credit_id === null) {
+        return '';
+    }
+    return 'https://qbo.intuit.com/app/vendorcredit?txnId=' . urlencode($vendor_credit_id);
+}
+
+/**
  * Add a PO note (Files/Notes) when a QBO bill is created: Bill ID, invoice total, and link to bill if realm available.
  * @param int $po_id
  * @param string $bill_id QBO Bill Id

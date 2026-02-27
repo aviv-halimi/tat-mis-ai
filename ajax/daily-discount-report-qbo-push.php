@@ -68,6 +68,46 @@ if ($action === 'connection_status') {
     exit;
 }
 
+// Return detailed push log as HTML (for "View push log" link)
+if ($action === 'get_log') {
+    $row = getRow(getRs("SELECT qbo_push_log FROM daily_discount_report_brand WHERE daily_discount_report_brand_id = ?", array($daily_discount_report_brand_id)));
+    $log = null;
+    if ($row && !empty($row['qbo_push_log'])) {
+        $log = @json_decode($row['qbo_push_log'], true);
+    }
+    $html = '';
+    if (!$log || empty($log['stores'])) {
+        $html = '<p class="text-muted mb-0">No push has been performed yet.</p>';
+    } else {
+        $html .= '<div class="dd-qbo-push-log-detail">';
+        if (!empty($log['pushed_at'])) {
+            $html .= '<p class="small text-muted">Pushed: ' . htmlspecialchars($log['pushed_at']) . '</p>';
+        }
+        $html .= '<ul class="list-group list-group-flush">';
+        foreach ($log['stores'] as $entry) {
+            $store_name = isset($entry['store_name']) ? htmlspecialchars($entry['store_name']) : 'Store';
+            $success = !empty($entry['success']);
+            $html .= '<li class="list-group-item d-flex justify-content-between align-items-center">';
+            $html .= '<span>' . $store_name . '</span>';
+            if ($success) {
+                $url = isset($entry['qbo_vendor_credit_url']) ? $entry['qbo_vendor_credit_url'] : (function_exists('qbo_vendor_credit_url') && !empty($entry['qbo_vendor_credit_id']) ? qbo_vendor_credit_url($entry['qbo_vendor_credit_id']) : '');
+                if ($url !== '') {
+                    $html .= '<a href="' . htmlspecialchars($url) . '" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">View in QuickBooks <i class="fa fa-external-link-alt"></i></a>';
+                } else {
+                    $html .= '<span class="badge badge-success">Success</span>';
+                }
+            } else {
+                $err = isset($entry['error']) ? htmlspecialchars($entry['error']) : 'Failed';
+                $html .= '<span class="badge badge-danger" title="' . $err . '">Error</span>';
+            }
+            $html .= '</li>';
+        }
+        $html .= '</ul></div>';
+    }
+    echo json_encode(array('success' => true, 'html' => $html));
+    exit;
+}
+
 foreach ($stores as $s) {
     $store_id = (int)$s['store_id'];
     $store_name = isset($s['store_name']) ? $s['store_name'] : 'Store ' . $store_id;
@@ -284,8 +324,10 @@ foreach ($stores as $s) {
 
     $result = qbo_create_vendor_credit($store_id, $qbo_vendor_id, $store_total, $account_daily, $doc_number, $txn_date, $note);
     if (!empty($result['success']) && !empty($result['VendorCreditId'])) {
+        $vc_id = $result['VendorCreditId'];
         $entry['success'] = true;
-        $entry['qbo_vendor_credit_id'] = $result['VendorCreditId'];
+        $entry['qbo_vendor_credit_id'] = $vc_id;
+        $entry['qbo_vendor_credit_url'] = function_exists('qbo_vendor_credit_url') ? qbo_vendor_credit_url($vc_id) : ('https://qbo.intuit.com/app/vendorcredit?txnId=' . urlencode($vc_id));
         if (is_file($pdf_path)) {
             $att = qbo_attach_file_to_entity($store_id, 'VendorCredit', $result['VendorCreditId'], $pdf_path, $pdf_name);
             if (!empty($att['error'])) {
