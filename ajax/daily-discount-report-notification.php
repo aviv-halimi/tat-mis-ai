@@ -13,6 +13,8 @@ $success = false;
 $response = '';
 $redirect = null;
 
+try {
+
 $daily_discount_report_brand_id = getVarInt('daily_discount_report_brand_id', 0, 0, 999999);
 $notification_type_id = getVarNum('notification_type_id', 7, 1, 999);
 $email = trim(getVar('email', ''));
@@ -49,8 +51,8 @@ $store1_db = ($store1 && !empty($store1['db'])) ? preg_replace('/[^a-z0-9_]/i', 
 if ($store1_db !== '') {
     $col_check = getRs("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME IN ('contact_email', 'contact_name')", array($store1_db));
     $cols = array();
-    if ($col_check) {
-        while ($row = getRow($col_check)) {
+    if (is_array($col_check)) {
+        foreach ($col_check as $row) {
             $cols[] = $row['COLUMN_NAME'];
         }
     }
@@ -96,6 +98,11 @@ if (!empty($result['success'])) {
     $redirect = '{refresh}';
 } else {
     $response = isset($result['response']) ? $result['response'] : 'Failed to send email.';
+}
+
+} catch (Throwable $e) {
+    $response = 'Error: ' . $e->getMessage();
+    $success = false;
 }
 
 echo json_encode(array('success' => $success, 'response' => $response, 'redirect' => $redirect));
