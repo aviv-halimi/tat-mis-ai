@@ -97,7 +97,7 @@
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@9"></script>
 
     <script src="/assets/js/switcher.js"></script>
-    <script src="/assets/js/functions.js?v=20260226"></script>
+    <script src="/assets/js/functions.js?v=<?php echo @filemtime(dirname(__FILE__) . '/../assets/js/functions.js') ?: time(); ?>"></script>
     <script src="/assets/js/table.js?v=20250223"></script>
     <script src="/assets/js/default.js?v=20251202"></script>    
     <script src="/assets/plugins/mediaelement/mediaelement-and-player.js"></script>
