@@ -24,26 +24,31 @@ $stores_rs = getRs(
     "SELECT s.store_id, s.store_name, s.db AS store_db FROM daily_discount_report_store d INNER JOIN store s ON s.store_id = d.store_id WHERE d.daily_discount_report_brand_id = ? AND " . is_enabled('d,s') . " ORDER BY s.store_name",
     array($daily_discount_report_brand_id)
 );
-$stores = $stores_rs ?: array();
+$stores = is_array($stores_rs) ? $stores_rs : array();
 $store_rows = array();
-foreach ($stores as $s) {
+for ($i = 0; $i < count($stores); $i++) {
+    $s = $stores[$i];
+    $row_store_id = isset($s['store_id']) ? (int)$s['store_id'] : 0;
     $store_db = isset($s['store_db']) ? preg_replace('/[^a-z0-9_]/i', '', $s['store_db']) : '';
     $current = '';
-    if ($store_db !== '') {
+    if ($row_store_id > 0 && $store_db !== '') {
         try {
             $col_check = getRs("SELECT COUNT(*) AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME = 'qbo_vendor_id'", array($store_db));
             $has_col = $col_check && (int)getRow($col_check)['c'] > 0;
             if ($has_col) {
-                $br = getRow(getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE brand_id = ?", array($brand_id)));
-                $current = isset($br['qbo_vendor_id']) ? trim((string)$br['qbo_vendor_id']) : '';
+                $br_rs = getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE brand_id = ?", array($brand_id));
+                $br = (is_array($br_rs) && count($br_rs) > 0) ? $br_rs[0] : null;
+                if ($br !== null && isset($br['qbo_vendor_id']) && (string)$br['qbo_vendor_id'] !== '') {
+                    $current = trim((string)$br['qbo_vendor_id']);
+                }
             }
         } catch (Exception $e) {
             $current = '';
         }
     }
     $store_rows[] = array(
-        'store_id' => (int)$s['store_id'],
-        'store_name' => isset($s['store_name']) ? $s['store_name'] : 'Store ' . $s['store_id'],
+        'store_id' => $row_store_id,
+        'store_name' => isset($s['store_name']) ? $s['store_name'] : 'Store ' . $row_store_id,
         'qbo_vendor_id' => $current,
     );
 }
