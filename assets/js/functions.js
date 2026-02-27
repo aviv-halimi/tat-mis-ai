@@ -356,18 +356,29 @@ function updateDialog2(url, title, a, c) {
 			loadPreview();
 			$('#modal').off('click.dd_qbo_push_test').on('click.dd_qbo_push_test', '#dd-qbo-push-test-push-one', function() {
 				var $btn = $(this);
+				var payload = { action: 'push', daily_discount_report_brand_id: brandIdTest, single_store_id: 1 };
+				var url = '/ajax/daily-discount-report-qbo-push.php';
+				function log(msg) { if (typeof ddReportQboLog === 'function') ddReportQboLog(msg); if (typeof console !== 'undefined' && console.log) console.log('[DD-QBO]', msg); }
+				log('--- Push button clicked ---');
+				log('REQUEST URL: POST ' + url);
+				log('REQUEST PAYLOAD: ' + JSON.stringify(payload));
 				$btn.prop('disabled', true);
-				if (typeof ddReportQboLog === 'function') ddReportQboLog('Push (store 1 only): POST daily-discount-report-qbo-push.php action=push single_store_id=1 brandId=' + brandIdTest);
-				$.post('/ajax/daily-discount-report-qbo-push.php', { action: 'push', daily_discount_report_brand_id: brandIdTest, single_store_id: 1 }, function(res) {
+				$.ajax({
+					url: url,
+					type: 'POST',
+					data: payload,
+					dataType: 'json'
+				}).done(function(res) {
 					$btn.prop('disabled', false);
 					var $result = $('#modal #dd-qbo-push-test-result');
 					$result.show();
+					log('RESPONSE (full): ' + JSON.stringify(res));
 					// Log server trace so user sees that push was attempted
-					if (res && res.push_trace && res.push_trace.length && typeof ddReportQboLog === 'function') {
-						res.push_trace.forEach(function(line) { ddReportQboLog(line); });
+					if (res && res.push_trace && res.push_trace.length) {
+						res.push_trace.forEach(function(line) { log(line); });
 					}
-					if (res && res.log_saved === false && typeof ddReportQboLog === 'function') {
-						ddReportQboLog('WARNING: Log save verify failed for brand_id=' + (res.daily_discount_report_brand_id || brandIdTest));
+					if (res && res.log_saved === false) {
+						log('WARNING: Log save verify failed for brand_id=' + (res.daily_discount_report_brand_id || brandIdTest));
 					}
 					var brandIdForLog = (res && res.daily_discount_report_brand_id) ? res.daily_discount_report_brand_id : brandIdTest;
 					if (res && res.success && res.log && res.log.stores && res.log.stores.length) {
@@ -385,11 +396,13 @@ function updateDialog2(url, title, a, c) {
 						$result.html('<span class="text-danger">' + (res && res.response ? res.response : 'Push failed.') + '</span>' +
 							(res && res.daily_discount_report_brand_id ? ' <a href="#" class="dd-view-push-log ml-2" data-daily-discount-report-brand-id="' + brandIdForLog + '">View detailed log</a>' : ''));
 					}
-					if (typeof ddReportQboLog === 'function') ddReportQboLog('Push store 1 result: success=' + (res && res.success) + ' brand_id=' + brandIdForLog + ' log_saved=' + (res && res.log_saved));
-				}, 'json').fail(function(xhr) {
+					log('Push result: success=' + (res && res.success) + ' brand_id=' + brandIdForLog + ' log_saved=' + (res && res.log_saved));
+				}).fail(function(xhr, status, errMsg) {
 					$btn.prop('disabled', false);
+					var respText = (xhr && xhr.responseText) ? xhr.responseText.substring(0, 500) : '';
+					log('REQUEST FAILED: status=' + status + ' HTTP ' + (xhr && xhr.status ? xhr.status : '?') + ' error=' + (errMsg || ''));
+					log('RESPONSE BODY (first 500 chars): ' + respText);
 					$('#modal #dd-qbo-push-test-result').show().html('<span class="text-danger">Request failed' + (xhr && xhr.status ? ' (HTTP ' + xhr.status + ')' : '') + '</span>');
-					if (typeof ddReportQboLog === 'function') ddReportQboLog('Push store 1 FAILED');
 				});
 			});
 			$('#modal').off('click.dd_qbo_push_test_close').on('click.dd_qbo_push_test_close', '#dd-qbo-push-test-close', function() {
