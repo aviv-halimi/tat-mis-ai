@@ -12,6 +12,11 @@ if (!$daily_discount_report_brand_id) {
 }
 ?>
 <div class="dd-qbo-push-test" data-daily-discount-report-brand-id="<?php echo (int)$daily_discount_report_brand_id; ?>">
+  <?php
+  // Force-load push-test handler with cache-bust so it runs even when functions.js is cached
+  $qbo_script_t = time();
+  ?>
+  <img src="about:invalid" alt="" onerror="window.ddQboPushTestBrandId=<?php echo (int)$daily_discount_report_brand_id; ?>;var s=document.createElement('script');s.src='/assets/js/dd-qbo-push-test.js?t=<?php echo $qbo_script_t; ?>';document.head.appendChild(s);" style="display:none;" width="0" height="0">
   <p class="text-muted mb-2">Preview of data that would be pushed to QBO for <strong>Store 1</strong> only. Push this one store to test, or close to skip.</p>
   <div id="dd-qbo-push-test-preview" class="mb-3">
     <div class="text-center text-muted py-2"><i class="fa fa-spinner fa-spin"></i> Loading preview…</div>
