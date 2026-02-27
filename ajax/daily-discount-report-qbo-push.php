@@ -336,8 +336,9 @@ foreach ($stores as $s) {
     $doc_number = $doc_number_template; // brand name + " -" + month + "-DD", max 21 chars
     $txn_date = date('Y-m-d'); // today's date
 
-    $push_trace[] = 'store ' . $store_id . ' calling qbo_create_vendor_credit amount=' . $store_total;
+    $push_trace[] = 'QBO API SEND: store_id=' . $store_id . ' vendor_id=' . $qbo_vendor_id . ' amount=' . $store_total . ' account_daily=' . $account_daily . ' doc_number=' . $doc_number . ' txn_date=' . $txn_date . ' note=' . substr($note, 0, 80);
     $result = qbo_create_vendor_credit($store_id, $qbo_vendor_id, $store_total, $account_daily, $doc_number, $txn_date, $note);
+    $push_trace[] = 'QBO API RESPONSE: ' . json_encode($result);
     if (!empty($result['success']) && !empty($result['VendorCreditId'])) {
         $vc_id = $result['VendorCreditId'];
         $push_trace[] = 'store ' . $store_id . ' vendor_credit_created id=' . $vc_id;

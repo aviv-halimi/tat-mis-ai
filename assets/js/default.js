@@ -1115,10 +1115,22 @@ function initPushDailyDiscountReportQbo() {
 }
 
 function doPush(brandId, $btn) {
-  ddReportQboLog('Push: POST /ajax/daily-discount-report-qbo-push.php action=push');
+  var payload = { action: 'push', daily_discount_report_brand_id: brandId };
+  var url = '/ajax/daily-discount-report-qbo-push.php';
+  ddReportQboLog('--- Push to QBO clicked ---');
+  ddReportQboLog('REQUEST URL: POST ' + url);
+  ddReportQboLog('REQUEST PAYLOAD: ' + JSON.stringify(payload));
   $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Pushing…');
-  $.post('/ajax/daily-discount-report-qbo-push.php', { action: 'push', daily_discount_report_brand_id: brandId }, function(res) {
-    ddReportQboLog('Push response: success=' + (res && res.success));
+  $.ajax({
+    url: url,
+    type: 'POST',
+    data: payload,
+    dataType: 'json'
+  }).done(function(res) {
+    ddReportQboLog('RESPONSE (full): ' + JSON.stringify(res));
+    if (res && res.push_trace && res.push_trace.length) {
+      res.push_trace.forEach(function(line) { ddReportQboLog(line); });
+    }
     $btn.prop('disabled', false).html('<i class="fa fa-cloud-upload-alt"></i> Push to QBO');
     if (!res || !res.success) {
       if (typeof showStatus === 'function') showStatus('status', res && res.response ? res.response : 'Push failed', 'error', true);
@@ -1147,8 +1159,10 @@ function doPush(brandId, $btn) {
       alert(msg);
     }
     ddReportQboLog('Pushed successfully. <a href="#" class="dd-view-push-log" data-daily-discount-report-brand-id="' + brandId + '">View detailed log</a>');
-  }, 'json').fail(function(xhr, status, errMsg) {
-    ddReportQboLog('Push FAILED: status=' + status + ' xhr.status=' + (xhr && xhr.status));
+  }).fail(function(xhr, status, errMsg) {
+    var respText = (xhr && xhr.responseText) ? xhr.responseText.substring(0, 500) : '';
+    ddReportQboLog('REQUEST FAILED: status=' + status + ' HTTP ' + (xhr && xhr.status ? xhr.status : '?') + ' error=' + (errMsg || ''));
+    ddReportQboLog('RESPONSE BODY (first 500 chars): ' + respText);
     $btn.prop('disabled', false).html('<i class="fa fa-cloud-upload-alt"></i> Push to QBO');
   });
 }
