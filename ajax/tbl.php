@@ -289,31 +289,10 @@ function formatField($row, $i, $type, $ref) {
 		$v = '<span class="span-daily-discount-report-total-' . $row[$TableName . '_id'] . '">' . (($v)?currency_format($v):'') . '</span>';
 	}
 	elseif ($TableName == 'daily_discount_report_brand' && $i === 'qbo_pushed_at') {
-		if (!empty($v)) {
-			$qbo_url = '';
-			if (!empty($row['qbo_push_log'])) {
-				$log = @json_decode($row['qbo_push_log'], true);
-				if (is_array($log) && !empty($log['stores'])) {
-					foreach ($log['stores'] as $_s) {
-						if (!empty($_s['qbo_vendor_credit_url'])) {
-							$qbo_url = $_s['qbo_vendor_credit_url'];
-							break;
-						}
-					}
-				}
-			}
-			$title_attr = htmlspecialchars(getLongDate($v), ENT_QUOTES, 'UTF-8');
-			if ($qbo_url !== '') {
-				$v = '<a href="' . htmlspecialchars($qbo_url, ENT_QUOTES, 'UTF-8') . '" target="_blank" rel="noopener" class="text-success" title="' . $title_attr . '"><i class="fa fa-check-circle"></i> Yes</a>';
-			} else {
-				$v = '<span class="text-success" title="' . $title_attr . '"><i class="fa fa-check-circle"></i> Yes</span>';
-			}
-		} else {
-			$v = '<span class="text-muted">—</span>';
-		}
+		$v = !empty($v) ? '<span class="d-block text-center text-success" title="' . htmlspecialchars(getLongDate($v), ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-check-circle"></i> Yes</span>' : '<span class="d-block text-center text-muted">—</span>';
 	}
 	elseif ($TableName == 'daily_discount_report_brand' && $i === 'email_sent_at') {
-		$v = !empty($v) ? '<span class="text-success" title="' . htmlspecialchars(getLongDate($v), ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-check-circle"></i> Yes</span>' : '<span class="text-muted">—</span>';
+		$v = !empty($v) ? '<span class="d-block text-center text-success" title="' . htmlspecialchars(getLongDate($v), ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-check-circle"></i> Yes</span>' : '<span class="d-block text-center text-muted">—</span>';
 	}
 	elseif ($i == 'master_category_id') {
 		$v = getDisplayName('category', $v, 'name', null, false, 'blaze1.');
