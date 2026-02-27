@@ -368,12 +368,11 @@ function updateDialog2(url, title, a, c) {
 					type: 'POST',
 					data: payload,
 					dataType: 'json'
-				}).done(function(res) {
+				})				.done(function(res) {
 					$btn.prop('disabled', false);
 					var $result = $('#modal #dd-qbo-push-test-result');
 					$result.show();
 					log('RESPONSE (full): ' + JSON.stringify(res));
-					// Log server trace so user sees that push was attempted
 					if (res && res.push_trace && res.push_trace.length) {
 						res.push_trace.forEach(function(line) { log(line); });
 					}
@@ -381,21 +380,27 @@ function updateDialog2(url, title, a, c) {
 						log('WARNING: Log save verify failed for brand_id=' + (res.daily_discount_report_brand_id || brandIdTest));
 					}
 					var brandIdForLog = (res && res.daily_discount_report_brand_id) ? res.daily_discount_report_brand_id : brandIdTest;
+					var html = '';
 					if (res && res.success && res.log && res.log.stores && res.log.stores.length) {
 						var s = res.log.stores[0];
 						if (s.success) {
-							$result.html(
-								'<span class="text-success">Store 1 pushed successfully. Vendor Credit ID: ' + (s.qbo_vendor_credit_id || '—') + (s.attach_error ? ' (attach: ' + s.attach_error + ')' : '') + '</span>' +
-								' <a href="#" class="dd-view-push-log ml-2" data-daily-discount-report-brand-id="' + brandIdForLog + '">View detailed log</a>'
-							);
+							html = '<span class="text-success">Store 1 pushed successfully. Vendor Credit ID: ' + (s.qbo_vendor_credit_id || '—') + (s.attach_error ? ' (attach: ' + s.attach_error + ')' : '') + '</span>' +
+								' <a href="#" class="dd-view-push-log ml-2" data-daily-discount-report-brand-id="' + brandIdForLog + '">View detailed log</a>';
 						} else {
-							$result.html('<span class="text-danger">Failed: ' + (s.error || 'Unknown') + '</span>' +
-								' <a href="#" class="dd-view-push-log ml-2" data-daily-discount-report-brand-id="' + brandIdForLog + '">View detailed log</a>');
+							html = '<span class="text-danger">Failed: ' + (s.error || 'Unknown') + '</span>' +
+								' <a href="#" class="dd-view-push-log ml-2" data-daily-discount-report-brand-id="' + brandIdForLog + '">View detailed log</a>';
 						}
 					} else {
-						$result.html('<span class="text-danger">' + (res && res.response ? res.response : 'Push failed.') + '</span>' +
-							(res && res.daily_discount_report_brand_id ? ' <a href="#" class="dd-view-push-log ml-2" data-daily-discount-report-brand-id="' + brandIdForLog + '">View detailed log</a>' : ''));
+						html = '<span class="text-danger">' + (res && res.response ? res.response : 'Push failed.') + '</span>' +
+							(res && res.daily_discount_report_brand_id ? ' <a href="#" class="dd-view-push-log ml-2" data-daily-discount-report-brand-id="' + brandIdForLog + '">View detailed log</a>' : '');
 					}
+					// Always show QBO SDK request/response in the modal so user sees what was sent/received
+					if (res && (res.qbo_sdk_request || res.qbo_sdk_response)) {
+						function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+						html += '<div class="mt-3 border-top pt-2 small"><strong>QBO SDK — request (sent to QuickBooks):</strong><pre class="bg-light p-2 mb-1 mt-1 small" style="white-space:pre-wrap;word-break:break-all;">' + (res.qbo_sdk_request ? esc(res.qbo_sdk_request) : '—') + '</pre>';
+						html += '<strong>QBO SDK — response (from QuickBooks):</strong><pre class="bg-light p-2 mb-0 mt-1 small" style="white-space:pre-wrap;word-break:break-all;">' + (res.qbo_sdk_response ? esc(res.qbo_sdk_response) : '—') + '</pre></div>';
+					}
+					$result.html(html);
 					log('Push result: success=' + (res && res.success) + ' brand_id=' + brandIdForLog + ' log_saved=' + (res && res.log_saved));
 				}).fail(function(xhr, status, errMsg) {
 					$btn.prop('disabled', false);
