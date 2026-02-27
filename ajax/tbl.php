@@ -210,12 +210,17 @@ foreach($rs as $row) {
 	  $brand_code = getIdCode($TableName, $bid);
 	  $brand_code_esc = $brand_code !== null ? htmlspecialchars($brand_code, ENT_QUOTES, 'UTF-8') : '';
 	  $dd .= '<span class="dd-report-brand-actions" data-daily-discount-report-brand-id="' . $bid . '" data-format="pdf" data-code="' . $brand_code_esc . '">';
-	  $dd .= ' <label class="dd-format-switch-wrap d-inline-flex align-items-center mr-1 mb-0" title="PDF when off, Excel when on"><span class="small text-muted mr-1">PDF</span><span class="dd-format-switch-cell"><input type="checkbox" class="dd-report-format-switch" role="switch" aria-label="Format: PDF or Excel"><span class="dd-format-switch-slider"></span></span><span class="small text-muted ml-1">Excel</span></label>';
-	  $dd .= ' <a href="javascript:;" class="btn btn-info btn-xs ml-1 btn-download-dd-report-brand" title="Download report (PDF or Excel per switch)"><i class="fa fa-download"></i> Download</a>';
+	  $dd .= '<span class="dd-report-actions-cell">';
+	  $dd .= '<button type="button" class="btn btn-outline-secondary btn-xs ml-1 dd-report-actions-expand-btn" aria-expanded="false" title="Show more actions"><i class="fa fa-chevron-down"></i><i class="fa fa-chevron-up"></i> <span class="dd-report-actions-expand-label">More</span></button>';
+	  $dd .= '<span class="dd-report-actions-extra">';
 	  $dd .= ' <a href="javascript:;" class="btn btn-primary btn-xs ml-1 btn-dialog" data-url="daily-discount-report-notification" data-title="Email" data-a="7" data-c="' . $bid . '" title="Send report to brand"><i class="fa fa-envelope"></i> Email</a>';
-	  $dd .= ' <button type="button" class="btn btn-success btn-xs ml-1 btn-push-dd-report-qbo" data-daily-discount-report-brand-id="' . $bid . '" title="Push to QuickBooks"><i class="fa fa-cloud-upload-alt"></i> Push to QBO</button>';
 	  $dd .= ' <button type="button" class="btn btn-outline-secondary btn-xs ml-1 btn-dd-report-qbo-map-vendor" data-daily-discount-report-brand-id="' . $bid . '" title="Map brand to QBO vendor per store">Map vendors</button>';
 	  $dd .= ' <button type="button" class="btn btn-outline-info btn-xs ml-1 dd-view-push-log" data-daily-discount-report-brand-id="' . $bid . '" title="View log">View Log</button>';
+	  $dd .= '</span>';
+	  $dd .= '</span>';
+	  $dd .= ' <label class="dd-format-switch-wrap d-inline-flex align-items-center mr-1 mb-0" title="PDF when off, Excel when on"><span class="small text-muted mr-1">PDF</span><span class="dd-format-switch-cell"><input type="checkbox" class="dd-report-format-switch" role="switch" aria-label="Format: PDF or Excel"><span class="dd-format-switch-slider"></span></span><span class="small text-muted ml-1">Excel</span></label>';
+	  $dd .= ' <a href="javascript:;" class="btn btn-info btn-xs ml-1 btn-download-dd-report-brand" title="Download report (PDF or Excel per switch)"><i class="fa fa-download"></i> Download</a>';
+	  $dd .= ' <button type="button" class="btn btn-success btn-xs ml-1 btn-push-dd-report-qbo" data-daily-discount-report-brand-id="' . $bid . '" title="Push to QuickBooks"><i class="fa fa-cloud-upload-alt"></i> Push to QBO</button>';
 	  $dd .= '</span>';
   }
  
@@ -282,6 +287,12 @@ function formatField($row, $i, $type, $ref) {
 	}
 	elseif (in_array($TableName, array('daily_discount_report', 'daily_discount_report_brand')) && $i == 'total') {
 		$v = '<span class="span-daily-discount-report-total-' . $row[$TableName . '_id'] . '">' . (($v)?currency_format($v):'') . '</span>';
+	}
+	elseif ($TableName == 'daily_discount_report_brand' && $i === 'qbo_pushed_at') {
+		$v = !empty($v) ? '<span class="text-success" title="' . htmlspecialchars(getLongDate($v), ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-check-circle"></i> Yes</span>' : '<span class="text-muted">—</span>';
+	}
+	elseif ($TableName == 'daily_discount_report_brand' && $i === 'email_sent_at') {
+		$v = !empty($v) ? '<span class="text-success" title="' . htmlspecialchars(getLongDate($v), ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-check-circle"></i> Yes</span>' : '<span class="text-muted">—</span>';
 	}
 	elseif ($i == 'master_category_id') {
 		$v = getDisplayName('category', $v, 'name', null, false, 'blaze1.');

@@ -106,6 +106,9 @@ if (!empty($result['success'])) {
     $success = true;
     $response = 'Sent successfully to ' . $email . '.';
     $redirect = '{refresh}';
+    if (function_exists('dbUpdate')) {
+        dbUpdate('daily_discount_report_brand', array('email_sent_at' => date('Y-m-d H:i:s')), $daily_discount_report_brand_id);
+    }
 } else {
     $response = isset($result['response']) ? $result['response'] : 'Failed to send email.';
 }

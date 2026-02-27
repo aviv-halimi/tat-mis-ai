@@ -375,7 +375,15 @@ foreach ($stores as $s) {
 }
 
 $push_trace[] = 'saving_log brand_id=' . $daily_discount_report_brand_id . ' entries=' . count($log['stores']);
-dbUpdate('daily_discount_report_brand', array('qbo_push_log' => json_encode($log)), $daily_discount_report_brand_id);
+$all_ok = true;
+foreach ($log['stores'] as $_e) {
+    if (empty($_e['success'])) { $all_ok = false; break; }
+}
+$up = array('qbo_push_log' => json_encode($log));
+if ($all_ok) {
+    $up['qbo_pushed_at'] = date('Y-m-d H:i:s');
+}
+dbUpdate('daily_discount_report_brand', $up, $daily_discount_report_brand_id);
 $push_trace[] = 'db_updated';
 
 // Verify log was saved (in case of wrong DB or missing column)

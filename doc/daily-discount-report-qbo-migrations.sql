@@ -11,7 +11,10 @@ ALTER TABLE daily_discount_report_brand
 -- App looks up/updates by master_brand_id (daily_discount_report_brand.brand_id = store brand.master_brand_id).
 -- ALTER TABLE `{store_db}`.brand ADD COLUMN qbo_vendor_id VARCHAR(64) DEFAULT NULL;
 
--- 3) Brand contact for “Email to Brand” (notification). Run only for store_id = 1’s database.
+-- 3) Brand contact for "Email to Brand" (notification). Run only for store_id = 1's database.
 -- Get store 1 DB: SELECT db FROM store WHERE store_id = 1;
 -- Then: ALTER TABLE `{store_db}`.brand ADD COLUMN contact_name VARCHAR(255) DEFAULT NULL, ADD COLUMN contact_email VARCHAR(255) DEFAULT NULL;
--- Contact is stored only on store 1’s brand row per master_brand_id; used when sending daily discount report notification.
+-- Contact is stored only on store 1's brand row per master_brand_id; used when sending daily discount report notification.
+
+-- 4) QBO pushed and Email sent indicators (main DB). Run once.
+ALTER TABLE daily_discount_report_brand ADD COLUMN qbo_pushed_at DATETIME DEFAULT NULL, ADD COLUMN email_sent_at DATETIME DEFAULT NULL;
