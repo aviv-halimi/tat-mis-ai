@@ -131,6 +131,72 @@ if (!$ok) {
     exit;
 }
 
+// ——— Preview push (store_id = 1 only, for test modal) ———
+if ($action === 'preview_push') {
+    $preview_store_id = 1;
+    $date_start = isset($rb['date_start']) ? $rb['date_start'] : '';
+    $date_end = isset($rb['date_end']) ? $rb['date_end'] : '';
+    $note = 'Daily discount rebate' . ($date_start && $date_end ? ' ' . $date_start . '–' . $date_end : '');
+    $filename_preview = isset($rb['filename']) && trim($rb['filename']) !== '' ? trim($rb['filename']) : 'dd-report-brand-' . $daily_discount_report_brand_id . '-' . date('Ymd-His') . '.pdf';
+    $pdf_name_preview = basename($filename_preview);
+    $doc_number_preview = $pdf_name_preview;
+    $txn_date_preview = date('Y-m-d');
+
+    $s1 = null;
+    foreach ($stores as $s) {
+        if ((int)$s['store_id'] === $preview_store_id) {
+            $s1 = $s;
+            break;
+        }
+    }
+    if (!$s1) {
+        echo json_encode(array('success' => false, 'response' => 'Store 1 not in this report.', 'preview' => null));
+        exit;
+    }
+    $store_id = (int)$s1['store_id'];
+    $store_name = isset($s1['store_name']) ? $s1['store_name'] : 'Store ' . $store_id;
+    $store_db = isset($s1['store_db']) ? preg_replace('/[^a-z0-9_]/i', '', $s1['store_db']) : '';
+    $dr = getRow(getRs("SELECT params FROM daily_discount_report_store WHERE daily_discount_report_brand_id = ? AND store_id = ?", array($daily_discount_report_brand_id, $store_id)));
+    $params_json = isset($dr['params']) ? $dr['params'] : '[]';
+    $rp = json_decode($params_json, true);
+    if (!is_array($rp)) {
+        $rp = array();
+    }
+    $store_total = 0;
+    foreach ($rp as $p) {
+        $qty = isset($p['quantity']) ? (float)$p['quantity'] : 0;
+        $pct = isset($p['rebate_percent']) ? (float)$p['rebate_percent'] : 0;
+        $up = isset($p['unit_price']) ? (float)$p['unit_price'] : 0;
+        $store_total += $qty * $pct / 100 * $up;
+    }
+    $store_total = round($store_total, 2);
+    $qbo_vendor_id = '';
+    if ($store_db !== '') {
+        $col_check = getRs("SELECT COUNT(*) AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME = 'qbo_vendor_id'", array($store_db));
+        if ($col_check && (int)getRow($col_check)['c'] > 0) {
+            $br = getRow(getRs("SELECT qbo_vendor_id FROM `" . str_replace('`', '``', $store_db) . "`.brand WHERE brand_id = ?", array($brand_id)));
+            $qbo_vendor_id = isset($br['qbo_vendor_id']) ? trim((string)$br['qbo_vendor_id']) : '';
+        }
+    }
+    $token = qbo_get_access_token($store_id);
+    $account_daily = isset($token['account_id_daily_discount']) ? trim($token['account_id_daily_discount']) : '';
+    echo json_encode(array(
+        'success' => true,
+        'preview' => array(
+            'store_id' => $store_id,
+            'store_name' => $store_name,
+            'amount' => $store_total,
+            'doc_number' => $doc_number_preview,
+            'txn_date' => $txn_date_preview,
+            'note' => $note,
+            'pdf_filename' => $pdf_name_preview,
+            'qbo_vendor_id' => $qbo_vendor_id,
+            'account_id_daily_discount' => $account_daily,
+        ),
+    ));
+    exit;
+}
+
 // ——— Push ———
 require_once(BASE_PATH . 'inc/pdf-report.php');
 $log = array('date' => date('Y-m-d H:i:s'), 'by_admin_id' => (isset($_Session) && isset($_Session->admin_id)) ? $_Session->admin_id : null, 'stores' => array());
@@ -153,6 +219,13 @@ $pdf_name = basename($filename);
 $date_start = isset($rb['date_start']) ? $rb['date_start'] : '';
 $date_end = isset($rb['date_end']) ? $rb['date_end'] : '';
 $note = 'Daily discount rebate' . ($date_start && $date_end ? ' ' . $date_start . '–' . $date_end : '');
+
+$single_store_id = getVarInt('single_store_id', 0, 0, 99999);
+if ($single_store_id > 0) {
+    $stores = array_values(array_filter($stores, function ($s) use ($single_store_id) {
+        return (int)$s['store_id'] === $single_store_id;
+    }));
+}
 
 foreach ($stores as $s) {
     $store_id = (int)$s['store_id'];
@@ -194,8 +267,8 @@ foreach ($stores as $s) {
 
     $token = qbo_get_access_token($store_id);
     $account_daily = isset($token['account_id_daily_discount']) ? trim($token['account_id_daily_discount']) : '';
-    $doc_number = 'DD-' . $daily_discount_report_brand_id . '-S' . $store_id;
-    $txn_date = date('Y-m-d');
+    $doc_number = $pdf_name; // same as PDF filename
+    $txn_date = date('Y-m-d'); // today's date
 
     $result = qbo_create_vendor_credit($store_id, $qbo_vendor_id, $store_total, $account_daily, $doc_number, $txn_date, $note);
     if (!empty($result['success']) && !empty($result['VendorCreditId'])) {

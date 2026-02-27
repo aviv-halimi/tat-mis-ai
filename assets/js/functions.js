@@ -325,6 +325,64 @@ function updateDialog2(url, title, a, c) {
 				$('#modal').modal('hide');
 			});
 		}
+		else if (url === 'daily-discount-report-qbo-push-test') {
+			var $container = $('#modal .dd-qbo-push-test');
+			var brandIdTest = $container.attr('data-daily-discount-report-brand-id') || $container.data('dailyDiscountReportBrandId') || c;
+			function loadPreview() {
+				var $preview = $('#modal #dd-qbo-push-test-preview');
+				$preview.html('<div class="text-center text-muted py-2"><i class="fa fa-spinner fa-spin"></i> Loading preview…</div>');
+				$('#modal #dd-qbo-push-test-result').hide().empty();
+				$.post('/ajax/daily-discount-report-qbo-push.php', { action: 'preview_push', daily_discount_report_brand_id: brandIdTest }, function(res) {
+					if (!res || !res.success || !res.preview) {
+						$preview.html('<div class="text-danger">' + (res && res.response ? res.response : 'Failed to load preview.') + '</div>');
+						return;
+					}
+					var p = res.preview;
+					var html = '<table class="table table-sm table-bordered"><tbody>' +
+						'<tr><th class="text-nowrap">Store</th><td>' + (p.store_name || 'Store ' + p.store_id) + '</td></tr>' +
+						'<tr><th class="text-nowrap">Amount</th><td>' + (p.amount != null ? p.amount : '—') + '</td></tr>' +
+						'<tr><th class="text-nowrap">Doc number</th><td>' + (p.doc_number || '—') + '</td></tr>' +
+						'<tr><th class="text-nowrap">Txn date</th><td>' + (p.txn_date || '—') + '</td></tr>' +
+						'<tr><th class="text-nowrap">Note</th><td>' + (p.note || '—') + '</td></tr>' +
+						'<tr><th class="text-nowrap">PDF filename</th><td>' + (p.pdf_filename || '—') + '</td></tr>' +
+						'<tr><th class="text-nowrap">QBO vendor ID</th><td>' + (p.qbo_vendor_id || '—') + '</td></tr>' +
+						'<tr><th class="text-nowrap">GL account (daily discount)</th><td>' + (p.account_id_daily_discount || '—') + '</td></tr>' +
+						'</tbody></table>';
+					$preview.html(html);
+				}, 'json').fail(function() {
+					$preview.html('<div class="text-danger">Request failed.</div>');
+				});
+			}
+			loadPreview();
+			$('#modal').off('click.dd_qbo_push_test').on('click.dd_qbo_push_test', '#dd-qbo-push-test-push-one', function() {
+				var $btn = $(this);
+				$btn.prop('disabled', true);
+				if (typeof ddReportQboLog === 'function') ddReportQboLog('Push (store 1 only): POST daily-discount-report-qbo-push.php action=push single_store_id=1');
+				$.post('/ajax/daily-discount-report-qbo-push.php', { action: 'push', daily_discount_report_brand_id: brandIdTest, single_store_id: 1 }, function(res) {
+					$btn.prop('disabled', false);
+					var $result = $('#modal #dd-qbo-push-test-result');
+					$result.show();
+					if (res && res.success && res.log && res.log.stores && res.log.stores.length) {
+						var s = res.log.stores[0];
+						if (s.success) {
+							$result.html('<span class="text-success">Store 1 pushed successfully. Vendor Credit ID: ' + (s.qbo_vendor_credit_id || '—') + (s.attach_error ? ' (attach: ' + s.attach_error + ')' : '') + '</span>');
+						} else {
+							$result.html('<span class="text-danger">Failed: ' + (s.error || 'Unknown') + '</span>');
+						}
+					} else {
+						$result.html('<span class="text-danger">' + (res && res.response ? res.response : 'Push failed.') + '</span>');
+					}
+					if (typeof ddReportQboLog === 'function') ddReportQboLog('Push store 1 result: success=' + (res && res.success));
+				}, 'json').fail(function(xhr) {
+					$btn.prop('disabled', false);
+					$('#modal #dd-qbo-push-test-result').show().html('<span class="text-danger">Request failed' + (xhr && xhr.status ? ' (HTTP ' + xhr.status + ')' : '') + '</span>');
+					if (typeof ddReportQboLog === 'function') ddReportQboLog('Push store 1 FAILED');
+				});
+			});
+			$('#modal').off('click.dd_qbo_push_test_close').on('click.dd_qbo_push_test_close', '#dd-qbo-push-test-close', function() {
+				$('#modal').modal('hide');
+			});
+		}
 		else if (url === 'po-qbo-map-vendor') {
 			var storeId = $('#modal #qbo_map_store_id').val();
 			var $sel = $('#modal #qbo_vendor_id');

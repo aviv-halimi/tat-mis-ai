@@ -1071,8 +1071,14 @@ function initPushDailyDiscountReportQbo() {
           return;
         }
         if (thenPush && res && res.ok) {
-          ddReportQboLog('Preflight OK, calling push.');
-          doPush(brandId, $btn);
+          ddReportQboLog('Preflight OK, opening push-test modal (store 1 only).');
+          $btn.prop('disabled', false).html('<i class="fa fa-cloud-upload-alt"></i> Push to QBO');
+          // Test mode: show modal to preview and push store 1 only. To push all stores at once, replace with: doPush(brandId, $btn);
+          if (typeof updateDialog2 === 'function') {
+            updateDialog2('daily-discount-report-qbo-push-test', 'Push to QBO (test)', null, brandId);
+          } else {
+            doPush(brandId, $btn);
+          }
         } else {
           $btn.prop('disabled', false).html('<i class="fa fa-cloud-upload-alt"></i> Push to QBO');
         }
