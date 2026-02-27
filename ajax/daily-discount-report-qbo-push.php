@@ -11,6 +11,7 @@ header('Content-Type: application/json');
 try {
 $action = isset($_POST['action']) ? trim($_POST['action']) : (isset($_GET['action']) ? trim($_GET['action']) : '');
 $daily_discount_report_brand_id = getVarInt('daily_discount_report_brand_id', 0, 0, 999999);
+$single_store_id = getVarInt('single_store_id', 0, 0, 99999);
 
 if (!$daily_discount_report_brand_id) {
     echo json_encode(array('success' => false, 'response' => 'Missing report brand.', 'ok' => false));
@@ -18,7 +19,7 @@ if (!$daily_discount_report_brand_id) {
 }
 
 $rb = getRow(getRs(
-    "SELECT rb.daily_discount_report_brand_id, rb.brand_id, rb.filename, r.date_start, r.date_end FROM daily_discount_report_brand rb INNER JOIN daily_discount_report r ON r.daily_discount_report_id = rb.daily_discount_report_id WHERE rb.daily_discount_report_brand_id = ? AND " . is_enabled('rb,r'),
+    "SELECT rb.daily_discount_report_brand_id, rb.brand_id, rb.filename, r.date_start, r.date_end, b.name AS brand_name FROM daily_discount_report_brand rb INNER JOIN daily_discount_report r ON r.daily_discount_report_id = rb.daily_discount_report_id INNER JOIN blaze1.brand b ON b.brand_id = rb.brand_id WHERE rb.daily_discount_report_brand_id = ? AND " . is_enabled('rb,r'),
     array($daily_discount_report_brand_id)
 ));
 if (!$rb) {
@@ -119,7 +120,8 @@ if ($action === 'preflight') {
     exit;
 }
 
-if (!$ok) {
+// When pushing a single store (test), allow push even if other stores would fail preflight
+if (!$ok && !($action === 'push' && $single_store_id > 0)) {
     echo json_encode(array(
         'success' => false,
         'response' => 'Preflight failed. Connect QBO, set GL account, or map vendors.',
@@ -139,7 +141,11 @@ if ($action === 'preview_push') {
     $note = 'Daily discount rebate' . ($date_start && $date_end ? ' ' . $date_start . '–' . $date_end : '');
     $filename_preview = isset($rb['filename']) && trim($rb['filename']) !== '' ? trim($rb['filename']) : 'dd-report-brand-' . $daily_discount_report_brand_id . '-' . date('Ymd-His') . '.pdf';
     $pdf_name_preview = basename($filename_preview);
-    $doc_number_preview = $pdf_name_preview;
+    $brand_name_preview = isset($rb['brand_name']) ? trim((string)$rb['brand_name']) : '';
+    $doc_suffix_preview = ' -' . date('M j') . '-DD';
+    $doc_max_brand_preview = 21 - strlen($doc_suffix_preview);
+    $doc_base_preview = ($doc_max_brand_preview > 0 && $brand_name_preview !== '') ? mb_substr($brand_name_preview, 0, $doc_max_brand_preview) : 'DD';
+    $doc_number_preview = mb_substr($doc_base_preview . $doc_suffix_preview, 0, 21);
     $txn_date_preview = date('Y-m-d');
 
     $s1 = null;
@@ -220,12 +226,18 @@ $date_start = isset($rb['date_start']) ? $rb['date_start'] : '';
 $date_end = isset($rb['date_end']) ? $rb['date_end'] : '';
 $note = 'Daily discount rebate' . ($date_start && $date_end ? ' ' . $date_start . '–' . $date_end : '');
 
-$single_store_id = getVarInt('single_store_id', 0, 0, 99999);
 if ($single_store_id > 0) {
     $stores = array_values(array_filter($stores, function ($s) use ($single_store_id) {
         return (int)$s['store_id'] === $single_store_id;
     }));
 }
+
+$brand_name = isset($rb['brand_name']) ? trim((string)$rb['brand_name']) : '';
+$doc_number_suffix = ' -' . date('M j') . '-DD'; // e.g. " -Feb 26-DD"
+$doc_number_max_brand = 21 - strlen($doc_number_suffix);
+$doc_number_base = ($doc_number_max_brand > 0 && $brand_name !== '') ? mb_substr($brand_name, 0, $doc_number_max_brand) : 'DD';
+$doc_number_template = $doc_number_base . $doc_number_suffix;
+$doc_number_template = mb_substr($doc_number_template, 0, 21);
 
 foreach ($stores as $s) {
     $store_id = (int)$s['store_id'];
@@ -267,7 +279,7 @@ foreach ($stores as $s) {
 
     $token = qbo_get_access_token($store_id);
     $account_daily = isset($token['account_id_daily_discount']) ? trim($token['account_id_daily_discount']) : '';
-    $doc_number = $pdf_name; // same as PDF filename
+    $doc_number = $doc_number_template; // brand name + " -" + month + "-DD", max 21 chars
     $txn_date = date('Y-m-d'); // today's date
 
     $result = qbo_create_vendor_credit($store_id, $qbo_vendor_id, $store_total, $account_daily, $doc_number, $txn_date, $note);
