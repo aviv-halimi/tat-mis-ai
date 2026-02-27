@@ -1373,6 +1373,9 @@ class SessionManager {
 										$__c = explode(',', $_c);
 										$ret .= '<th>' . ((sizeof($__c) > 1)?$__c[1]:'') . '</th>';
 									}
+									if ($module_code === 'daily-discount-report-brands') {
+										$ret .= '<th>QBO Pushed</th><th>Email Sent</th>';
+									}
 									$ret .= '
 									<th>Actions</th></tr></thead>
 								<tbody>
