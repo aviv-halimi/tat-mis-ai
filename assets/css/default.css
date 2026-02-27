@@ -502,3 +502,11 @@ input[type=number], .transfer-qty {
 	transform: translateX(18px);
 }
 .dd-format-switch-wrap .dd-report-format-switch:focus + .dd-format-switch-slider { box-shadow: 0 0 0 2px rgba(40,167,69,.25); }
+
+/* Daily discount report list: collapse extra actions by default */
+.dd-report-actions-extra { display: none; }
+.dd-report-actions-cell.expanded .dd-report-actions-extra { display: inline; }
+.dd-report-actions-expand-btn .fa-chevron-up { display: none; }
+.dd-report-actions-expand-btn .fa-chevron-down { display: inline; }
+.dd-report-actions-cell.expanded .dd-report-actions-expand-btn .fa-chevron-up { display: inline; }
+.dd-report-actions-cell.expanded .dd-report-actions-expand-btn .fa-chevron-down { display: none; }

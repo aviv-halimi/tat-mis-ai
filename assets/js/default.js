@@ -1010,6 +1010,19 @@ $(document).off('click', '.dd-view-push-log').on('click', '.dd-view-push-log', f
 
 function initPushDailyDiscountReportQbo() {
   ddReportQboLog('Init: Push to QBO / Map vendors handlers attached.');
+  $(document).off('click', '.dd-report-actions-expand-btn').on('click', '.dd-report-actions-expand-btn', function(e) {
+    e.preventDefault();
+    var $btn = $(this);
+    var $cell = $btn.closest('.dd-report-actions-cell');
+    $cell.toggleClass('expanded');
+    if ($cell.hasClass('expanded')) {
+      $btn.attr('aria-expanded', 'true').attr('title', 'Show less');
+      $btn.find('.dd-report-actions-expand-label').text('Less');
+    } else {
+      $btn.attr('aria-expanded', 'false').attr('title', 'Show more actions');
+      $btn.find('.dd-report-actions-expand-label').text('More');
+    }
+  });
   $(document).off('change', '.dd-report-format-switch').on('change', '.dd-report-format-switch', function() {
     var f = $(this).prop('checked') ? 'xlsx' : 'pdf';
     $(this).closest('.dd-report-brand-actions, .dd-report-row-actions').data('format', f);

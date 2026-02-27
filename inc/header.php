@@ -69,7 +69,7 @@ $data = $a_data = $data_1 = $data_2 = $date_3 = $series = $categories = array();
 	<link href="/assets/plugins/nestable/css/nestable.css" rel="stylesheet" type="text/css">
 	<!-- ================== END PAGE LEVEL CSS STYLE ================== -->
   <link rel="stylesheet" href="/assets/plugins/mediaelement/mediaelementplayer.css">
-	<link href="/assets/css/default.css?v=20250914" rel="stylesheet" />
+	<link href="/assets/css/default.css?v=20260226" rel="stylesheet" />
     
 	<!-- ================== BEGIN BASE JS ================== -->
 	<script src="/assets/plugins/pace/pace.min.js"></script>
