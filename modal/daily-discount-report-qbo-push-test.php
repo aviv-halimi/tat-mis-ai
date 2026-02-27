@@ -21,4 +21,5 @@ if (!$daily_discount_report_brand_id) {
     <button type="button" class="btn btn-outline-secondary" id="dd-qbo-push-test-close">Close</button>
   </div>
   <div id="dd-qbo-push-test-result" class="mt-3 small" style="display:none;"></div>
+  <p class="text-muted mt-2 mb-0 small">After pushing, the <strong>QBO SDK request and response</strong> appear below. The log panel above shows the full trace. If you don’t see them, do a hard refresh (Ctrl+F5 / Cmd+Shift+R).</p>
 </div>
