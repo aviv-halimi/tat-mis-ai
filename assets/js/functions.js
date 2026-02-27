@@ -357,22 +357,35 @@ function updateDialog2(url, title, a, c) {
 			$('#modal').off('click.dd_qbo_push_test').on('click.dd_qbo_push_test', '#dd-qbo-push-test-push-one', function() {
 				var $btn = $(this);
 				$btn.prop('disabled', true);
-				if (typeof ddReportQboLog === 'function') ddReportQboLog('Push (store 1 only): POST daily-discount-report-qbo-push.php action=push single_store_id=1');
+				if (typeof ddReportQboLog === 'function') ddReportQboLog('Push (store 1 only): POST daily-discount-report-qbo-push.php action=push single_store_id=1 brandId=' + brandIdTest);
 				$.post('/ajax/daily-discount-report-qbo-push.php', { action: 'push', daily_discount_report_brand_id: brandIdTest, single_store_id: 1 }, function(res) {
 					$btn.prop('disabled', false);
 					var $result = $('#modal #dd-qbo-push-test-result');
 					$result.show();
+					// Log server trace so user sees that push was attempted
+					if (res && res.push_trace && res.push_trace.length && typeof ddReportQboLog === 'function') {
+						res.push_trace.forEach(function(line) { ddReportQboLog(line); });
+					}
+					if (res && res.log_saved === false && typeof ddReportQboLog === 'function') {
+						ddReportQboLog('WARNING: Log save verify failed for brand_id=' + (res.daily_discount_report_brand_id || brandIdTest));
+					}
+					var brandIdForLog = (res && res.daily_discount_report_brand_id) ? res.daily_discount_report_brand_id : brandIdTest;
 					if (res && res.success && res.log && res.log.stores && res.log.stores.length) {
 						var s = res.log.stores[0];
 						if (s.success) {
-							$result.html('<span class="text-success">Store 1 pushed successfully. Vendor Credit ID: ' + (s.qbo_vendor_credit_id || '—') + (s.attach_error ? ' (attach: ' + s.attach_error + ')' : '') + '</span>');
+							$result.html(
+								'<span class="text-success">Store 1 pushed successfully. Vendor Credit ID: ' + (s.qbo_vendor_credit_id || '—') + (s.attach_error ? ' (attach: ' + s.attach_error + ')' : '') + '</span>' +
+								' <a href="#" class="dd-view-push-log ml-2" data-daily-discount-report-brand-id="' + brandIdForLog + '">View detailed log</a>'
+							);
 						} else {
-							$result.html('<span class="text-danger">Failed: ' + (s.error || 'Unknown') + '</span>');
+							$result.html('<span class="text-danger">Failed: ' + (s.error || 'Unknown') + '</span>' +
+								' <a href="#" class="dd-view-push-log ml-2" data-daily-discount-report-brand-id="' + brandIdForLog + '">View detailed log</a>');
 						}
 					} else {
-						$result.html('<span class="text-danger">' + (res && res.response ? res.response : 'Push failed.') + '</span>');
+						$result.html('<span class="text-danger">' + (res && res.response ? res.response : 'Push failed.') + '</span>' +
+							(res && res.daily_discount_report_brand_id ? ' <a href="#" class="dd-view-push-log ml-2" data-daily-discount-report-brand-id="' + brandIdForLog + '">View detailed log</a>' : ''));
 					}
-					if (typeof ddReportQboLog === 'function') ddReportQboLog('Push store 1 result: success=' + (res && res.success));
+					if (typeof ddReportQboLog === 'function') ddReportQboLog('Push store 1 result: success=' + (res && res.success) + ' brand_id=' + brandIdForLog + ' log_saved=' + (res && res.log_saved));
 				}, 'json').fail(function(xhr) {
 					$btn.prop('disabled', false);
 					$('#modal #dd-qbo-push-test-result').show().html('<span class="text-danger">Request failed' + (xhr && xhr.status ? ' (HTTP ' + xhr.status + ')' : '') + '</span>');
