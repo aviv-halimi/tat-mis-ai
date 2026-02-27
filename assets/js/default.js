@@ -1010,11 +1010,28 @@ $(document).off('click', '.dd-view-push-log').on('click', '.dd-view-push-log', f
 
 function initPushDailyDiscountReportQbo() {
   ddReportQboLog('Init: Push to QBO / Map vendors handlers attached.');
-  $(document).off('click', '.dd-report-format-btn').on('click', '.dd-report-format-btn', function(e) {
-    var format = $(this).data('format') || 'pdf';
-    $('#dd-report-format').val(format);
-    $('.dd-report-format-btn').removeClass('active btn-primary').addClass('btn-outline-secondary');
-    $(this).addClass('active btn-primary').removeClass('btn-outline-secondary');
+  $(document).off('click', '.dd-report-format-row-btn').on('click', '.dd-report-format-row-btn', function(e) {
+    var f = $(this).data('format') || 'pdf';
+    var $wrap = $(this).closest('.dd-report-brand-actions, .dd-report-row-actions');
+    if ($wrap.length) {
+      $wrap.data('format', f);
+      $wrap.find('.dd-report-format-row-btn').removeClass('active btn-primary').addClass('btn-outline-secondary');
+      $(this).addClass('active btn-primary').removeClass('btn-outline-secondary');
+    }
+  });
+  $(document).off('click', '.btn-download-dd-report-brand').on('click', '.btn-download-dd-report-brand', function(e) {
+    e.preventDefault();
+    var $wrap = $(this).closest('.dd-report-brand-actions');
+    var code = $wrap.data('code');
+    var format = $wrap.data('format') || 'pdf';
+    if (code) window.open((format === 'xlsx' ? '/daily-discount-report-brand-xlsx/' : '/daily-discount-report-brand-pdf/') + code, '_blank');
+  });
+  $(document).off('click', '.btn-download-dd-report').on('click', '.btn-download-dd-report', function(e) {
+    e.preventDefault();
+    var $wrap = $(this).closest('.dd-report-row-actions');
+    var code = $wrap.data('code');
+    var format = $wrap.data('format') || 'pdf';
+    if (code) window.open((format === 'xlsx' ? '/daily-discount-report-xlsx/' : '/daily-discount-report-pdf/') + code, '_blank');
   });
   $(document).off('click', '.btn-dd-report-qbo-map-vendor').on('click', '.btn-dd-report-qbo-map-vendor', function(e) {
     e.preventDefault();
@@ -1102,9 +1119,9 @@ function initPushDailyDiscountReportQbo() {
         if (thenPush && res && res.ok) {
           ddReportQboLog('Preflight OK, opening push-test modal (store 1 only).');
           $btn.prop('disabled', false).html('<i class="fa fa-cloud-upload-alt"></i> Push to QBO');
-          // Test mode: show modal to preview and push store 1 only. To push all stores at once, replace with: doPush(brandId, $btn);
+          var rowFormat = $btn.closest('.dd-report-brand-actions').data('format') || 'pdf';
           if (typeof updateDialog2 === 'function') {
-            updateDialog2('daily-discount-report-qbo-push-test', 'Push to QBO (test)', null, brandId);
+            updateDialog2('daily-discount-report-qbo-push-test', 'Push to QBO (test)', null, brandId, rowFormat);
           } else {
             doPush(brandId, $btn);
           }
@@ -1121,7 +1138,8 @@ function initPushDailyDiscountReportQbo() {
 }
 
 function doPush(brandId, $btn) {
-  var payload = { action: 'push', daily_discount_report_brand_id: brandId, format: ($('#dd-report-format').length ? $('#dd-report-format').val() : null) || 'pdf' };
+  var rowFormat = ($btn && $btn.closest('.dd-report-brand-actions').length) ? $btn.closest('.dd-report-brand-actions').data('format') : null;
+  var payload = { action: 'push', daily_discount_report_brand_id: brandId, format: rowFormat || 'pdf' };
   var url = '/ajax/daily-discount-report-qbo-push.php';
   ddReportQboLog('--- Push to QBO clicked ---');
   ddReportQboLog('REQUEST URL: POST ' + url);

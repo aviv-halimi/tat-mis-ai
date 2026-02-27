@@ -1,17 +1,18 @@
 <?php
 /**
  * Modal: Test push to QBO — show data that would be pushed for store_id=1 and allow pushing that one store.
- * GET/POST: c = daily_discount_report_brand_id
+ * GET/POST: c = daily_discount_report_brand_id, format = pdf| xlsx (from row selection).
  * Content filled via JS from action=preview_push.
  */
 require_once(__DIR__ . '/../_config.php');
 $daily_discount_report_brand_id = getVarInt('c', 0, 0, 999999);
+$push_format = (isset($_POST['format']) && strtolower(trim($_POST['format'])) === 'xlsx') ? 'xlsx' : 'pdf';
 if (!$daily_discount_report_brand_id) {
     echo '<div class="alert alert-danger">Missing report brand.</div>';
     exit;
 }
 ?>
-<div class="dd-qbo-push-test" data-daily-discount-report-brand-id="<?php echo (int)$daily_discount_report_brand_id; ?>">
+<div class="dd-qbo-push-test" data-daily-discount-report-brand-id="<?php echo (int)$daily_discount_report_brand_id; ?>" data-format="<?php echo htmlspecialchars($push_format); ?>">
   <p class="text-muted mb-2">Preview of data that would be pushed to QBO for the <strong>first store</strong> in this report. Push this one store to test, or close to skip.</p>
   <div id="dd-qbo-push-test-preview" class="mb-3">
     <div class="text-center text-muted py-2"><i class="fa fa-spinner fa-spin"></i> Loading preview…</div>

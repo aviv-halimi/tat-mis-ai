@@ -160,8 +160,10 @@ foreach($rs as $row) {
 			if ($__r = getRow($__rd)) {
 				if ($__r['filename'] || $__r['progress'] >= 100) {
 					if ($__r['num_brands'] == 1) {
-						$dd .= '<a href="/' . $_link['href'] . '/' . $code . '" data-code="' . $code . '" class="' . (isset($_link['class'])?$_link['class']:'btn btn-info btn-xs ml-1') . '" data-url="' . (isset($_link['url'])?$_link['url']:'') . '" data-id="' . (isset($_link['id'])?$row[$_link['id']]:'') . '"' . (isset($_link['target'])?' target="' . $_link['target'] . '"':'') . (isset($_link['attr'])?$_link['attr']:'') . '>' . $_link['name'] . '</a>
-						<a href="/daily-discount-report-xlsx/' . $code . '" class="btn btn-danger btn-xs ml-1" target="_blank"><i class="fa fa-file-excel"></i> Excel</a>';
+						$dd .= '<span class="dd-report-row-actions" data-format="pdf" data-code="' . htmlspecialchars($code, ENT_QUOTES, 'UTF-8') . '">';
+						$dd .= '<div class="btn-group btn-group-sm mr-1" role="group"><button type="button" class="btn btn-sm btn-primary dd-report-format-row-btn active" data-format="pdf" title="Use PDF">PDF</button><button type="button" class="btn btn-sm btn-outline-secondary dd-report-format-row-btn" data-format="xlsx" title="Use Excel">Excel</button></div>';
+						$dd .= '<a href="javascript:;" class="btn btn-info btn-xs ml-1 btn-download-dd-report" title="Download (PDF or Excel per selection)"><i class="fa fa-download"></i> Download</a>';
+						$dd .= '</span>';
 					}
 					else {
 						$dd .= '<a href="/daily-discount-report/' . $__r['daily_discount_report_code'] . '" class="btn btn-info btn-xs ml-1">View All Downloads (' . $__r['num_brands'] . ')</a>';
@@ -182,10 +184,16 @@ foreach($rs as $row) {
   }
   if ($TableName == 'daily_discount_report_brand') {
 	  $bid = (int)$row['daily_discount_report_brand_id'];
+	  $brand_code = getIdCode($TableName, $bid);
+	  $brand_code_esc = $brand_code !== null ? htmlspecialchars($brand_code, ENT_QUOTES, 'UTF-8') : '';
+	  $dd .= '<span class="dd-report-brand-actions" data-daily-discount-report-brand-id="' . $bid . '" data-format="pdf" data-code="' . $brand_code_esc . '">';
+	  $dd .= ' <div class="btn-group btn-group-sm mr-1" role="group"><button type="button" class="btn btn-sm btn-primary dd-report-format-row-btn active" data-format="pdf" title="Use PDF">PDF</button><button type="button" class="btn btn-sm btn-outline-secondary dd-report-format-row-btn" data-format="xlsx" title="Use Excel">Excel</button></div>';
+	  $dd .= ' <a href="javascript:;" class="btn btn-info btn-xs ml-1 btn-download-dd-report-brand" title="Download report (PDF or Excel per selection)"><i class="fa fa-download"></i> Download</a>';
 	  $dd .= ' <button type="button" class="btn btn-success btn-xs ml-1 btn-push-dd-report-qbo" data-daily-discount-report-brand-id="' . $bid . '" title="Push to QuickBooks"><i class="fa fa-cloud-upload-alt"></i> Push to QBO</button>';
 	  $dd .= ' <button type="button" class="btn btn-outline-secondary btn-xs ml-1 btn-dd-report-qbo-map-vendor" data-daily-discount-report-brand-id="' . $bid . '" title="Map brand to QBO vendor per store">Map vendors</button>';
 	  $dd .= ' <button type="button" class="btn btn-outline-info btn-xs ml-1 dd-view-push-log" data-daily-discount-report-brand-id="' . $bid . '" title="View QBO push log">View push log</button>';
 	  $dd .= ' <a href="javascript:;" class="btn btn-outline-primary btn-xs ml-1 btn-dialog" data-url="daily-discount-report-notification" data-title="Email to Brand" data-a="7" data-c="' . $bid . '" title="Send notification with report (PDF or Excel) to brand"><i class="fa fa-envelope"></i> Email to Brand</a>';
+	  $dd .= '</span>';
   }
  
  	 if ($AllowDelete) {
