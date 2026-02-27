@@ -185,6 +185,7 @@ foreach($rs as $row) {
 	  $dd .= ' <button type="button" class="btn btn-success btn-xs ml-1 btn-push-dd-report-qbo" data-daily-discount-report-brand-id="' . $bid . '" title="Push to QuickBooks"><i class="fa fa-cloud-upload-alt"></i> Push to QBO</button>';
 	  $dd .= ' <button type="button" class="btn btn-outline-secondary btn-xs ml-1 btn-dd-report-qbo-map-vendor" data-daily-discount-report-brand-id="' . $bid . '" title="Map brand to QBO vendor per store">Map vendors</button>';
 	  $dd .= ' <button type="button" class="btn btn-outline-info btn-xs ml-1 dd-view-push-log" data-daily-discount-report-brand-id="' . $bid . '" title="View QBO push log">View push log</button>';
+	  $dd .= ' <a href="javascript:;" class="btn btn-outline-primary btn-xs ml-1 btn-dialog" data-url="daily-discount-report-notification" data-title="Email to Brand" data-a="7" data-c="' . $bid . '" title="Send notification with PDF to brand"><i class="fa fa-envelope"></i> Email to Brand</a>';
   }
  
  	 if ($AllowDelete) {

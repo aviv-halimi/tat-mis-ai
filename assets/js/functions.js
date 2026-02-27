@@ -7,6 +7,7 @@ function bindForm(f, callback, callback2, path) {
 		var $btns = $('#f_' + f + ' .form-btns');
 		$btns.hide();
 		$form.find('.status').attr('id', 'status_' + f);
+		if (typeof CKEDITOR !== 'undefined' && CKEDITOR.instances) { for (var k in CKEDITOR.instances) CKEDITOR.instances[k].updateElement(); }
 		postAjaxFunc(path + f, $form.serialize(), 'status_' + f, function(data) {
 			if (typeof callback === 'function') callback(data);
 		}, function(data) {
