@@ -293,6 +293,9 @@ $doc_number_base = ($doc_number_max_brand > 0 && $brand_name !== '') ? mb_substr
 $doc_number_template = $doc_number_base . $doc_number_suffix;
 $doc_number_template = mb_substr($doc_number_template, 0, 21);
 
+$last_qbo_request = null;
+$last_qbo_response = null;
+
 foreach ($stores as $s) {
     $store_id = (int)$s['store_id'];
     $store_name = isset($s['store_name']) ? $s['store_name'] : 'Store ' . $store_id;
@@ -336,9 +339,13 @@ foreach ($stores as $s) {
     $doc_number = $doc_number_template; // brand name + " -" + month + "-DD", max 21 chars
     $txn_date = date('Y-m-d'); // today's date
 
-    $push_trace[] = 'QBO API SEND: store_id=' . $store_id . ' vendor_id=' . $qbo_vendor_id . ' amount=' . $store_total . ' account_daily=' . $account_daily . ' doc_number=' . $doc_number . ' txn_date=' . $txn_date . ' note=' . substr($note, 0, 80);
+    $qbo_send_str = 'store_id=' . $store_id . ' vendor_id=' . $qbo_vendor_id . ' amount=' . $store_total . ' account_daily=' . $account_daily . ' doc_number=' . $doc_number . ' txn_date=' . $txn_date . ' note=' . substr($note, 0, 80);
+    $push_trace[] = 'QBO API SEND: ' . $qbo_send_str;
     $result = qbo_create_vendor_credit($store_id, $qbo_vendor_id, $store_total, $account_daily, $doc_number, $txn_date, $note);
-    $push_trace[] = 'QBO API RESPONSE: ' . json_encode($result);
+    $qbo_response_str = json_encode($result);
+    $push_trace[] = 'QBO API RESPONSE: ' . $qbo_response_str;
+    $last_qbo_request = $qbo_send_str;
+    $last_qbo_response = $qbo_response_str;
     if (!empty($result['success']) && !empty($result['VendorCreditId'])) {
         $vc_id = $result['VendorCreditId'];
         $push_trace[] = 'store ' . $store_id . ' vendor_credit_created id=' . $vc_id;
@@ -371,6 +378,10 @@ if ($verify && !empty($verify['qbo_push_log'])) {
 }
 $push_trace[] = 'log_saved_verify=' . ($log_saved ? 'yes' : 'no');
 
+// Explicit QBO SDK request/response for display in UI (last store that called the API)
+$qbo_sdk_request = isset($last_qbo_request) ? $last_qbo_request : null;
+$qbo_sdk_response = isset($last_qbo_response) ? $last_qbo_response : null;
+
 echo json_encode(array(
     'success' => true,
     'response' => 'Push complete. See log per store.',
@@ -379,6 +390,8 @@ echo json_encode(array(
     'daily_discount_report_brand_id' => $daily_discount_report_brand_id,
     'push_trace' => $push_trace,
     'log_saved' => $log_saved,
+    'qbo_sdk_request' => $qbo_sdk_request,
+    'qbo_sdk_response' => $qbo_sdk_response,
 ));
 } catch (Exception $e) {
     echo json_encode(array('success' => false, 'response' => 'Server error: ' . $e->getMessage(), 'ok' => false, 'error_detail' => $e->getFile() . ':' . $e->getLine()));
