@@ -12,19 +12,13 @@ if (!$daily_discount_report_brand_id) {
 }
 ?>
 <div class="dd-qbo-push-test" data-daily-discount-report-brand-id="<?php echo (int)$daily_discount_report_brand_id; ?>">
-  <?php
-  // Force-load push-test handler with cache-bust so it runs even when functions.js is cached
-  $qbo_script_t = time();
-  ?>
-  <img src="about:invalid" alt="" onerror="window.ddQboPushTestBrandId=<?php echo (int)$daily_discount_report_brand_id; ?>;var s=document.createElement('script');s.src='/assets/js/dd-qbo-push-test.js?t=<?php echo $qbo_script_t; ?>';document.head.appendChild(s);" style="display:none;" width="0" height="0">
-  <p class="text-muted mb-2">Preview of data that would be pushed to QBO for <strong>Store 1</strong> only. Push this one store to test, or close to skip.</p>
+  <p class="text-muted mb-2">Preview of data that would be pushed to QBO for the <strong>first store</strong> in this report. Push this one store to test, or close to skip.</p>
   <div id="dd-qbo-push-test-preview" class="mb-3">
     <div class="text-center text-muted py-2"><i class="fa fa-spinner fa-spin"></i> Loading preview…</div>
   </div>
   <div class="mt-3 d-flex flex-wrap gap-2">
-    <button type="button" class="btn btn-primary" id="dd-qbo-push-test-push-one">Push store 1 only</button>
+    <button type="button" class="btn btn-primary" id="dd-qbo-push-test-push-one">Push first store</button>
     <button type="button" class="btn btn-outline-secondary" id="dd-qbo-push-test-close">Close</button>
   </div>
   <div id="dd-qbo-push-test-result" class="mt-3 small" style="display:none;"></div>
-  <p class="text-muted mt-2 mb-0 small">After pushing, the <strong>QBO SDK request and response</strong> appear below. The log panel above shows the full trace. If you don’t see them, do a hard refresh (Ctrl+F5 / Cmd+Shift+R).</p>
 </div>

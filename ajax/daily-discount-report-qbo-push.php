@@ -173,9 +173,8 @@ if (!$ok && !($action === 'push' && $single_store_id > 0)) {
     exit;
 }
 
-// ——— Preview push (store_id = 1 only, for test modal) ———
+// ——— Preview push (first store only, for test modal) ———
 if ($action === 'preview_push') {
-    $preview_store_id = 1;
     $date_start = isset($rb['date_start']) ? $rb['date_start'] : '';
     $date_end = isset($rb['date_end']) ? $rb['date_end'] : '';
     $note = 'Daily discount rebate' . ($date_start && $date_end ? ' ' . $date_start . '–' . $date_end : '');
@@ -188,15 +187,9 @@ if ($action === 'preview_push') {
     $doc_number_preview = mb_substr($doc_base_preview . $doc_suffix_preview, 0, 21);
     $txn_date_preview = date('Y-m-d');
 
-    $s1 = null;
-    foreach ($stores as $s) {
-        if ((int)$s['store_id'] === $preview_store_id) {
-            $s1 = $s;
-            break;
-        }
-    }
+    $s1 = isset($stores[0]) ? $stores[0] : null;
     if (!$s1) {
-        echo json_encode(array('success' => false, 'response' => 'Store 1 not in this report.', 'preview' => null));
+        echo json_encode(array('success' => false, 'response' => 'No stores in this report.', 'preview' => null));
         exit;
     }
     $store_id = (int)$s1['store_id'];
@@ -269,15 +262,14 @@ $date_start = isset($rb['date_start']) ? $rb['date_start'] : '';
 $date_end = isset($rb['date_end']) ? $rb['date_end'] : '';
 $note = 'Daily discount rebate' . ($date_start && $date_end ? ' ' . $date_start . '–' . $date_end : '');
 
+// Test modal: push first store only (single_store_id=1 means "first store", not store_id 1)
 if ($single_store_id > 0) {
-    $stores = array_values(array_filter($stores, function ($s) use ($single_store_id) {
-        return (int)$s['store_id'] === $single_store_id;
-    }));
-    $push_trace[] = 'filtered_to_single_store stores_count=' . count($stores);
+    $stores = array_slice($stores, 0, 1);
+    $push_trace[] = 'filtered_to_first_store stores_count=' . count($stores);
     if (count($stores) === 0) {
         echo json_encode(array(
             'success' => false,
-            'response' => 'Store ' . $single_store_id . ' is not in this report. No stores to push.',
+            'response' => 'No stores in this report. No stores to push.',
             'ok' => false,
             'push_trace' => $push_trace,
             'daily_discount_report_brand_id' => $daily_discount_report_brand_id,
