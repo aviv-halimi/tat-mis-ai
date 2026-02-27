@@ -1010,6 +1010,10 @@ $(document).off('click', '.dd-view-push-log').on('click', '.dd-view-push-log', f
 
 function initPushDailyDiscountReportQbo() {
   ddReportQboLog('Init: Push to QBO / Map vendors handlers attached.');
+  $(document).off('change', '.dd-report-format-switch').on('change', '.dd-report-format-switch', function() {
+    var f = $(this).prop('checked') ? 'xlsx' : 'pdf';
+    $(this).closest('.dd-report-brand-actions, .dd-report-row-actions').data('format', f);
+  });
   $(document).off('click', '.btn-download-dd-report-brand').on('click', '.btn-download-dd-report-brand', function(e) {
     e.preventDefault();
     var $wrap = $(this).closest('.dd-report-brand-actions');
@@ -1165,10 +1169,17 @@ function doPush(brandId, $btn) {
         text: msg,
         icon: err ? 'warning' : 'success',
         showCancelButton: true,
-        confirmButtonText: 'View detailed log',
-        cancelButtonText: 'Close'
+        confirmButtonText: 'Send Email',
+        cancelButtonText: 'View log'
       }).then(function(result) {
-        if (result && result.isConfirmed) showDdQboPushLogModal(brandId);
+        if (result && result.isConfirmed) {
+          var format = $('.dd-report-brand-actions[data-daily-discount-report-brand-id="' + brandId + '"]').data('format') || 'pdf';
+          if (typeof updateDialog2 === 'function') {
+            updateDialog2('daily-discount-report-notification', 'Email', 7, brandId, format);
+          }
+        } else if (result && result.dismiss === 'cancel') {
+          showDdQboPushLogModal(brandId);
+        }
       });
     } else {
       alert(msg);
