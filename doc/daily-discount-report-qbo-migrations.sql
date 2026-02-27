@@ -8,4 +8,5 @@ ALTER TABLE daily_discount_report_brand
 
 -- 2) Per-store brand → QBO vendor mapping. Run for EACH store database (e.g. blaze1, blaze2, …).
 -- Replace {store_db} with the actual database name.
+-- App looks up/updates by master_brand_id (daily_discount_report_brand.brand_id = store brand.master_brand_id).
 -- ALTER TABLE `{store_db}`.brand ADD COLUMN qbo_vendor_id VARCHAR(64) DEFAULT NULL;
