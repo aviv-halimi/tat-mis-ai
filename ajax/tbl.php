@@ -161,7 +161,6 @@ foreach($rs as $row) {
 				if ($__r['filename'] || $__r['progress'] >= 100) {
 					if ($__r['num_brands'] == 1) {
 						$dd .= '<span class="dd-report-row-actions" data-format="pdf" data-code="' . htmlspecialchars($code, ENT_QUOTES, 'UTF-8') . '">';
-						$dd .= '<div class="btn-group btn-group-sm mr-1" role="group"><button type="button" class="btn btn-sm btn-primary dd-report-format-row-btn active" data-format="pdf" title="Use PDF">PDF</button><button type="button" class="btn btn-sm btn-outline-secondary dd-report-format-row-btn" data-format="xlsx" title="Use Excel">Excel</button></div>';
 						$dd .= '<a href="javascript:;" class="btn btn-info btn-xs ml-1 btn-download-dd-report" title="Download (PDF or Excel per selection)"><i class="fa fa-download"></i> Download</a>';
 						$dd .= '</span>';
 					}
@@ -187,12 +186,11 @@ foreach($rs as $row) {
 	  $brand_code = getIdCode($TableName, $bid);
 	  $brand_code_esc = $brand_code !== null ? htmlspecialchars($brand_code, ENT_QUOTES, 'UTF-8') : '';
 	  $dd .= '<span class="dd-report-brand-actions" data-daily-discount-report-brand-id="' . $bid . '" data-format="pdf" data-code="' . $brand_code_esc . '">';
-	  $dd .= ' <div class="btn-group btn-group-sm mr-1" role="group"><button type="button" class="btn btn-sm btn-primary dd-report-format-row-btn active" data-format="pdf" title="Use PDF">PDF</button><button type="button" class="btn btn-sm btn-outline-secondary dd-report-format-row-btn" data-format="xlsx" title="Use Excel">Excel</button></div>';
 	  $dd .= ' <a href="javascript:;" class="btn btn-info btn-xs ml-1 btn-download-dd-report-brand" title="Download report (PDF or Excel per selection)"><i class="fa fa-download"></i> Download</a>';
 	  $dd .= ' <button type="button" class="btn btn-success btn-xs ml-1 btn-push-dd-report-qbo" data-daily-discount-report-brand-id="' . $bid . '" title="Push to QuickBooks"><i class="fa fa-cloud-upload-alt"></i> Push to QBO</button>';
 	  $dd .= ' <button type="button" class="btn btn-outline-secondary btn-xs ml-1 btn-dd-report-qbo-map-vendor" data-daily-discount-report-brand-id="' . $bid . '" title="Map brand to QBO vendor per store">Map vendors</button>';
-	  $dd .= ' <button type="button" class="btn btn-outline-info btn-xs ml-1 dd-view-push-log" data-daily-discount-report-brand-id="' . $bid . '" title="View QBO push log">View push log</button>';
-	  $dd .= ' <a href="javascript:;" class="btn btn-outline-primary btn-xs ml-1 btn-dialog" data-url="daily-discount-report-notification" data-title="Email to Brand" data-a="7" data-c="' . $bid . '" title="Send notification with report (PDF or Excel) to brand"><i class="fa fa-envelope"></i> Email to Brand</a>';
+	  $dd .= ' <button type="button" class="btn btn-outline-info btn-xs ml-1 dd-view-push-log" data-daily-discount-report-brand-id="' . $bid . '" title="View log">View Log</button>';
+	  $dd .= ' <a href="javascript:;" class="btn btn-outline-primary btn-xs ml-1 btn-dialog" data-url="daily-discount-report-notification" data-title="Email" data-a="7" data-c="' . $bid . '" title="Send report to brand"><i class="fa fa-envelope"></i> Email</a>';
 	  $dd .= '</span>';
   }
  
