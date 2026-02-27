@@ -244,6 +244,7 @@ if ($action === 'preview_push') {
 }
 
 // ——— Push ———
+$push_trace = array('push_start brand_id=' . $daily_discount_report_brand_id . ' single_store_id=' . $single_store_id);
 require_once(BASE_PATH . 'inc/pdf-report.php');
 $log = array('date' => date('Y-m-d H:i:s'), 'by_admin_id' => (isset($_Session) && isset($_Session->admin_id)) ? $_Session->admin_id : null, 'stores' => array());
 $dir = MEDIA_PATH . 'daily_discount_report_brand/';
@@ -254,10 +255,12 @@ if ($filename === '' || !is_file($dir . $filename)) {
     if (!is_dir($dir)) {
         @mkdir($dir, 0755, true);
     }
+    $push_trace[] = 'generating_pdf';
     generateReport(null, $daily_discount_report_brand_id, $fp);
     if (is_file($fp)) {
         dbUpdate('daily_discount_report_brand', array('filename' => $filename), $daily_discount_report_brand_id);
     }
+    $push_trace[] = 'pdf_done';
 }
 $pdf_path = $dir . $filename;
 $pdf_name = basename($filename);
@@ -270,6 +273,17 @@ if ($single_store_id > 0) {
     $stores = array_values(array_filter($stores, function ($s) use ($single_store_id) {
         return (int)$s['store_id'] === $single_store_id;
     }));
+    $push_trace[] = 'filtered_to_single_store stores_count=' . count($stores);
+    if (count($stores) === 0) {
+        echo json_encode(array(
+            'success' => false,
+            'response' => 'Store ' . $single_store_id . ' is not in this report. No stores to push.',
+            'ok' => false,
+            'push_trace' => $push_trace,
+            'daily_discount_report_brand_id' => $daily_discount_report_brand_id,
+        ));
+        exit;
+    }
 }
 
 $brand_name = isset($rb['brand_name']) ? trim((string)$rb['brand_name']) : '';
@@ -322,9 +336,11 @@ foreach ($stores as $s) {
     $doc_number = $doc_number_template; // brand name + " -" + month + "-DD", max 21 chars
     $txn_date = date('Y-m-d'); // today's date
 
+    $push_trace[] = 'store ' . $store_id . ' calling qbo_create_vendor_credit amount=' . $store_total;
     $result = qbo_create_vendor_credit($store_id, $qbo_vendor_id, $store_total, $account_daily, $doc_number, $txn_date, $note);
     if (!empty($result['success']) && !empty($result['VendorCreditId'])) {
         $vc_id = $result['VendorCreditId'];
+        $push_trace[] = 'store ' . $store_id . ' vendor_credit_created id=' . $vc_id;
         $entry['success'] = true;
         $entry['qbo_vendor_credit_id'] = $vc_id;
         $entry['qbo_vendor_credit_url'] = function_exists('qbo_vendor_credit_url') ? qbo_vendor_credit_url($vc_id) : ('https://qbo.intuit.com/app/vendorcredit?txnId=' . urlencode($vc_id));
@@ -336,17 +352,32 @@ foreach ($stores as $s) {
         }
     } else {
         $entry['error'] = isset($result['error']) ? $result['error'] : 'Create failed';
+        $push_trace[] = 'store ' . $store_id . ' failed: ' . $entry['error'];
     }
     $log['stores'][] = $entry;
 }
 
+$push_trace[] = 'saving_log brand_id=' . $daily_discount_report_brand_id . ' entries=' . count($log['stores']);
 dbUpdate('daily_discount_report_brand', array('qbo_push_log' => json_encode($log)), $daily_discount_report_brand_id);
+$push_trace[] = 'db_updated';
+
+// Verify log was saved (in case of wrong DB or missing column)
+$verify = getRow(getRs("SELECT qbo_push_log FROM daily_discount_report_brand WHERE daily_discount_report_brand_id = ?", array($daily_discount_report_brand_id)));
+$log_saved = false;
+if ($verify && !empty($verify['qbo_push_log'])) {
+    $dec = @json_decode($verify['qbo_push_log'], true);
+    $log_saved = is_array($dec) && isset($dec['stores']) && count($dec['stores']) > 0;
+}
+$push_trace[] = 'log_saved_verify=' . ($log_saved ? 'yes' : 'no');
 
 echo json_encode(array(
     'success' => true,
     'response' => 'Push complete. See log per store.',
     'ok' => true,
     'log' => $log,
+    'daily_discount_report_brand_id' => $daily_discount_report_brand_id,
+    'push_trace' => $push_trace,
+    'log_saved' => $log_saved,
 ));
 } catch (Exception $e) {
     echo json_encode(array('success' => false, 'response' => 'Server error: ' . $e->getMessage(), 'ok' => false, 'error_detail' => $e->getFile() . ':' . $e->getLine()));
