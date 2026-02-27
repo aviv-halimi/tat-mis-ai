@@ -179,7 +179,7 @@ array_unshift($DisplayFields, $PrimaryKey . ",ID,number");
 if (isset($Table['enabled'])) {
 	array_push($DisplayFields, "is_enabled,Enabled,bool");
 }
-if (isset($tbl['name']) && $tbl['name'] === 'daily_discount_report_brand') {
+if ((isset($tbl['name']) && $tbl['name'] === 'daily_discount_report_brand') || (isset($module_code) && $module_code === 'daily-discount-report-brands')) {
 	$DisplayFields[] = 'qbo_pushed_at,QBO Pushed,string';
 	$DisplayFields[] = 'email_sent_at,Email Sent,string';
 }

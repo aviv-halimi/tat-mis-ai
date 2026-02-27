@@ -228,7 +228,7 @@ foreach($rs as $row) {
 		$dd .= '<a href="" class="btn btn-danger btn-xs btn-del ml-1" data-url="' . $PageName . '" data-title="Edit ' . $PageTitle . '" data-id="' . $row[$arr_FieldNames[0]] . '"><i class="ion-trash-b"></i> Archive</a>';
 	}
 	$dd .= '</div>';
-	if (str_len($ModalUrl) || str_len($DetailsUrl) || $AllowDelete || $AllowEdit || $AllowAdd || isset($tbl['links'])) array_push($record, $dd);
+	if (str_len($ModalUrl) || str_len($DetailsUrl) || $AllowDelete || $AllowEdit || $AllowAdd || isset($tbl['links']) || $TableName === 'daily_discount_report_brand') array_push($record, $dd);
 	array_push($data, $record);
 }
 
