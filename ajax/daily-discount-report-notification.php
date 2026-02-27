@@ -17,6 +17,7 @@ try {
 
 $daily_discount_report_brand_id = getVarInt('daily_discount_report_brand_id', 0, 0, 999999);
 $notification_type_id = getVarNum('notification_type_id', 7, 1, 999);
+$report_format = (isset($_POST['format']) && strtolower(trim($_POST['format'])) === 'xlsx') ? 'xlsx' : 'pdf';
 $email = trim(getVar('email', ''));
 $contact_name = trim(getVar('contact_name', ''));
 $subject = trim(getVar('subject', ''));
@@ -84,9 +85,18 @@ if ($store1 && !empty($store1['params'])) {
 }
 
 $attachments = array();
-$pdf_path = MEDIA_PATH . 'daily_discount_report_brand/' . (isset($rb['filename']) ? $rb['filename'] : '');
-if (!empty($rb['filename']) && is_file($pdf_path)) {
-    $attachments[] = array('file' => $pdf_path, 'name' => $rb['filename']);
+$dir = MEDIA_PATH . 'daily_discount_report_brand/';
+if ($report_format === 'xlsx') {
+    require_once(__DIR__ . '/../inc/daily-discount-report-brand-xlsx-generate.php');
+    $xlsx_result = dd_report_brand_generate_xlsx($daily_discount_report_brand_id, $dir);
+    if ($xlsx_result && !empty($xlsx_result['path']) && is_file($xlsx_result['path'])) {
+        $attachments[] = array('file' => $xlsx_result['path'], 'name' => isset($xlsx_result['filename']) ? $xlsx_result['filename'] : basename($xlsx_result['path']));
+    }
+} else {
+    $pdf_path = $dir . (isset($rb['filename']) ? $rb['filename'] : '');
+    if (!empty($rb['filename']) && is_file($pdf_path)) {
+        $attachments[] = array('file' => $pdf_path, 'name' => $rb['filename']);
+    }
 }
 
 $to_name = $contact_name !== '' ? $contact_name : (isset($rb['brand_name']) ? $rb['brand_name'] : 'Brand');

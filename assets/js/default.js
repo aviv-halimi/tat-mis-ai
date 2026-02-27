@@ -1010,6 +1010,12 @@ $(document).off('click', '.dd-view-push-log').on('click', '.dd-view-push-log', f
 
 function initPushDailyDiscountReportQbo() {
   ddReportQboLog('Init: Push to QBO / Map vendors handlers attached.');
+  $(document).off('click', '.dd-report-format-btn').on('click', '.dd-report-format-btn', function(e) {
+    var format = $(this).data('format') || 'pdf';
+    $('#dd-report-format').val(format);
+    $('.dd-report-format-btn').removeClass('active btn-primary').addClass('btn-outline-secondary');
+    $(this).addClass('active btn-primary').removeClass('btn-outline-secondary');
+  });
   $(document).off('click', '.btn-dd-report-qbo-map-vendor').on('click', '.btn-dd-report-qbo-map-vendor', function(e) {
     e.preventDefault();
     var brandId = $(this).data('daily-discount-report-brand-id');
@@ -1115,7 +1121,7 @@ function initPushDailyDiscountReportQbo() {
 }
 
 function doPush(brandId, $btn) {
-  var payload = { action: 'push', daily_discount_report_brand_id: brandId };
+  var payload = { action: 'push', daily_discount_report_brand_id: brandId, format: ($('#dd-report-format').length ? $('#dd-report-format').val() : null) || 'pdf' };
   var url = '/ajax/daily-discount-report-qbo-push.php';
   ddReportQboLog('--- Push to QBO clicked ---');
   ddReportQboLog('REQUEST URL: POST ' + url);

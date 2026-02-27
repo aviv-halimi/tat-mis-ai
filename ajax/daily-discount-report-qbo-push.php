@@ -12,6 +12,7 @@ try {
 $action = isset($_POST['action']) ? trim($_POST['action']) : (isset($_GET['action']) ? trim($_GET['action']) : '');
 $daily_discount_report_brand_id = getVarInt('daily_discount_report_brand_id', 0, 0, 999999);
 $single_store_id = getVarInt('single_store_id', 0, 0, 99999);
+$report_format = (isset($_POST['format']) && strtolower(trim($_POST['format'])) === 'xlsx') ? 'xlsx' : 'pdf';
 
 if (!$daily_discount_report_brand_id) {
     echo json_encode(array('success' => false, 'response' => 'Missing report brand.', 'ok' => false));
@@ -175,11 +176,12 @@ if (!$ok && !($action === 'push' && $single_store_id > 0)) {
 
 // ——— Preview push (first store only, for test modal) ———
 if ($action === 'preview_push') {
+    $preview_format = (isset($_POST['format']) && strtolower(trim($_POST['format'])) === 'xlsx') ? 'xlsx' : 'pdf';
     $date_start = isset($rb['date_start']) ? $rb['date_start'] : '';
     $date_end = isset($rb['date_end']) ? $rb['date_end'] : '';
     $note = 'Daily discount rebate' . ($date_start && $date_end ? ' ' . $date_start . '–' . $date_end : '');
     $filename_preview = isset($rb['filename']) && trim($rb['filename']) !== '' ? trim($rb['filename']) : 'dd-report-brand-' . $daily_discount_report_brand_id . '-' . date('Ymd-His') . '.pdf';
-    $pdf_name_preview = basename($filename_preview);
+    $pdf_name_preview = $preview_format === 'xlsx' ? (getFilename($filename_preview) . '.xlsx') : basename($filename_preview);
     $brand_name_preview = isset($rb['brand_name']) ? trim((string)$rb['brand_name']) : '';
     $doc_suffix_preview = ' -' . date('M j') . '-DD';
     $doc_max_brand_preview = 21 - strlen($doc_suffix_preview);
@@ -237,26 +239,41 @@ if ($action === 'preview_push') {
 }
 
 // ——— Push ———
-$push_trace = array('push_start brand_id=' . $daily_discount_report_brand_id . ' single_store_id=' . $single_store_id);
-require_once(BASE_PATH . 'inc/pdf-report.php');
+$push_trace = array('push_start brand_id=' . $daily_discount_report_brand_id . ' single_store_id=' . $single_store_id . ' format=' . $report_format);
 $log = array('date' => date('Y-m-d H:i:s'), 'by_admin_id' => (isset($_Session) && isset($_Session->admin_id)) ? $_Session->admin_id : null, 'stores' => array());
 $dir = MEDIA_PATH . 'daily_discount_report_brand/';
-$filename = isset($rb['filename']) ? trim($rb['filename']) : '';
-if ($filename === '' || !is_file($dir . $filename)) {
-    $filename = 'dd-report-brand-' . $daily_discount_report_brand_id . '-' . date('Ymd-His') . '.pdf';
-    $fp = $dir . $filename;
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0755, true);
+$attach_path = null;
+$attach_name = null;
+
+if ($report_format === 'xlsx') {
+    require_once(BASE_PATH . 'inc/daily-discount-report-brand-xlsx-generate.php');
+    $xlsx_result = dd_report_brand_generate_xlsx($daily_discount_report_brand_id, $dir);
+    if ($xlsx_result && !empty($xlsx_result['path']) && is_file($xlsx_result['path'])) {
+        $attach_path = $xlsx_result['path'];
+        $attach_name = isset($xlsx_result['filename']) ? $xlsx_result['filename'] : basename($xlsx_result['path']);
+        $push_trace[] = 'excel_generated ' . $attach_name;
+    } else {
+        $push_trace[] = 'excel_generate_failed';
     }
-    $push_trace[] = 'generating_pdf';
-    generateReport(null, $daily_discount_report_brand_id, $fp);
-    if (is_file($fp)) {
-        dbUpdate('daily_discount_report_brand', array('filename' => $filename), $daily_discount_report_brand_id);
+} else {
+    require_once(BASE_PATH . 'inc/pdf-report.php');
+    $filename = isset($rb['filename']) ? trim($rb['filename']) : '';
+    if ($filename === '' || !is_file($dir . $filename)) {
+        $filename = 'dd-report-brand-' . $daily_discount_report_brand_id . '-' . date('Ymd-His') . '.pdf';
+        $fp = $dir . $filename;
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        $push_trace[] = 'generating_pdf';
+        generateReport(null, $daily_discount_report_brand_id, $fp);
+        if (is_file($fp)) {
+            dbUpdate('daily_discount_report_brand', array('filename' => $filename), $daily_discount_report_brand_id);
+        }
+        $push_trace[] = 'pdf_done';
     }
-    $push_trace[] = 'pdf_done';
+    $attach_path = $dir . $filename;
+    $attach_name = basename($filename);
 }
-$pdf_path = $dir . $filename;
-$pdf_name = basename($filename);
 
 $date_start = isset($rb['date_start']) ? $rb['date_start'] : '';
 $date_end = isset($rb['date_end']) ? $rb['date_end'] : '';
@@ -344,8 +361,8 @@ foreach ($stores as $s) {
         $entry['success'] = true;
         $entry['qbo_vendor_credit_id'] = $vc_id;
         $entry['qbo_vendor_credit_url'] = function_exists('qbo_vendor_credit_url') ? qbo_vendor_credit_url($vc_id) : ('https://qbo.intuit.com/app/vendorcredit?txnId=' . urlencode($vc_id));
-        if (is_file($pdf_path)) {
-            $att = qbo_attach_file_to_entity($store_id, 'VendorCredit', $result['VendorCreditId'], $pdf_path, $pdf_name);
+        if ($attach_path && is_file($attach_path)) {
+            $att = qbo_attach_file_to_entity($store_id, 'VendorCredit', $result['VendorCreditId'], $attach_path, $attach_name);
             if (!empty($att['error'])) {
                 $entry['attach_error'] = $att['error'];
             }

@@ -7,6 +7,7 @@
 require_once(__DIR__ . '/../_config.php');
 $daily_discount_report_brand_id = getVarInt('c', 0, 0, 999999);
 $notification_type_id = getVarNum('a', 7, 1, 999);
+$report_format = (isset($_REQUEST['format']) && strtolower(trim($_REQUEST['format'])) === 'xlsx') ? 'xlsx' : 'pdf';
 
 $email = '';
 $contact_name = '';
@@ -66,6 +67,7 @@ $has_pdf = !empty($rb['filename']) && is_file($pdf_path);
 <form method="post" action="">
 <input type="hidden" name="daily_discount_report_brand_id" value="<?php echo (int)$daily_discount_report_brand_id; ?>" />
 <input type="hidden" name="notification_type_id" value="<?php echo (int)$notification_type_id; ?>" />
+<input type="hidden" name="format" value="<?php echo htmlspecialchars($report_format); ?>" />
 <div class="row m-b-10">
   <div class="col-sm-2 col-form-label">Notification Type:</div>
   <div class="col-sm-10 col-form-label"><b><?php echo htmlspecialchars($r['notification_type_name']); ?></b></div>
@@ -90,15 +92,20 @@ $has_pdf = !empty($rb['filename']) && is_file($pdf_path);
   <div class="col-sm-2 col-form-label">Message:</div>
   <div class="col-sm-10"><textarea name="message" rows="10" id="message_dd_notif" class="ckeditor form-control" placeholder="Your message here ..."><?php echo htmlspecialchars($message); ?></textarea></div>
 </div>
-<?php if ($has_pdf) { ?>
+<?php if ($report_format === 'xlsx') { ?>
 <div class="row m-b-10">
   <div class="col-sm-2 col-form-label">Attachment:</div>
-  <div class="col-sm-10 col-form-label"><i class="fa fa-paperclip"></i> <?php echo htmlspecialchars($rb['filename']); ?> (PDF will be attached)</div>
+  <div class="col-sm-10 col-form-label"><i class="fa fa-file-excel"></i> Excel report (generated on send)</div>
+</div>
+<?php } elseif ($has_pdf) { ?>
+<div class="row m-b-10">
+  <div class="col-sm-2 col-form-label">Attachment:</div>
+  <div class="col-sm-10 col-form-label"><i class="fa fa-paperclip"></i> <?php echo htmlspecialchars($rb['filename']); ?> (PDF)</div>
 </div>
 <?php } else { ?>
 <div class="row m-b-10">
   <div class="col-sm-2 col-form-label">Attachment:</div>
-  <div class="col-sm-10 col-form-label text-muted">No PDF generated yet for this report brand.</div>
+  <div class="col-sm-10 col-form-label text-muted">No PDF generated yet for this report brand. Generate report first or use Excel.</div>
 </div>
 <?php } ?>
 <div class="row m-b-10">

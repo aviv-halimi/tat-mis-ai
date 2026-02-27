@@ -252,7 +252,11 @@ function showDialog(title, url, args, f, hide_btns, path, save_text) {
 
 function typicalDialog($t) {
 	var $title = ($t.data('title'))?$t.data('title'):$t.text();
-	showDialog($title, $t.data('url'), {id: $t.data('id'), a: $t.data('a'), b: $t.data('b'), c: $t.data('c'), d: $t.data('d')}, function(data) {}, $t.data('hide-btns'), undefined, $t.data('save-text'));
+	var args = {id: $t.data('id'), a: $t.data('a'), b: $t.data('b'), c: $t.data('c'), d: $t.data('d')};
+	if ($t.data('url') === 'daily-discount-report-notification' && $('#dd-report-format').length) {
+		args.format = $('#dd-report-format').val() || 'pdf';
+	}
+	showDialog($title, $t.data('url'), args, function(data) {}, $t.data('hide-btns'), undefined, $t.data('save-text'));
 }
 
 function tableDialog($t) {
@@ -333,7 +337,7 @@ function updateDialog2(url, title, a, c) {
 				var $preview = $('#modal #dd-qbo-push-test-preview');
 				$preview.html('<div class="text-center text-muted py-2"><i class="fa fa-spinner fa-spin"></i> Loading preview…</div>');
 				$('#modal #dd-qbo-push-test-result').hide().empty();
-				$.post('/ajax/daily-discount-report-qbo-push.php', { action: 'preview_push', daily_discount_report_brand_id: brandIdTest }, function(res) {
+				$.post('/ajax/daily-discount-report-qbo-push.php', { action: 'preview_push', daily_discount_report_brand_id: brandIdTest, format: ($('#dd-report-format').length ? $('#dd-report-format').val() : null) || 'pdf' }, function(res) {
 					if (!res || !res.success || !res.preview) {
 						$preview.html('<div class="text-danger">' + (res && res.response ? res.response : 'Failed to load preview.') + '</div>');
 						return;
@@ -345,7 +349,7 @@ function updateDialog2(url, title, a, c) {
 						'<tr><th class="text-nowrap">Doc number</th><td>' + (p.doc_number || '—') + '</td></tr>' +
 						'<tr><th class="text-nowrap">Txn date</th><td>' + (p.txn_date || '—') + '</td></tr>' +
 						'<tr><th class="text-nowrap">Note</th><td>' + (p.note || '—') + '</td></tr>' +
-						'<tr><th class="text-nowrap">PDF filename</th><td>' + (p.pdf_filename || '—') + '</td></tr>' +
+						'<tr><th class="text-nowrap">Attachment</th><td>' + (p.pdf_filename || '—') + '</td></tr>' +
 						'<tr><th class="text-nowrap">QBO vendor ID</th><td>' + (p.qbo_vendor_id || '—') + '</td></tr>' +
 						'<tr><th class="text-nowrap">GL account (daily discount)</th><td>' + (p.account_id_daily_discount || '—') + '</td></tr>' +
 						'</tbody></table>';
@@ -357,7 +361,7 @@ function updateDialog2(url, title, a, c) {
 			loadPreview();
 			$('#modal').off('click.dd_qbo_push_test').on('click.dd_qbo_push_test', '#dd-qbo-push-test-push-one', function() {
 				var $btn = $(this);
-				var payload = { action: 'push', daily_discount_report_brand_id: brandIdTest, single_store_id: 1 };
+				var payload = { action: 'push', daily_discount_report_brand_id: brandIdTest, single_store_id: 1, format: ($('#dd-report-format').length ? $('#dd-report-format').val() : null) || 'pdf' };
 				var url = '/ajax/daily-discount-report-qbo-push.php';
 				function log(msg) { if (typeof ddReportQboLog === 'function') ddReportQboLog(msg); if (typeof console !== 'undefined' && console.log) console.log('[DD-QBO]', msg); }
 				log('--- Push button clicked ---');
