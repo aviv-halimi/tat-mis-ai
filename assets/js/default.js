@@ -1010,15 +1010,6 @@ $(document).off('click', '.dd-view-push-log').on('click', '.dd-view-push-log', f
 
 function initPushDailyDiscountReportQbo() {
   ddReportQboLog('Init: Push to QBO / Map vendors handlers attached.');
-  $(document).off('click', '.dd-report-format-row-btn').on('click', '.dd-report-format-row-btn', function(e) {
-    var f = $(this).data('format') || 'pdf';
-    var $wrap = $(this).closest('.dd-report-brand-actions, .dd-report-row-actions');
-    if ($wrap.length) {
-      $wrap.data('format', f);
-      $wrap.find('.dd-report-format-row-btn').removeClass('active btn-primary').addClass('btn-outline-secondary');
-      $(this).addClass('active btn-primary').removeClass('btn-outline-secondary');
-    }
-  });
   $(document).off('click', '.btn-download-dd-report-brand').on('click', '.btn-download-dd-report-brand', function(e) {
     e.preventDefault();
     var $wrap = $(this).closest('.dd-report-brand-actions');
