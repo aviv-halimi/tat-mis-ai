@@ -80,8 +80,8 @@ if ($action === 'get_log') {
         $html = '<p class="text-muted mb-0">No push has been performed yet.</p>';
     } else {
         $html .= '<div class="dd-qbo-push-log-detail">';
-        if (!empty($log['pushed_at'])) {
-            $html .= '<p class="small text-muted">Pushed: ' . htmlspecialchars($log['pushed_at']) . '</p>';
+        if (!empty($log['date'])) {
+            $html .= '<p class="small text-muted">Pushed: ' . htmlspecialchars($log['date']) . '</p>';
         }
         $html .= '<ul class="list-group list-group-flush">';
         foreach ($log['stores'] as $entry) {
