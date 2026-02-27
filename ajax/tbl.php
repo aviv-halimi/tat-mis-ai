@@ -160,10 +160,25 @@ foreach($rs as $row) {
 			if ($__r = getRow($__rd)) {
 				if ($__r['filename'] || $__r['progress'] >= 100) {
 					if ($__r['num_brands'] == 1) {
-						$dd .= '<span class="dd-report-row-actions" data-format="pdf" data-code="' . htmlspecialchars($code, ENT_QUOTES, 'UTF-8') . '">';
-						$dd .= '<label class="dd-format-switch-wrap d-inline-flex align-items-center mr-1 mb-0" title="PDF when off, Excel when on"><span class="small text-muted mr-1">PDF</span><span class="dd-format-switch-cell"><input type="checkbox" class="dd-report-format-switch" role="switch" aria-label="Format: PDF or Excel"><span class="dd-format-switch-slider"></span></span><span class="small text-muted ml-1">Excel</span></label>';
-						$dd .= '<a href="javascript:;" class="btn btn-info btn-xs ml-1 btn-download-dd-report" title="Download (PDF or Excel per switch)"><i class="fa fa-download"></i> Download</a>';
-						$dd .= '</span>';
+						$br = getRow(getRs("SELECT b.daily_discount_report_brand_id FROM daily_discount_report_brand b WHERE b.daily_discount_report_id = ? AND b.filename IS NOT NULL AND " . is_enabled('b') . " LIMIT 1", array($row[$TableName . '_id'])));
+						if ($br) {
+							$bid = (int)$br['daily_discount_report_brand_id'];
+							$brand_code = getIdCode('daily_discount_report_brand', $bid);
+							$brand_code_esc = $brand_code !== null ? htmlspecialchars($brand_code, ENT_QUOTES, 'UTF-8') : '';
+							$dd .= '<span class="dd-report-brand-actions" data-daily-discount-report-brand-id="' . $bid . '" data-format="pdf" data-code="' . $brand_code_esc . '">';
+							$dd .= '<label class="dd-format-switch-wrap d-inline-flex align-items-center mr-1 mb-0" title="PDF when off, Excel when on"><span class="small text-muted mr-1">PDF</span><span class="dd-format-switch-cell"><input type="checkbox" class="dd-report-format-switch" role="switch" aria-label="Format: PDF or Excel"><span class="dd-format-switch-slider"></span></span><span class="small text-muted ml-1">Excel</span></label>';
+							$dd .= ' <a href="javascript:;" class="btn btn-info btn-xs ml-1 btn-download-dd-report-brand" title="Download report (PDF or Excel per switch)"><i class="fa fa-download"></i> Download</a>';
+							$dd .= ' <a href="javascript:;" class="btn btn-primary btn-xs ml-1 btn-dialog" data-url="daily-discount-report-notification" data-title="Email" data-a="7" data-c="' . $bid . '" title="Send report to brand"><i class="fa fa-envelope"></i> Email</a>';
+							$dd .= ' <button type="button" class="btn btn-success btn-xs ml-1 btn-push-dd-report-qbo" data-daily-discount-report-brand-id="' . $bid . '" title="Push to QuickBooks"><i class="fa fa-cloud-upload-alt"></i> Push to QBO</button>';
+							$dd .= ' <button type="button" class="btn btn-outline-secondary btn-xs ml-1 btn-dd-report-qbo-map-vendor" data-daily-discount-report-brand-id="' . $bid . '" title="Map brand to QBO vendor per store">Map vendors</button>';
+							$dd .= ' <button type="button" class="btn btn-outline-info btn-xs ml-1 dd-view-push-log" data-daily-discount-report-brand-id="' . $bid . '" title="View log">View Log</button>';
+							$dd .= '</span>';
+						} else {
+							$dd .= '<span class="dd-report-row-actions" data-format="pdf" data-code="' . htmlspecialchars($code, ENT_QUOTES, 'UTF-8') . '">';
+							$dd .= '<label class="dd-format-switch-wrap d-inline-flex align-items-center mr-1 mb-0" title="PDF when off, Excel when on"><span class="small text-muted mr-1">PDF</span><span class="dd-format-switch-cell"><input type="checkbox" class="dd-report-format-switch" role="switch" aria-label="Format: PDF or Excel"><span class="dd-format-switch-slider"></span></span><span class="small text-muted ml-1">Excel</span></label>';
+							$dd .= '<a href="javascript:;" class="btn btn-info btn-xs ml-1 btn-download-dd-report" title="Download (PDF or Excel per switch)"><i class="fa fa-download"></i> Download</a>';
+							$dd .= '</span>';
+						}
 					}
 					else {
 						$dd .= '<a href="/daily-discount-report/' . $__r['daily_discount_report_code'] . '" class="btn btn-info btn-xs ml-1">View All Downloads (' . $__r['num_brands'] . ')</a>';
