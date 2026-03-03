@@ -23,6 +23,37 @@ $contact_name = trim(getVar('contact_name', ''));
 $subject = trim(getVar('subject', ''));
 $message = getVar('message', '');
 
+// Return subject/message templates for the selected notification type (for modal dropdown change)
+if (isset($_POST['action']) && $_POST['action'] === 'get_templates') {
+    if (!$daily_discount_report_brand_id) {
+        echo json_encode(array('success' => false, 'response' => 'Missing report brand.', 'subject' => '', 'message' => ''));
+        exit;
+    }
+    $rb = getRow(getRs(
+        "SELECT rb.daily_discount_report_brand_id, rb.brand_id, rb.filename, r.date_start, r.date_end, b.name AS brand_name FROM daily_discount_report_brand rb INNER JOIN daily_discount_report r ON r.daily_discount_report_id = rb.daily_discount_report_id INNER JOIN blaze1.brand b ON b.brand_id = rb.brand_id WHERE rb.daily_discount_report_brand_id = ? AND " . is_enabled('rb,r'),
+        array($daily_discount_report_brand_id)
+    ));
+    if (!$rb) {
+        echo json_encode(array('success' => false, 'response' => 'Report brand not found.', 'subject' => '', 'message' => ''));
+        exit;
+    }
+    $contact_name_val = trim(getVar('contact_name', ''));
+    $email_val = trim(getVar('email', ''));
+    $placeholders = array(
+        'brand_name' => isset($rb['brand_name']) ? $rb['brand_name'] : '',
+        'contact_name' => $contact_name_val,
+        'contact_email' => $email_val,
+        'date_start' => isset($rb['date_start']) ? $rb['date_start'] : '',
+        'date_end' => isset($rb['date_end']) ? $rb['date_end'] : '',
+        'filename' => isset($rb['filename']) ? $rb['filename'] : '',
+    );
+    $nt = getRow(getRs("SELECT subject, message FROM notification_type WHERE " . is_enabled() . " AND notification_type_id = ?", array($notification_type_id)));
+    $subj = (isset($nt['subject']) ? insertPlaceholders($nt['subject'], $placeholders) : '');
+    $msg = (isset($nt['message']) ? insertPlaceholders($nt['message'], $placeholders) : '');
+    echo json_encode(array('success' => true, 'subject' => $subj, 'message' => $msg));
+    exit;
+}
+
 if ($email === '') {
     echo json_encode(array('success' => false, 'response' => 'E-mail address is required.', 'redirect' => $redirect));
     exit;

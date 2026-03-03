@@ -65,16 +65,11 @@ if ($a_param >= 1) {
 
 $notification_types_rs = getRs("SELECT notification_type_id, notification_type_name FROM notification_type WHERE " . is_enabled() . " AND notification_type_id IN (7, 8) ORDER BY notification_type_id", array());
 $notification_types = $notification_types_rs ?: array();
-$r = null;
-foreach ($notification_types as $nt) {
-    if ((int)$nt['notification_type_id'] === $notification_type_id) {
-        $r = $nt;
-        break;
-    }
-}
+// Fetch full row (subject, message) for the selected type so we can populate the form
+$r = getRow(getRs("SELECT notification_type_id, notification_type_name, subject, message FROM notification_type WHERE " . is_enabled() . " AND notification_type_id = ?", array($notification_type_id)));
 if (!$r && count($notification_types) > 0) {
-    $r = $notification_types[0];
-    $notification_type_id = (int)$r['notification_type_id'];
+    $notification_type_id = (int)$notification_types[0]['notification_type_id'];
+    $r = getRow(getRs("SELECT notification_type_id, notification_type_name, subject, message FROM notification_type WHERE " . is_enabled() . " AND notification_type_id = ?", array($notification_type_id)));
 }
 if (!$r) {
     echo '<div class="alert alert-danger">Notification type not found. Create notification_type_id 7 and/or 8 for daily discount report.</div>';
@@ -89,8 +84,8 @@ $placeholders = array(
     'date_end' => isset($rb['date_end']) ? $rb['date_end'] : '',
     'filename' => isset($rb['filename']) ? $rb['filename'] : '',
 );
-$subject = insertPlaceholders($r['subject'], $placeholders);
-$message = insertPlaceholders($r['message'], $placeholders);
+$subject = insertPlaceholders(isset($r['subject']) ? $r['subject'] : '', $placeholders);
+$message = insertPlaceholders(isset($r['message']) ? $r['message'] : '', $placeholders);
 
 $pdf_path = MEDIA_PATH . 'daily_discount_report_brand/' . (isset($rb['filename']) ? $rb['filename'] : '');
 $has_pdf = !empty($rb['filename']) && is_file($pdf_path);
