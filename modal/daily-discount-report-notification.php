@@ -31,6 +31,7 @@ $brand_id = (int)$rb['brand_id'];
 $store1 = getRow(getRs("SELECT db FROM store WHERE store_id = 1 AND " . is_enabled(), array()));
 $store1_db = ($store1 && !empty($store1['db'])) ? preg_replace('/[^a-z0-9_]/i', '', $store1['db']) : '';
 $notification_type_id = 7;
+$notification_type_id_from_brand = false;
 if ($store1_db !== '') {
     $col_check = getRs("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME IN ('contact_email', 'contact_name', 'notification_type_id')", array($store1_db));
     $cols = array();
@@ -53,14 +54,17 @@ if ($store1_db !== '') {
             }
             if (in_array('notification_type_id', $cols) && isset($br['notification_type_id']) && (int)$br['notification_type_id'] >= 1) {
                 $notification_type_id = (int)$br['notification_type_id'];
+                $notification_type_id_from_brand = true;
             }
         }
     }
 }
-// Allow override from request (e.g. when reopening with a specific type)
-$a_param = getVarNum('a', 0, 1, 999);
-if ($a_param >= 1) {
-    $notification_type_id = $a_param;
+// Use request param only when brand has no saved notification_type_id (so saved value is recalled)
+if (!$notification_type_id_from_brand) {
+    $a_param = getVarNum('a', 0, 1, 999);
+    if ($a_param >= 1) {
+        $notification_type_id = $a_param;
+    }
 }
 
 $notification_types_rs = getRs("SELECT notification_type_id, notification_type_name FROM notification_type WHERE " . is_enabled() . " AND notification_type_id IN (7, 8) ORDER BY notification_type_id", array());
