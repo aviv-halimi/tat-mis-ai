@@ -260,6 +260,50 @@ function typicalDialog($t) {
 	showDialog($title, $t.data('url'), args, function(data) {}, $t.data('hide-btns'), undefined, $t.data('save-text'));
 }
 
+// Notification-type dropdown: update subject/message when changed (works for modal opened via Email button or Push flow)
+$(document).on('change', '#modal select[name="notification_type_id"]', function() {
+	var $select = $(this);
+	var $form = $select.closest('form');
+	if (!$form.length) return;
+	var brandId = $form.find('input[name="daily_discount_report_brand_id"]').val();
+	var typeId = $select.val();
+	var format = $form.find('input[name="format"]').val() || 'pdf';
+	var contactName = $form.find('input[name="contact_name"]').val() || '';
+	var email = $form.find('input[name="email"]').val() || '';
+	if (!brandId || !typeId) return;
+	var $subjectInput = $form.find('input[name="subject"]');
+	var $msgArea = $('#modal #message_dd_notif');
+	$.ajax({
+		url: '/ajax/daily-discount-report-notification',
+		type: 'POST',
+		dataType: 'json',
+		data: {
+			action: 'get_templates',
+			daily_discount_report_brand_id: brandId,
+			notification_type_id: typeId,
+			format: format,
+			contact_name: contactName,
+			email: email
+		}
+	}).done(function(res) {
+		if (res && res.success !== false) {
+			var subj = (res.subject != null ? res.subject : '');
+			var msg = (res.message != null ? res.message : '');
+			$subjectInput.val(subj);
+			if (typeof CKEDITOR !== 'undefined' && CKEDITOR.instances && CKEDITOR.instances['message_dd_notif']) {
+				CKEDITOR.instances['message_dd_notif'].setData(msg);
+			}
+			if ($msgArea.length) $msgArea.val(msg);
+		}
+	}).fail(function() {
+		$subjectInput.val('');
+		if (typeof CKEDITOR !== 'undefined' && CKEDITOR.instances && CKEDITOR.instances['message_dd_notif']) {
+			CKEDITOR.instances['message_dd_notif'].setData('');
+		}
+		if ($msgArea.length) $msgArea.val('');
+	});
+});
+
 function tableDialog($t) {
     showDialog($t.data('title'), $t.data('url'), {_a: 'modal', id: $t.data('id'), __a: $t.data('a'), __b: $t.data('b')}, function() {}, $t.data('hide-btns'), '');
 }
@@ -416,49 +460,7 @@ function updateDialog2(url, title, a, c, format) {
 			});
 		}
 		else if (url === 'daily-discount-report-notification') {
-			$('#modal').off('change.dd_notif_type').on('change.dd_notif_type', 'select[name="notification_type_id"]', function() {
-				var $select = $(this);
-				var $form = $select.closest('form');
-				var brandId = $form.find('input[name="daily_discount_report_brand_id"]').val();
-				var typeId = $select.val();
-				var format = $form.find('input[name="format"]').val() || 'pdf';
-				var contactName = $form.find('input[name="contact_name"]').val() || '';
-				var email = $form.find('input[name="email"]').val() || '';
-				if (!brandId || !typeId) return;
-				var $subjectInput = $form.find('input[name="subject"]');
-				var $msgArea = $('#modal #message_dd_notif');
-				$.ajax({
-					url: '/ajax/daily-discount-report-notification',
-					type: 'POST',
-					dataType: 'json',
-					data: {
-						action: 'get_templates',
-						daily_discount_report_brand_id: brandId,
-						notification_type_id: typeId,
-						format: format,
-						contact_name: contactName,
-						email: email
-					}
-				}).done(function(res) {
-					if (res && res.success !== false) {
-						var subj = (res.subject != null ? res.subject : '');
-						var msg = (res.message != null ? res.message : '');
-						$subjectInput.val(subj);
-						if (typeof CKEDITOR !== 'undefined' && CKEDITOR.instances && CKEDITOR.instances['message_dd_notif']) {
-							CKEDITOR.instances['message_dd_notif'].setData(msg);
-						}
-						if ($msgArea.length) {
-							$msgArea.val(msg);
-						}
-					}
-				}).fail(function() {
-					$subjectInput.val('');
-					if (typeof CKEDITOR !== 'undefined' && CKEDITOR.instances && CKEDITOR.instances['message_dd_notif']) {
-						CKEDITOR.instances['message_dd_notif'].setData('');
-					}
-					if ($msgArea.length) $msgArea.val('');
-				});
-			});
+			// Subject/message update on notification-type change is handled by document-level delegated handler (works for Email button and Push flow)
 		}
 		else if (url === 'daily-discount-report-qbo-push-test') {
 			var $container = $('#modal .dd-qbo-push-test');
