@@ -1369,7 +1369,26 @@ class SessionManager {
 							<div class="panel-body' . iif(!$header, ' p-0') . '">
 								<table data-url="' . $module_code . '" data-a="' . $id . '" class="table table-bordered table-hover w-100 datatable-live large export ' . $table_css . '">
 									<thead><tr><th>ID</th>';
-									foreach($p['cols'] as $_c) {
+									$headerCols = $p['cols'];
+									if ($module_code === 'daily-discount-report-brands') {
+										$drop = array('date_start', 'date_end', 'date_initiated', 'date_generated', 'admin_id');
+										$newCols = array();
+										$inserted = false;
+										foreach ($headerCols as $col) {
+											$parts = explode(',', $col);
+											$fn = isset($parts[0]) ? trim($parts[0]) : '';
+											if (in_array($fn, $drop)) continue;
+											$newCols[] = $col;
+											if ($fn === 'total' && !$inserted) {
+												$newCols[] = 'prev_total_1,Prev Report 1,string';
+												$newCols[] = 'prev_total_2,Prev Report 2,string';
+												$newCols[] = 'prev_total_3,Prev Report 3,string';
+												$inserted = true;
+											}
+										}
+										$headerCols = $newCols;
+									}
+									foreach($headerCols as $_c) {
 										$__c = explode(',', $_c);
 										$ret .= '<th>' . ((sizeof($__c) > 1)?$__c[1]:'') . '</th>';
 									}

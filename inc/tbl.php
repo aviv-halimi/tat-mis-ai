@@ -107,6 +107,25 @@ if (isset($tbl['cols'])) {
 else {
 	$DisplayFields = array("{$TableName}_name,{$PageTitle}");
 }
+// daily_discount_report_brand: remove From, To, Date Initiated, Date Generated, By; add Prev Report 1/2/3 after Total Rebate
+if ((isset($tbl['name']) && $tbl['name'] === 'daily_discount_report_brand') && isset($tbl['cols'])) {
+	$drop = array('date_start', 'date_end', 'date_initiated', 'date_generated', 'admin_id');
+	$newCols = array();
+	$inserted = false;
+	foreach ($DisplayFields as $col) {
+		$parts = explode(',', $col);
+		$fn = isset($parts[0]) ? trim($parts[0]) : '';
+		if (in_array($fn, $drop)) continue;
+		$newCols[] = $col;
+		if ($fn === 'total' && !$inserted) {
+			$newCols[] = 'prev_total_1,Prev Report 1,string';
+			$newCols[] = 'prev_total_2,Prev Report 2,string';
+			$newCols[] = 'prev_total_3,Prev Report 3,string';
+			$inserted = true;
+		}
+	}
+	$DisplayFields = $newCols;
+}
 if (isset($tbl['rows'])) {
 	$ModFields = $tbl['rows'];
 }
@@ -236,8 +255,15 @@ foreach($DisplayFields as $d) {
   }
   else {
     array_push($arr_FieldNames, $a[0]);
-    array_push($arr_SqlFieldNames, 't1.' . $a[0]);
-    array_push($arr_SearchFieldNames, 't1.' . $a[0]);
+    if ($TableName === 'daily_discount_report_brand' && in_array($a[0], array('prev_total_1', 'prev_total_2', 'prev_total_3'))) {
+      $offset = (int)str_replace('prev_total_', '', $a[0]) - 1;
+      $sub = "(SELECT rb2.total FROM daily_discount_report_brand rb2 INNER JOIN daily_discount_report r2 ON r2.daily_discount_report_id = rb2.daily_discount_report_id WHERE rb2.brand_id = t1.brand_id AND rb2.daily_discount_report_brand_id <> t1.daily_discount_report_brand_id AND " . is_enabled('rb2,r2') . " ORDER BY r2.date_start DESC LIMIT 1 OFFSET " . $offset . ") AS " . $a[0];
+      array_push($arr_SqlFieldNames, $sub);
+      array_push($arr_SearchFieldNames, '1=0'); // computed column, not searchable
+    } else {
+      array_push($arr_SqlFieldNames, 't1.' . $a[0]);
+      array_push($arr_SearchFieldNames, 't1.' . $a[0]);
+    }
   }
 }
 

@@ -47,7 +47,8 @@ if ($length) {
 		$__order = $arr_SqlFieldNames[$sort_col];
 		$a__order = explode(' AS ', $__order);
 		if (sizeof($a__order) == 2) {
-			$__order = $a__order[0];
+			// Use alias for ORDER BY when expression is a subquery (e.g. prev_total_1)
+			$__order = (strpos($a__order[0], 'SELECT') !== false) ? trim($a__order[1]) : $a__order[0];
 		}
 		$sql .= " ORDER BY " . $__order . iif($sort_dir == 'desc', " DESC");
 	}
@@ -287,6 +288,9 @@ function formatField($row, $i, $type, $ref) {
 	}
 	elseif (in_array($TableName, array('daily_discount_report', 'daily_discount_report_brand')) && $i == 'total') {
 		$v = '<span class="span-daily-discount-report-total-' . $row[$TableName . '_id'] . '">' . (($v)?currency_format($v):'') . '</span>';
+	}
+	elseif ($TableName == 'daily_discount_report_brand' && in_array($i, array('prev_total_1', 'prev_total_2', 'prev_total_3'))) {
+		$v = ($v !== null && $v !== '') ? currency_format($v) : '—';
 	}
 	elseif ($TableName == 'daily_discount_report_brand' && $i === 'qbo_pushed_at') {
 		$v = !empty($v) ? '<span class="d-block text-center text-success" title="' . htmlspecialchars(getLongDate($v), ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-check-circle"></i> Yes</span>' : '<span class="d-block text-center text-muted">—</span>';
