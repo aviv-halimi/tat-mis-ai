@@ -417,31 +417,47 @@ function updateDialog2(url, title, a, c, format) {
 		}
 		else if (url === 'daily-discount-report-notification') {
 			$('#modal').off('change.dd_notif_type').on('change.dd_notif_type', 'select[name="notification_type_id"]', function() {
-				var $form = $('#modal #f_daily-discount-report-notification');
+				var $select = $(this);
+				var $form = $select.closest('form');
 				var brandId = $form.find('input[name="daily_discount_report_brand_id"]').val();
-				var typeId = $(this).val();
+				var typeId = $select.val();
 				var format = $form.find('input[name="format"]').val() || 'pdf';
 				var contactName = $form.find('input[name="contact_name"]').val() || '';
 				var email = $form.find('input[name="email"]').val() || '';
 				if (!brandId || !typeId) return;
-				$.post('/ajax/daily-discount-report-notification.php', {
-					action: 'get_templates',
-					daily_discount_report_brand_id: brandId,
-					notification_type_id: typeId,
-					format: format,
-					contact_name: contactName,
-					email: email
-				}, function(res) {
-					if (res && res.success) {
-						$form.find('input[name="subject"]').val(res.subject || '');
-						var $msg = $form.find('#message_dd_notif');
+				var $subjectInput = $form.find('input[name="subject"]');
+				var $msgArea = $('#modal #message_dd_notif');
+				$.ajax({
+					url: '/ajax/daily-discount-report-notification',
+					type: 'POST',
+					dataType: 'json',
+					data: {
+						action: 'get_templates',
+						daily_discount_report_brand_id: brandId,
+						notification_type_id: typeId,
+						format: format,
+						contact_name: contactName,
+						email: email
+					}
+				}).done(function(res) {
+					if (res && res.success !== false) {
+						var subj = (res.subject != null ? res.subject : '');
+						var msg = (res.message != null ? res.message : '');
+						$subjectInput.val(subj);
 						if (typeof CKEDITOR !== 'undefined' && CKEDITOR.instances && CKEDITOR.instances['message_dd_notif']) {
-							CKEDITOR.instances['message_dd_notif'].setData(res.message || '');
-						} else if ($msg.length) {
-							$msg.val(res.message || '');
+							CKEDITOR.instances['message_dd_notif'].setData(msg);
+						}
+						if ($msgArea.length) {
+							$msgArea.val(msg);
 						}
 					}
-				}, 'json');
+				}).fail(function() {
+					$subjectInput.val('');
+					if (typeof CKEDITOR !== 'undefined' && CKEDITOR.instances && CKEDITOR.instances['message_dd_notif']) {
+						CKEDITOR.instances['message_dd_notif'].setData('');
+					}
+					if ($msgArea.length) $msgArea.val('');
+				});
 			});
 		}
 		else if (url === 'daily-discount-report-qbo-push-test') {
