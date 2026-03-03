@@ -415,6 +415,35 @@ function updateDialog2(url, title, a, c, format) {
 				$('#modal').modal('hide');
 			});
 		}
+		else if (url === 'daily-discount-report-notification') {
+			$('#modal').off('change.dd_notif_type').on('change.dd_notif_type', 'select[name="notification_type_id"]', function() {
+				var $form = $('#modal #f_daily-discount-report-notification');
+				var brandId = $form.find('input[name="daily_discount_report_brand_id"]').val();
+				var typeId = $(this).val();
+				var format = $form.find('input[name="format"]').val() || 'pdf';
+				var contactName = $form.find('input[name="contact_name"]').val() || '';
+				var email = $form.find('input[name="email"]').val() || '';
+				if (!brandId || !typeId) return;
+				$.post('/ajax/daily-discount-report-notification.php', {
+					action: 'get_templates',
+					daily_discount_report_brand_id: brandId,
+					notification_type_id: typeId,
+					format: format,
+					contact_name: contactName,
+					email: email
+				}, function(res) {
+					if (res && res.success) {
+						$form.find('input[name="subject"]').val(res.subject || '');
+						var $msg = $form.find('#message_dd_notif');
+						if (typeof CKEDITOR !== 'undefined' && CKEDITOR.instances && CKEDITOR.instances['message_dd_notif']) {
+							CKEDITOR.instances['message_dd_notif'].setData(res.message || '');
+						} else if ($msg.length) {
+							$msg.val(res.message || '');
+						}
+					}
+				}, 'json');
+			});
+		}
 		else if (url === 'daily-discount-report-qbo-push-test') {
 			var $container = $('#modal .dd-qbo-push-test');
 			var brandIdTest = $container.attr('data-daily-discount-report-brand-id') || $container.data('dailyDiscountReportBrandId') || c;
