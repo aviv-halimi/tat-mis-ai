@@ -109,7 +109,8 @@ if ($store1_db !== '') {
 }
 
 $from_name = ($store1 && !empty($store1['description'])) ? $store1['description'] : 'The Artist Tree';
-$from_email = 'aviv@theartisttree.com';
+// Daily discount report emails show From accounting@; SMTP login is unchanged (e.g. Gmail).
+$from_email = 'accounting@theartisttree.com';
 if ($store1 && !empty($store1['params'])) {
     $params = @json_decode($store1['params'], true);
     if (is_array($params) && !empty($params['po_email'])) {
