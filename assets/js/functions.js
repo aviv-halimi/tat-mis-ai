@@ -414,21 +414,26 @@ function updateDialog2(url, title, a, c, format) {
 				for (var i = 0; i < 3; i++) headers.push(prevLabels[i] || '—');
 				var thead = '<thead><tr>' + headers.map(function(h) { return '<th>' + (h || '').replace(/</g, '&lt;') + '</th>'; }).join('') + '</tr></thead>';
 				var totCurrent = 0, totPrev = [0, 0, 0];
-				var tbody = '<tbody>';
 				res.stores.forEach(function(row) {
 					var curr = (row.current_rebate != null && !isNaN(row.current_rebate)) ? parseFloat(row.current_rebate) : 0;
 					totCurrent += curr;
-					tbody += '<tr><td>' + (row.store_name || '').replace(/</g, '&lt;') + '</td><td>' + (row.current_rebate != null ? row.current_rebate : '—') + '</td>';
 					for (var j = 0; j < 3; j++) {
 						var pv = (row.prev_rebates && row.prev_rebates[j] != null && !isNaN(row.prev_rebates[j])) ? parseFloat(row.prev_rebates[j]) : 0;
 						totPrev[j] += pv;
+					}
+				});
+				var totalRow = '<tr class="table-active font-weight-bold"><td>Total</td><td>' + (totCurrent !== 0 ? totCurrent.toFixed(2) : '—') + '</td>';
+				for (var k = 0; k < 3; k++) totalRow += '<td>' + (totPrev[k] !== 0 ? totPrev[k].toFixed(2) : '—') + '</td>';
+				totalRow += '</tr>';
+				var tbody = '<tbody>' + totalRow;
+				res.stores.forEach(function(row) {
+					tbody += '<tr><td>' + (row.store_name || '').replace(/</g, '&lt;') + '</td><td>' + (row.current_rebate != null ? row.current_rebate : '—') + '</td>';
+					for (var j = 0; j < 3; j++) {
 						tbody += '<td>' + (row.prev_rebates && row.prev_rebates[j] != null ? row.prev_rebates[j] : '—') + '</td>';
 					}
 					tbody += '</tr>';
 				});
-				tbody += '<tr class="table-active font-weight-bold"><td>Total</td><td>' + (totCurrent !== 0 ? totCurrent.toFixed(2) : '—') + '</td>';
-				for (var k = 0; k < 3; k++) tbody += '<td>' + (totPrev[k] !== 0 ? totPrev[k].toFixed(2) : '—') + '</td>';
-				tbody += '</tr></tbody>';
+				tbody += '</tbody>';
 				$wrap.html('<table class="table table-sm table-bordered">' + thead + tbody + '</table>');
 			}, 'json').fail(function() {
 				$wrap.html('<div class="text-danger">Request failed.</div>');

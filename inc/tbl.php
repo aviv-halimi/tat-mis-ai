@@ -109,7 +109,7 @@ else {
 }
 // daily_discount_report_brand: remove From, To, Date Initiated, Date Generated, By; add Prev Report 1/2/3 after Total Rebate
 if ((isset($tbl['name']) && $tbl['name'] === 'daily_discount_report_brand') && isset($tbl['cols'])) {
-	$drop = array('date_start', 'date_end', 'date_initiated', 'date_generated', 'admin_id');
+	$drop = array('date_start', 'date_end', 'date_initiated', 'date_created', 'date_generated', 'admin_id');
 	$newCols = array();
 	$inserted = false;
 	foreach ($DisplayFields as $col) {

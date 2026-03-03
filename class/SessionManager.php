@@ -1371,7 +1371,7 @@ class SessionManager {
 									<thead><tr><th>ID</th>';
 									$headerCols = $p['cols'];
 									if ($module_code === 'daily-discount-report-brands') {
-										$drop = array('date_start', 'date_end', 'date_initiated', 'date_generated', 'admin_id');
+										$drop = array('date_start', 'date_end', 'date_initiated', 'date_created', 'date_generated', 'admin_id');
 										$newCols = array();
 										$inserted = false;
 										foreach ($headerCols as $col) {
