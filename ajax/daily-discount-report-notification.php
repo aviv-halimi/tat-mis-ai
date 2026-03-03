@@ -48,30 +48,32 @@ $brand_id = (int)$rb['brand_id'];
 $store1 = getRow(getRs("SELECT db, description, params FROM store WHERE store_id = 1 AND " . is_enabled(), array()));
 $store1_db = ($store1 && !empty($store1['db'])) ? preg_replace('/[^a-z0-9_]/i', '', $store1['db']) : '';
 
-// Save contact_email and contact_name to store 1 brand table if columns exist
+// Save contact_email, contact_name, and notification_type_id to store 1 brand table if columns exist
 if ($store1_db !== '') {
-    $col_check = getRs("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME IN ('contact_email', 'contact_name')", array($store1_db));
+    $col_check = getRs("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME IN ('contact_email', 'contact_name', 'notification_type_id')", array($store1_db));
     $cols = array();
     if (is_array($col_check)) {
         foreach ($col_check as $row) {
             $cols[] = $row['COLUMN_NAME'];
         }
     }
-    if (in_array('contact_email', $cols) || in_array('contact_name', $cols)) {
-        $updates = array();
-        $params = array();
-        if (in_array('contact_email', $cols)) {
-            $updates[] = 'contact_email = ?';
-            $params[] = $email;
-        }
-        if (in_array('contact_name', $cols)) {
-            $updates[] = 'contact_name = ?';
-            $params[] = $contact_name;
-        }
-        if (!empty($updates)) {
-            $params[] = $brand_id;
-            setRs("UPDATE `" . str_replace('`', '``', $store1_db) . "`.brand SET " . implode(', ', $updates) . " WHERE master_brand_id = ?", $params);
-        }
+    $updates = array();
+    $params = array();
+    if (in_array('contact_email', $cols)) {
+        $updates[] = 'contact_email = ?';
+        $params[] = $email;
+    }
+    if (in_array('contact_name', $cols)) {
+        $updates[] = 'contact_name = ?';
+        $params[] = $contact_name;
+    }
+    if (in_array('notification_type_id', $cols)) {
+        $updates[] = 'notification_type_id = ?';
+        $params[] = (int)$notification_type_id;
+    }
+    if (!empty($updates)) {
+        $params[] = $brand_id;
+        setRs("UPDATE `" . str_replace('`', '``', $store1_db) . "`.brand SET " . implode(', ', $updates) . " WHERE master_brand_id = ?", $params);
     }
 }
 

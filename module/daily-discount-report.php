@@ -38,7 +38,12 @@ $daily_discount_report_code = getVar('c');
 .dd-format-switch-wrap .dd-report-format-switch:focus + .dd-format-switch-slider { box-shadow: 0 0 0 2px rgba(40,167,69,.25); }
 </style>
 <?php
-echo '<div id="dd-report-qbo-log-box" class="mb-3"><div class="card"><div class="card-header py-2"><strong>QBO Push log</strong></div><div id="dd-report-qbo-log" class="card-body py-2 small" style="max-height:180px;overflow-y:auto;font-family:monospace;white-space:pre-wrap;">Waiting for activity…</div></div></div>';
+echo '<div class="mb-3">';
+echo '<button type="button" class="btn btn-outline-secondary btn-sm" id="dd-report-qbo-log-toggle" aria-expanded="false" title="Show QBO Push Log">';
+echo '<i class="fa fa-chevron-right dd-report-qbo-log-chevron"></i> QBO Push Log';
+echo '</button>';
+echo '<div id="dd-report-qbo-log-box" class="card mt-2" style="display:none;"><div class="card-header py-2"><strong>QBO Push log</strong></div><div id="dd-report-qbo-log" class="card-body py-2 small" style="max-height:180px;overflow-y:auto;font-family:monospace;white-space:pre-wrap;">Waiting for activity…</div></div>';
+echo '</div>';
 
 $rs = getRs("SELECT r.* FROM daily_discount_report r WHERE " . is_enabled('r') . " AND r.daily_discount_report_code = ?", $daily_discount_report_code);
 if ($r = getRow($rs)) {

@@ -1,12 +1,11 @@
 <?php
 /**
- * Modal: Email daily discount report PDF to brand (notification_type_id = 7).
- * GET/POST: c = daily_discount_report_brand_id, a = notification_type_id (default 7).
- * Brand contact (name/email) is stored on store_id=1 brand table; pre-filled if set.
+ * Modal: Email daily discount report PDF to brand (notification_type_id 7 or 8).
+ * GET/POST: c = daily_discount_report_brand_id, a = notification_type_id (default from blaze1.brand.notification_type_id or 7).
+ * Brand contact (name/email) and notification_type_id are stored on store_id=1 brand table.
  */
 require_once(__DIR__ . '/../_config.php');
 $daily_discount_report_brand_id = getVarInt('c', 0, 0, 999999);
-$notification_type_id = getVarNum('a', 7, 1, 999);
 $report_format = (isset($_REQUEST['format']) && strtolower(trim($_REQUEST['format'])) === 'xlsx') ? 'xlsx' : 'pdf';
 
 $email = '';
@@ -31,22 +30,54 @@ if (!$rb) {
 $brand_id = (int)$rb['brand_id'];
 $store1 = getRow(getRs("SELECT db FROM store WHERE store_id = 1 AND " . is_enabled(), array()));
 $store1_db = ($store1 && !empty($store1['db'])) ? preg_replace('/[^a-z0-9_]/i', '', $store1['db']) : '';
+$notification_type_id = 7;
 if ($store1_db !== '') {
-    $col_check = getRs("SELECT COUNT(*) AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME IN ('contact_email', 'contact_name')", array($store1_db));
-    $has_contact = $col_check && (int)getRow($col_check)['c'] >= 2;
-    if ($has_contact) {
-        $br = getRow(getRs("SELECT contact_name, contact_email FROM `" . str_replace('`', '``', $store1_db) . "`.brand WHERE master_brand_id = ?", array($brand_id)));
+    $col_check = getRs("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'brand' AND COLUMN_NAME IN ('contact_email', 'contact_name', 'notification_type_id')", array($store1_db));
+    $cols = array();
+    if (is_array($col_check)) {
+        foreach ($col_check as $row) {
+            $cols[] = $row['COLUMN_NAME'];
+        }
+    }
+    $has_contact = in_array('contact_email', $cols) && in_array('contact_name', $cols);
+    if ($has_contact || in_array('notification_type_id', $cols)) {
+        $select_cols = array('contact_name', 'contact_email');
+        if (in_array('notification_type_id', $cols)) {
+            $select_cols[] = 'notification_type_id';
+        }
+        $br = getRow(getRs("SELECT " . implode(', ', $select_cols) . " FROM `" . str_replace('`', '``', $store1_db) . "`.brand WHERE master_brand_id = ?", array($brand_id)));
         if ($br) {
-            $contact_name = isset($br['contact_name']) ? trim((string)$br['contact_name']) : '';
-            $email = isset($br['contact_email']) ? trim((string)$br['contact_email']) : '';
+            if ($has_contact) {
+                $contact_name = isset($br['contact_name']) ? trim((string)$br['contact_name']) : '';
+                $email = isset($br['contact_email']) ? trim((string)$br['contact_email']) : '';
+            }
+            if (in_array('notification_type_id', $cols) && isset($br['notification_type_id']) && (int)$br['notification_type_id'] >= 1) {
+                $notification_type_id = (int)$br['notification_type_id'];
+            }
         }
     }
 }
+// Allow override from request (e.g. when reopening with a specific type)
+$a_param = getVarNum('a', 0, 1, 999);
+if ($a_param >= 1) {
+    $notification_type_id = $a_param;
+}
 
-$rs = getRs("SELECT * FROM notification_type WHERE " . is_enabled() . " AND notification_type_id = ?", array($notification_type_id));
-$r = $rs ? getRow($rs) : null;
+$notification_types_rs = getRs("SELECT notification_type_id, notification_type_name FROM notification_type WHERE " . is_enabled() . " AND notification_type_id IN (7, 8) ORDER BY notification_type_id", array());
+$notification_types = $notification_types_rs ?: array();
+$r = null;
+foreach ($notification_types as $nt) {
+    if ((int)$nt['notification_type_id'] === $notification_type_id) {
+        $r = $nt;
+        break;
+    }
+}
+if (!$r && count($notification_types) > 0) {
+    $r = $notification_types[0];
+    $notification_type_id = (int)$r['notification_type_id'];
+}
 if (!$r) {
-    echo '<div class="alert alert-danger">Notification type not found. Create notification_type_id = 7 for daily discount report to brand.</div>';
+    echo '<div class="alert alert-danger">Notification type not found. Create notification_type_id 7 and/or 8 for daily discount report.</div>';
     exit;
 }
 
@@ -66,11 +97,17 @@ $has_pdf = !empty($rb['filename']) && is_file($pdf_path);
 ?>
 <form method="post" action="">
 <input type="hidden" name="daily_discount_report_brand_id" value="<?php echo (int)$daily_discount_report_brand_id; ?>" />
-<input type="hidden" name="notification_type_id" value="<?php echo (int)$notification_type_id; ?>" />
 <input type="hidden" name="format" value="<?php echo htmlspecialchars($report_format); ?>" />
 <div class="row m-b-10">
   <div class="col-sm-2 col-form-label">Notification Type:</div>
-  <div class="col-sm-10 col-form-label"><b><?php echo htmlspecialchars($r['notification_type_name']); ?></b></div>
+  <div class="col-sm-10">
+    <select name="notification_type_id" class="form-control" style="max-width:280px;">
+      <?php foreach ($notification_types as $nt): ?>
+      <option value="<?php echo (int)$nt['notification_type_id']; ?>"<?php echo (int)$nt['notification_type_id'] === $notification_type_id ? ' selected="selected"' : ''; ?>><?php echo htmlspecialchars($nt['notification_type_name']); ?></option>
+      <?php endforeach; ?>
+    </select>
+    <small class="text-muted">Saved to brand for next time.</small>
+  </div>
 </div>
 <div class="row m-b-10">
   <div class="col-sm-2 col-form-label">Brand:</div>

@@ -69,6 +69,66 @@ if ($action === 'connection_status') {
     exit;
 }
 
+// Verification table data: current + previous 3 report rebates per store (same brand)
+if ($action === 'verification_data') {
+    $prev_brands_rs = getRs(
+        "SELECT rb2.daily_discount_report_brand_id, r2.date_start, r2.date_end FROM daily_discount_report_brand rb2 INNER JOIN daily_discount_report r2 ON r2.daily_discount_report_id = rb2.daily_discount_report_id WHERE rb2.brand_id = ? AND rb2.daily_discount_report_brand_id != ? AND " . is_enabled('rb2,r2') . " ORDER BY r2.date_start DESC LIMIT 3",
+        array($brand_id, $daily_discount_report_brand_id)
+    );
+    $prev_reports = $prev_brands_rs ?: array();
+    $prev_labels = array();
+    foreach ($prev_reports as $pr) {
+        $prev_labels[] = (isset($pr['date_start']) ? $pr['date_start'] : '') . ' – ' . (isset($pr['date_end']) ? $pr['date_end'] : '');
+    }
+    $store_totals = array();
+    foreach ($stores as $s) {
+        $store_id = (int)$s['store_id'];
+        $store_name = isset($s['store_name']) ? $s['store_name'] : 'Store ' . $store_id;
+        $dr = getRow(getRs("SELECT params FROM daily_discount_report_store WHERE daily_discount_report_brand_id = ? AND store_id = ?", array($daily_discount_report_brand_id, $store_id)));
+        $params_json = isset($dr['params']) ? $dr['params'] : '[]';
+        $rp = json_decode($params_json, true);
+        if (!is_array($rp)) $rp = array();
+        $current_total = 0;
+        foreach ($rp as $p) {
+            $qty = isset($p['quantity']) ? (float)$p['quantity'] : 0;
+            $pct = isset($p['rebate_percent']) ? (float)$p['rebate_percent'] : 0;
+            $up = isset($p['unit_price']) ? (float)$p['unit_price'] : 0;
+            $current_total += $qty * $pct / 100 * $up;
+        }
+        $current_total = round($current_total, 2);
+        $prev_totals = array();
+        foreach ($prev_reports as $pr) {
+            $prev_rb_id = (int)$pr['daily_discount_report_brand_id'];
+            $dr_prev = getRow(getRs("SELECT params FROM daily_discount_report_store WHERE daily_discount_report_brand_id = ? AND store_id = ?", array($prev_rb_id, $store_id)));
+            $params_prev = isset($dr_prev['params']) ? $dr_prev['params'] : '[]';
+            $rp_prev = json_decode($params_prev, true);
+            if (!is_array($rp_prev)) $rp_prev = array();
+            $tot = 0;
+            foreach ($rp_prev as $p) {
+                $qty = isset($p['quantity']) ? (float)$p['quantity'] : 0;
+                $pct = isset($p['rebate_percent']) ? (float)$p['rebate_percent'] : 0;
+                $up = isset($p['unit_price']) ? (float)$p['unit_price'] : 0;
+                $tot += $qty * $pct / 100 * $up;
+            }
+            $prev_totals[] = round($tot, 2);
+        }
+        $store_totals[] = array(
+            'store_id' => $store_id,
+            'store_name' => $store_name,
+            'current_rebate' => $current_total,
+            'prev_rebates' => $prev_totals,
+        );
+    }
+    $current_label = (isset($rb['date_start']) ? $rb['date_start'] : '') . ' – ' . (isset($rb['date_end']) ? $rb['date_end'] : '');
+    echo json_encode(array(
+        'success' => true,
+        'current_label' => $current_label,
+        'prev_labels' => $prev_labels,
+        'stores' => $store_totals,
+    ));
+    exit;
+}
+
 // Return detailed push log as HTML (for "View push log" link)
 if ($action === 'get_log') {
     $row = getRow(getRs("SELECT qbo_push_log FROM daily_discount_report_brand WHERE daily_discount_report_brand_id = ?", array($daily_discount_report_brand_id)));
