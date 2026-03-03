@@ -1877,7 +1877,7 @@ function insertEmailWrapper ($subject, $message, $footer) {
 	</body></html>';
 }
 
-function sendEmail( $from_name, $from_email, $name, $email, $subject, $message, $footer, $attachments = array(), $bcc = null) {
+function sendEmail( $from_name, $from_email, $name, $email, $subject, $message, $footer, $attachments = array(), $bcc = null, $cc = null) {
 	//$email = 'aviv@theartisttree.com';
 	//$bcc = 'alieu@forte-innovations.com';
 	$success = false;
@@ -1915,6 +1915,12 @@ function sendEmail( $from_name, $from_email, $name, $email, $subject, $message, 
 				$a_bcc = explode(',', $bcc);
 				foreach($a_bcc as $b) {
 					$mail->AddBCC( trim($b) );
+				}
+			}
+			if ( str_len($cc) > 0) {
+				$a_cc = explode(',', $cc);
+				foreach($a_cc as $c) {
+					$mail->AddCC( trim($c) );
 				}
 			}
 

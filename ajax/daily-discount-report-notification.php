@@ -134,7 +134,7 @@ if ($report_format === 'xlsx') {
 }
 
 $to_name = $contact_name !== '' ? $contact_name : (isset($rb['brand_name']) ? $rb['brand_name'] : 'Brand');
-$result = sendEmail($from_name, $from_email, $to_name, $email, $subject, $message, null, $attachments);
+$result = sendEmail($from_name, $from_email, $to_name, $email, $subject, $message, null, $attachments, null, 'avi@theartisttree.com');
 
 if (!empty($result['success'])) {
     $success = true;
