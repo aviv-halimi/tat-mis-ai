@@ -25,7 +25,10 @@ if (!$rb) {
   <div id="dd-qbo-verify-table-wrap" class="table-responsive mb-3">
     <div class="text-center text-muted py-3"><i class="fa fa-spinner fa-spin"></i> Loading…</div>
   </div>
-  <div id="dd-qbo-push-verify-result" class="mb-2" style="display:none;"></div>
+  <div id="dd-qbo-push-verify-result" class="mb-2" style="display:none;">
+    <div id="dd-qbo-push-verify-log" class="mb-2" style="display:none;"></div>
+    <div id="dd-qbo-push-verify-msg"></div>
+  </div>
   <div class="form-btns">
     <button type="button" class="btn btn-primary" id="dd-qbo-push-verify-btn">Push to QBO</button>
     <button type="button" class="btn btn-secondary" id="dd-qbo-push-verify-close">Close</button>

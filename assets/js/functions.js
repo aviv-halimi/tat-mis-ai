@@ -408,6 +408,7 @@ function updateDialog2(url, title, a, c, format) {
 					$wrap.html('<div class="text-danger">' + (res && res.response ? res.response : 'Failed to load data.') + '</div>');
 					return;
 				}
+				$container.data('verifyStores', res.stores);
 				var prevLabels = res.prev_labels || [];
 				var currentLabel = res.current_label || 'Current';
 				var headers = ['Store', currentLabel];
@@ -442,15 +443,40 @@ function updateDialog2(url, title, a, c, format) {
 				var $btn = $(this);
 				var payload = { action: 'push', daily_discount_report_brand_id: brandIdVerify, format: formatVerify };
 				$btn.prop('disabled', true);
-				$('#modal #dd-qbo-push-verify-result').hide().empty();
+				var $result = $('#modal #dd-qbo-push-verify-result');
+				var $log = $('#modal #dd-qbo-push-verify-log');
+				var $msg = $('#modal #dd-qbo-push-verify-msg');
+				$msg.empty();
+				$result.show();
+				var verifyStores = $container.data('verifyStores') || [];
+				var logHtml = '<div class="small font-weight-bold mb-1">Push log</div><ul class="list-unstyled mb-0">';
+				verifyStores.forEach(function(s) {
+					var name = (s.store_name || ('Store ' + (s.store_id || ''))).replace(/</g, '&lt;');
+					logHtml += '<li class="py-1"><label class="mb-0 font-weight-normal"><input type="checkbox" class="dd-push-log-cb" disabled> ' + name + '</label> <span class="dd-push-log-status text-muted"></span></li>';
+				});
+				logHtml += '</ul>';
+				$log.show().html(logHtml);
+				$msg.html('<span class="text-muted"><i class="fa fa-spinner fa-spin"></i> Pushing…</span>');
 				$.post('/ajax/daily-discount-report-qbo-push.php', payload, function(res) {
 					$btn.prop('disabled', false);
-					var $result = $('#modal #dd-qbo-push-verify-result');
-					$result.show();
 					if (res && res.success && res.log && res.log.stores) {
-						var allOk = res.log.stores.every(function(s) { return s.success; });
+						var stores = res.log.stores;
+						var $entries = $('#modal #dd-qbo-push-verify-log li');
+						stores.forEach(function(s, idx) {
+							var $li = $entries.eq(idx);
+							if ($li.length) {
+								$li.find('.dd-push-log-cb').prop('checked', !!s.success);
+								var $status = $li.find('.dd-push-log-status');
+								if (s.success) {
+									$status.removeClass('text-danger text-muted').addClass('text-success').text('✓ Pushed');
+								} else {
+									$status.removeClass('text-success text-muted').addClass('text-danger').text(s.error || 'Failed');
+								}
+							}
+						});
+						var allOk = stores.every(function(s) { return s.success; });
 						if (allOk) {
-							$result.html('<span class="text-success">Push complete. Opening email…</span>');
+							$msg.html('<span class="text-success">Push complete. Opening email…</span>');
 							$('#modal').one('hidden.bs.modal', function() {
 								if (typeof updateDialog2 === 'function') {
 									updateDialog2('daily-discount-report-notification', 'Email', null, brandIdVerify, formatVerify);
@@ -458,15 +484,16 @@ function updateDialog2(url, title, a, c, format) {
 							});
 							$('#modal').modal('hide');
 						} else {
-							var lines = res.log.stores.map(function(s) { return s.store_name + ': ' + (s.success ? 'OK' : (s.error || 'Failed')); });
-							$result.html('<span class="text-warning">' + lines.join('<br>') + '</span>');
+							$msg.html('<span class="text-warning">Some stores failed. See log above.</span>');
 						}
 					} else {
-						$result.html('<span class="text-danger">' + (res && res.response ? res.response : 'Push failed.') + '</span>');
+						$log.hide();
+						$msg.html('<span class="text-danger">' + (res && res.response ? res.response : 'Push failed.') + '</span>');
 					}
 				}, 'json').fail(function() {
 					$btn.prop('disabled', false);
-					$('#modal #dd-qbo-push-verify-result').show().html('<span class="text-danger">Request failed.</span>');
+					$log.hide();
+					$msg.html('<span class="text-danger">Request failed.</span>');
 				});
 			});
 			$('#modal').off('click.dd_qbo_verify_close').on('click.dd_qbo_verify_close', '#dd-qbo-push-verify-close', function() {
