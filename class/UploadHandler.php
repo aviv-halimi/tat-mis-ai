@@ -339,8 +339,14 @@ class UploadHandler
     }
 
     protected function get_error_message($error) {
-        return array_key_exists($error, $this->error_messages) ?
+        $msg = array_key_exists($error, $this->error_messages) ?
             $this->error_messages[$error] : $error;
+        if ($error === 1 || $error === 'post_max_size') {
+            $upload_max = ini_get('upload_max_filesize');
+            $post_max = ini_get('post_max_size');
+            $msg .= ' Current limits: upload_max_filesize=' . ($upload_max ?: 'not set') . ', post_max_size=' . ($post_max ?: 'not set') . '. See doc/php-upload-limits.md to increase.';
+        }
+        return $msg;
     }
 
     function get_config_bytes($val) {
