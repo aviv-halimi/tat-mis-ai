@@ -253,6 +253,7 @@ PROMPT;
     $debug_log[] = '[REQUEST] ' . date('Y-m-d H:i:s') . ' URL: ' . preg_replace('/key=[^&]+/', 'key=***', $url);
     $debug_log[] = '[REQUEST] Parts: ' . count($parts) . ' (PDFs: ' . $pdf_count . ', prompt: 1). Payload size: ' . $payload_bytes . ' bytes (' . $payload_mb . ' MB)';
     $debug_log[] = '[REQUEST] PO products sent: ' . count($po_list) . ' items. Prompt length: ' . strlen($prompt) . ' chars';
+    $debug_log[] = '[REQUEST] --- Full prompt sent to Gemini ---' . "\n" . $prompt . "\n" . '[REQUEST] --- End of prompt ---';
 
     $ch = curl_init($url);
     curl_setopt_array($ch, [
