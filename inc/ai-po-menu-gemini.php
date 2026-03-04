@@ -15,7 +15,7 @@ if (!defined('GEMINI_API_KEY')) {
 }
 
 if (!defined('GEMINI_MODEL')) {
-    define('GEMINI_MODEL', 'gemini-2.0-flash');
+    define('GEMINI_MODEL', 'gemini-2.5-flash');
 }
 
 // Faster model for PO menu sync only (reduces chance of 504). Uncomment in _config.php or set in env.
