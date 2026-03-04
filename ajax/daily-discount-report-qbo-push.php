@@ -240,8 +240,12 @@ if ($action === 'preview_push') {
     $date_start = isset($rb['date_start']) ? $rb['date_start'] : '';
     $date_end = isset($rb['date_end']) ? $rb['date_end'] : '';
     $note = 'Daily discount rebate' . ($date_start && $date_end ? ' ' . $date_start . '–' . $date_end : '');
-    $filename_preview = isset($rb['filename']) && trim($rb['filename']) !== '' ? trim($rb['filename']) : 'dd-report-brand-' . $daily_discount_report_brand_id . '-' . date('Ymd-His') . '.pdf';
-    $pdf_name_preview = $preview_format === 'xlsx' ? (getFilename($filename_preview) . '.xlsx') : basename($filename_preview);
+    $brand_preview = trim(preg_replace('/[^a-zA-Z0-9 _\-\.]/', '', isset($rb['brand_name']) ? $rb['brand_name'] : ''));
+    if ($brand_preview === '') $brand_preview = 'Report';
+    $report_date_preview = !empty($rb['date_end']) ? strtotime($rb['date_end']) : (!empty($rb['date_start']) ? strtotime($rb['date_start']) : time());
+    $base_preview = $brand_preview . ' - ' . date('M j', $report_date_preview) . ' - Rebate Report';
+    $filename_preview = isset($rb['filename']) && trim($rb['filename']) !== '' ? trim($rb['filename']) : ($base_preview . '.pdf');
+    $pdf_name_preview = $preview_format === 'xlsx' ? ($base_preview . '.xlsx') : basename($filename_preview);
     $brand_name_preview = isset($rb['brand_name']) ? trim((string)$rb['brand_name']) : '';
     $doc_suffix_preview = '-' . date('M') . ' DD'; // e.g. "-Mar DD"
     $doc_max_brand_preview = 21 - strlen($doc_suffix_preview);
@@ -321,7 +325,10 @@ if ($report_format === 'xlsx') {
     require_once(BASE_PATH . 'inc/pdf-report.php');
     $filename = isset($rb['filename']) ? trim($rb['filename']) : '';
     if ($filename === '' || !is_file($dir . $filename)) {
-        $filename = 'dd-report-brand-' . $daily_discount_report_brand_id . '-' . date('Ymd-His') . '.pdf';
+        $brand_name_safe = trim(preg_replace('/[^a-zA-Z0-9 _\-\.]/', '', isset($rb['brand_name']) ? $rb['brand_name'] : ''));
+        if ($brand_name_safe === '') $brand_name_safe = 'Report';
+        $report_date_ts = !empty($rb['date_end']) ? strtotime($rb['date_end']) : (!empty($rb['date_start']) ? strtotime($rb['date_start']) : time());
+        $filename = $brand_name_safe . ' - ' . date('M j', $report_date_ts) . ' - Rebate Report.pdf';
         $fp = $dir . $filename;
         if (!is_dir($dir)) {
             @mkdir($dir, 0755, true);

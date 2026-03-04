@@ -34,7 +34,10 @@ function dd_report_brand_generate_xlsx($daily_discount_report_brand_id, $save_di
         return false;
     }
 
-    $base = isset($d['filename']) && trim($d['filename']) !== '' ? getFilename($d['filename']) : ('dd-report-brand-' . $daily_discount_report_brand_id . '-' . date('Ymd-His'));
+    $brand_name_safe = trim(preg_replace('/[^a-zA-Z0-9 _\-\.]/', '', isset($d['brand_name']) ? $d['brand_name'] : ''));
+    if ($brand_name_safe === '') $brand_name_safe = 'Report';
+    $report_date_ts = !empty($d['date_end']) ? strtotime($d['date_end']) : (!empty($d['date_start']) ? strtotime($d['date_start']) : time());
+    $base = $brand_name_safe . ' - ' . date('M j', $report_date_ts) . ' - Rebate Report';
     $filename = $base . '.xlsx';
     $full_path = $save_dir . $filename;
 
