@@ -242,12 +242,12 @@ if ($action === 'preview_push') {
     $note = 'Daily discount rebate' . ($date_start && $date_end ? ' ' . $date_start . '–' . $date_end : '');
     $brand_preview = trim(preg_replace('/[^a-zA-Z0-9 _\-\.]/', '', isset($rb['brand_name']) ? $rb['brand_name'] : ''));
     if ($brand_preview === '') $brand_preview = 'Report';
-    $report_date_preview = !empty($rb['date_end']) ? strtotime($rb['date_end']) : (!empty($rb['date_start']) ? strtotime($rb['date_start']) : time());
+    $report_date_preview = !empty($rb['date_start']) ? strtotime($rb['date_start']) : time();
     $base_preview = $brand_preview . ' - ' . date('M j', $report_date_preview) . ' - Rebate Report';
     $filename_preview = isset($rb['filename']) && trim($rb['filename']) !== '' ? trim($rb['filename']) : ($base_preview . '.pdf');
     $pdf_name_preview = $preview_format === 'xlsx' ? ($base_preview . '.xlsx') : basename($filename_preview);
     $brand_name_preview = isset($rb['brand_name']) ? trim((string)$rb['brand_name']) : '';
-    $doc_suffix_preview = '-' . date('M') . ' DD'; // e.g. "-Mar DD"
+    $doc_suffix_preview = '-' . date('M', $report_date_preview) . ' DD'; // report month, e.g. "-Mar DD"
     $doc_max_brand_preview = 21 - strlen($doc_suffix_preview);
     $doc_base_preview = ($doc_max_brand_preview > 0 && $brand_name_preview !== '') ? mb_substr($brand_name_preview, 0, $doc_max_brand_preview) : 'DD';
     $doc_number_preview = mb_substr($doc_base_preview . $doc_suffix_preview, 0, 21);
@@ -327,7 +327,7 @@ if ($report_format === 'xlsx') {
     if ($filename === '' || !is_file($dir . $filename)) {
         $brand_name_safe = trim(preg_replace('/[^a-zA-Z0-9 _\-\.]/', '', isset($rb['brand_name']) ? $rb['brand_name'] : ''));
         if ($brand_name_safe === '') $brand_name_safe = 'Report';
-        $report_date_ts = !empty($rb['date_end']) ? strtotime($rb['date_end']) : (!empty($rb['date_start']) ? strtotime($rb['date_start']) : time());
+        $report_date_ts = !empty($rb['date_start']) ? strtotime($rb['date_start']) : time();
         $filename = $brand_name_safe . ' - ' . date('M j', $report_date_ts) . ' - Rebate Report.pdf';
         $fp = $dir . $filename;
         if (!is_dir($dir)) {
@@ -365,7 +365,8 @@ if ($single_store_id > 0) {
 }
 
 $brand_name = isset($rb['brand_name']) ? trim((string)$rb['brand_name']) : '';
-$doc_number_suffix = '-' . date('M') . ' DD'; // e.g. "-Mar DD" (no day)
+$report_month_ts = !empty($rb['date_start']) ? strtotime($rb['date_start']) : time();
+$doc_number_suffix = '-' . date('M', $report_month_ts) . ' DD'; // report month, e.g. "-Mar DD"
 $doc_number_max_brand = 21 - strlen($doc_number_suffix);
 $doc_number_base = ($doc_number_max_brand > 0 && $brand_name !== '') ? mb_substr($brand_name, 0, $doc_number_max_brand) : 'DD';
 $doc_number_template = $doc_number_base . $doc_number_suffix;
