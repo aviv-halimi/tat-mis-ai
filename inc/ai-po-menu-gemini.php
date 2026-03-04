@@ -190,27 +190,26 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
 
     $prompt = <<<PROMPT
 ### ROLE
-You are a strict inventory reconciler. Your goal is to identify which PO products have an EXACT match on the provided menu for BOTH the strain name and the specific product type/weight. Only include a po_product_id in found_po_product_ids if you found a true 1-to-1 match.
+You are a precision inventory sync assistant. Your task is to reconcile a Purchase Order (PO) against a vendor PDF menu.
 
-### MATCHING RULES (STRICT)
-1. IGNORE the prefix "{$brand_names_for_prompt}" in PO product names when matching.
-2. MATCH the strain name (e.g., "SB36 #1") to the menu.
-3. MATCH the weight/type strictly:
-   - If the PO says "3.5g" or "Eighth," only match if the menu section says "EIGHTHS" or "3.5 GRAMS".
-   - If the PO says "14g" or "Half Ounce," only match if the menu section says "HALF OUNCE" or "14 GRAMS".
-   - If the PO says "Preroll" or "Joint," only match if the menu section says "SINGLE JOINTS" or "DOINKS".
-4. NO GUESSTIMATING: If a strain is on the menu as a "Live Rosin AIO" but the PO line is for a "Flower 3.5g", do NOT add that PO line to found_po_product_ids. They are different products.
+### TRANSLATION RECONCILIATION RULES
+1. **Prefix/Suffix Strip:** Ignore "{$brand_names_for_prompt}" at the start of PO names. Ignore "Flower", "Preroll", "1g", "3.5g" etc. at the end for the first pass of strain matching.
+2. **Fuzzy Name Matching:** Treat "Lunar Z" and "LunarZ" as an EXACT MATCH. Treat "C. Chrome" and "California Chrome" as an EXACT MATCH.
+3. **Category Mapping (CRITICAL):**
+   * If PO Category is **"Solventless Extracts"**, it matches Menu types: "PERSY BADDER", "PERSY ROSIN", "LIVE ROSIN", or "THUMB PRINT".
+   * If PO Category is **"Vape Carts .5g"** or **"AIO"**, it matches Menu types: "PERSY POD", "SOLVENTLESS PODS", or "ALL IN ONE".
+   * If PO Category is **"Flowers"**, it matches Menu types: "FLOWER", "EIGHTHS", or "HALF OUNCE".
+   * If PO Category is **"Edibles"**, it matches Menu types: "GUMMIS" or "HASH ROSIN GUMMIS".
 
-### TASK
-1. Examine the PO products list below.
-2. Compare each line to the attached PDF/menu text.
-3. For each PO line where you find a 1-to-1 match for [Strain] + [Specific Product Type/Weight] on the menu, add that po_product_id to found_po_product_ids. If unsure or no match, do NOT add it (fail-safe: when in doubt, omit).
-4. Also list any products that appear on the menu but are NOT already on the PO — add them to add_products with name, price, and when possible brand_id and category_id from the lists below.
+### DECISION LOGIC
+- **KEEP (Do NOT Disable):** If the Strain Name AND the Functional Category (using the map above) both exist on the PDF.
+- **DISABLE:** If the strain is missing OR if the strain exists but is in a completely different category (e.g., the menu only has "LunarZ" as a Badder, but the PO line is for "LunarZ Flower").
+
+### OUTPUT
+Return the JSON with 'add_products' and 'disable_po_product_ids'. Put in disable_po_product_ids the po_product_id of each PO line that should be disabled (not on menu or wrong category). Put in add_products any menu items not already on the PO, with name, price, and when possible brand_id and category_id from the lists below.
 
 {$brands_text}{$categories_text}**PO products (current lines on the order):**
 {$po_list_json}
-
-Return JSON with: found_po_product_ids (array of po_product_id that have a match on the menu), and add_products (array of {name, price, brand_id?, category_id?} for menu items not on the PO).
 PROMPT;
 
     $parts[] = ['text' => $prompt];
@@ -236,18 +235,18 @@ PROMPT;
                     'required' => ['name', 'price'],
                 ],
             ],
-            'found_po_product_ids' => [
+            'disable_po_product_ids' => [
                 'type' => 'ARRAY',
                 'items' => ['type' => 'INTEGER'],
             ],
         ],
-        'required' => ['add_products', 'found_po_product_ids'],
+        'required' => ['add_products', 'disable_po_product_ids'],
     ];
 
     $payload = [
         'system_instruction' => [
             'parts' => [
-                ['text' => 'You are a strict data-extraction assistant. Match products by name and category. Return only valid JSON.'],
+                ['text' => 'You are a precision inventory sync assistant. Reconcile PO to menu using translation rules. Return only valid JSON with add_products and disable_po_product_ids.'],
             ],
         ],
         'contents' => [
@@ -349,19 +348,19 @@ PROMPT;
                 $parsed['add_products'] = $add_arr;
             }
         }
-        $found_arr_str = _gemini_extract_json_array($text, 'found_po_product_ids');
-        if ($found_arr_str !== null) {
-            $found_arr = json_decode($found_arr_str, true);
-            if (is_array($found_arr)) {
-                $parsed['found_po_product_ids'] = array_values(array_filter(array_map('intval', $found_arr), function ($id) { return $id > 0; }));
+        $disable_arr_str = _gemini_extract_json_array($text, 'disable_po_product_ids');
+        if ($disable_arr_str !== null) {
+            $disable_arr = json_decode($disable_arr_str, true);
+            if (is_array($disable_arr)) {
+                $parsed['disable_po_product_ids'] = array_values(array_filter(array_map('intval', $disable_arr), function ($id) { return $id > 0; }));
             }
         }
-        if (empty($parsed['found_po_product_ids']) && preg_match('/"found_po_product_ids"\s*:\s*\[([\d,\s]*)/s', $text, $m)) {
+        if (empty($parsed['disable_po_product_ids']) && preg_match('/"disable_po_product_ids"\s*:\s*\[([\d,\s]*)/s', $text, $m)) {
             if (preg_match_all('/\d+/', $m[1], $id_matches)) {
                 foreach ($id_matches[0] as $id) {
                     $id = (int) $id;
                     if ($id > 0) {
-                        $parsed['found_po_product_ids'][] = $id;
+                        $parsed['disable_po_product_ids'][] = $id;
                     }
                 }
             }
@@ -369,22 +368,20 @@ PROMPT;
         if (empty($parsed['add_products'])) {
             $parsed['add_products'] = [];
         }
-        if (!isset($parsed['found_po_product_ids']) || !is_array($parsed['found_po_product_ids'])) {
-            $parsed['found_po_product_ids'] = [];
+        if (empty($parsed['disable_po_product_ids'])) {
+            $parsed['disable_po_product_ids'] = [];
         }
     }
 
-    $all_po_ids = array_column($po_list, 'po_product_id');
-    $kept_ids = [];
-    if (isset($parsed['found_po_product_ids']) && is_array($parsed['found_po_product_ids'])) {
-        foreach ($parsed['found_po_product_ids'] as $id) {
+    $disable_ids = [];
+    if (isset($parsed['disable_po_product_ids']) && is_array($parsed['disable_po_product_ids'])) {
+        foreach ($parsed['disable_po_product_ids'] as $id) {
             $id = (int) $id;
             if ($id > 0) {
-                $kept_ids[] = $id;
+                $disable_ids[] = $id;
             }
         }
     }
-    $disable_ids = array_values(array_diff($all_po_ids, $kept_ids));
 
     $add_products = [];
     if (isset($parsed['add_products']) && is_array($parsed['add_products'])) {
