@@ -486,6 +486,22 @@ foreach($rf as $f) {
 </form>
 
 <?php
+if ($_po_id && $_po_status_id == 1) {
+  echo '
+  <div class="panel panel-default mt-3" id="po-brand-menu-panel">
+    <div class="panel-heading"><h4 class="panel-title"><i class="fa fa-list-alt mr-1"></i> Brand menu – sync PO with current menu (AI)</h4></div>
+    <div class="panel-body">
+      <p class="text-muted mb-3">Upload the brand\'s current menu PDF(s), then run Sync to disable PO lines not on the menu and add menu items that are not yet on the PO.</p>
+      <form id="f_po-menu-data" class="po-data" action="" method="post">
+        <input type="hidden" name="c" value="' . htmlspecialchars($po_code) . '" />
+        <input type="hidden" name="f" value="menu_filenames" />
+        <div class="mb-2">' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', 'Upload menu PDF(s)...') . '</div>
+        <button type="button" class="btn btn-outline-secondary btn-save-menu-pdfs">Save menu PDFs</button>
+        <button type="button" class="btn btn-primary btn-po-menu-sync ml-2" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-magic mr-1"></i> Sync PO with menu (AI)</button>
+      </form>
+    </div>
+  </div>';
+}
 if ($_po_id) {
 $rt = $_PO->GetPO($_po_id);
 if ($t = getRow($rt)) {
@@ -560,23 +576,6 @@ if (true) { //sizeof($rs)) {
             </div>
           </div>
         </div>
-      </div>
-    </div>';
-  }
-
-  if ($t['po_status_id'] == 1) {
-    echo '
-    <div class="panel panel-default mt-3">
-      <div class="panel-heading"><h4 class="panel-title"><i class="fa fa-list-alt mr-1"></i> Brand menu – sync PO with current menu (AI)</h4></div>
-      <div class="panel-body">
-        <p class="text-muted mb-3">Upload the brand\'s current menu PDF(s), then run Sync to disable PO lines not on the menu and add menu items that are not yet on the PO.</p>
-        <form id="f_po-menu-data" class="po-data" action="" method="post">
-          <input type="hidden" name="c" value="' . htmlspecialchars($po_code) . '" />
-          <input type="hidden" name="f" value="menu_filenames" />
-          <div class="mb-2">' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', 'Upload menu PDF(s)...') . '</div>
-          <button type="button" class="btn btn-outline-secondary btn-save-menu-pdfs">Save menu PDFs</button>
-          <button type="button" class="btn btn-primary btn-po-menu-sync ml-2" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-magic mr-1"></i> Sync PO with menu (AI)</button>
-        </form>
       </div>
     </div>';
   }
