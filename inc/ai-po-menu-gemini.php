@@ -252,6 +252,11 @@ PROMPT;
             $text = json_encode($arr[0]);
         }
     }
+    // Fix trailing commas (Gemini sometimes outputs them; PHP json_decode rejects them)
+    do {
+        $prev = $text;
+        $text = preg_replace('/,\s*(\s*[}\]])/s', '$1', $text);
+    } while ($text !== $prev && $text !== null);
     $parsed = json_decode($text, true);
 
     if (!is_array($parsed)) {
