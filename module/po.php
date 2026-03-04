@@ -76,9 +76,7 @@ $(document).ready(function(e) {
     $statusText.text("Syncing… This may take 1–2 minutes. Do not close the page.");
     $statusEl.removeClass("alert-warning").addClass("alert-info").show();
     showStatus("status", "Syncing PO with menu (AI)...", "info");
-    var pollInterval;
-    function stopPolling() {
-      if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+    function stopStatus() {
       btn.prop("disabled", false);
       $statusEl.hide();
     }
@@ -93,35 +91,17 @@ $(document).ready(function(e) {
         showStatus("status", (res && res.error) ? res.error : "Sync failed. See Last sync below.", "error", true);
       }
     }
+    // Run sync in foreground (no async). If you get 504, refresh—the sync may have completed.
     $.ajax({
       url: "/ajax/po-menu-sync",
       type: "POST",
-      data: { po_id: poId, po_code: poCode || "", async: 1, _r: Math.random() },
+      data: { po_id: poId, po_code: poCode || "", _r: Math.random() },
       dataType: "json"
     }).done(function(res) {
-      if (res && res.started) {
-        $statusText.text("Sync started. Waiting for result…");
-        pollInterval = setInterval(function() {
-          $.getJSON("/ajax/po-menu-sync-status.php?po_id=" + poId, function(r) {
-            if (r && r.status === "completed") {
-              stopPolling();
-              if (r.result) {
-                applyResult(r.result);
-              } else {
-                $.getJSON("/ajax/po-menu-sync-last-result.php?po_id=" + poId, function(lr) {
-                  if (lr && lr.result) applyResult(lr.result);
-                  else applyResult({ success: false, error: "Sync finished; result not found." });
-                });
-              }
-            }
-          });
-        }, 4000);
-      } else {
-        stopPolling();
-        applyResult(res);
-      }
+      stopStatus();
+      applyResult(res);
     }).fail(function(xhr, status, err) {
-      stopPolling();
+      stopStatus();
       var key = "po_menu_sync_" + (poId || poCode);
       $statusText.text("Request timed out or failed. The sync may have completed on the server—refresh the page to see the result.");
       $statusEl.show().removeClass("alert-info").addClass("alert-warning");
@@ -586,7 +566,7 @@ if ($_po_id && $_po_status_id == 1) {
         <button type="button" class="btn btn-primary btn-po-menu-sync ml-2" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-magic mr-1"></i> Sync PO with menu (AI)</button>
       </form>
       <div id="po-menu-sync-status" class="alert alert-info mt-2" style="display:none;"><i class="fa fa-spinner fa-spin mr-1"></i><span id="po-menu-sync-status-text"></span></div>
-      <p class="text-muted small mt-2 mb-0">If you get a <strong>504 Gateway Time-out</strong>, the sync may still complete—refresh to see the result. To avoid timeouts, sync runs in the background; wait for the status above to finish.</p>
+      <p class="text-muted small mt-2 mb-0">If you get a <strong>504 Gateway Time-out</strong>, the sync may still complete—refresh the page to see the result. Increase Nginx/PHP timeouts if needed; see <a href="doc/po-menu-sync-504-timeout.md" target="_blank" rel="noopener">doc/po-menu-sync-504-timeout.md</a>.</p>
       <div id="po-menu-last-sync" class="mt-3" style="display:none;"></div>
     </div>
   </div>';
