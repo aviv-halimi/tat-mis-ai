@@ -104,7 +104,7 @@ PROMPT;
         ],
         'generationConfig' => [
             'temperature' => 0.2,
-            'maxOutputTokens' => 4096,
+            'maxOutputTokens' => 8192,
         ],
     ];
 
@@ -175,8 +175,32 @@ PROMPT;
     $parsed = json_decode($text, true);
 
     if (!is_array($parsed)) {
-        $debug_log[] = 'Could not parse Gemini JSON. Last 500 chars: ' . substr($text, -500);
-        return null;
+        $parsed = [];
+        $debug_log[] = 'Standard JSON parse failed (response may be truncated). Trying fallback extraction.';
+        // Fallback: extract disable_po_product_ids and add_products from truncated/invalid JSON via regex
+        if (preg_match('/"disable_po_product_ids"\s*:\s*\[([\d,\s]*)/s', $text, $m)) {
+            $ids_str = $m[1];
+            if (preg_match_all('/\d+/', $ids_str, $id_matches)) {
+                foreach ($id_matches[0] as $id) {
+                    $id = (int) $id;
+                    if ($id > 0) {
+                        $parsed['disable_po_product_ids'][] = $id;
+                    }
+                }
+            }
+        }
+        if (empty($parsed['disable_po_product_ids'])) {
+            $debug_log[] = 'Could not parse Gemini JSON. Last 500 chars: ' . substr($text, -500);
+            return null;
+        }
+        $parsed['add_products'] = [];
+        if (preg_match('/"add_products"\s*:\s*\[(.*)\]\s*}\s*$/s', $text, $m)) {
+            $arr_json = '[' . $m[1] . ']';
+            $add_arr = json_decode($arr_json, true);
+            if (is_array($add_arr)) {
+                $parsed['add_products'] = $add_arr;
+            }
+        }
     }
 
     $disable_ids = [];
