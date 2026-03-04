@@ -42,6 +42,29 @@ $(document).ready(function(e) {
       else showStatus("status", (data && data.response) ? data.response : "Save failed.", "error", true);
     });
   });
+  function renderPoMenuLastSync(data) {
+    if (!data) return;
+    var html = \'<div class="alert alert-\' + (data.success ? "info" : "warning") + \' mb-0">\' +
+      \'<strong>Last sync</strong> (\' + (data.time || "") + \'): \' + (data.message || data.error || "—") + \'\';
+    if (data.success && (data.disabled_count > 0 || data.added_count > 0)) {
+      html += \'<br><span class="text-muted">\' + (data.disabled_count || 0) + \' line(s) disabled, \' + (data.added_count || 0) + \' product(s) added.</span>\';
+    }
+    if (data.add_errors && data.add_errors.length) {
+      html += \'<br><small class="text-danger">Add issues: \' + data.add_errors.slice(0, 3).join("; ") + (data.add_errors.length > 3 ? " ..." : "") + \'</small>\';
+    }
+    html += \' <button type="button" class="btn btn-sm btn-outline-secondary ml-2 btn-po-menu-reload">Reload to see changes</button>\';
+    html += \'</div>\';
+    html += \'<div class="mt-2"><a href="#" class="btn btn-sm btn-default btn-toggle-sync-log">Show request/response log</a>\';
+    var logText = (data.debug_log && data.debug_log.length) ? data.debug_log.join("\\n") : "—";
+    html += \'<pre id="po-menu-sync-log-pre" class="bg-light p-2 mt-2 small" style="display:none; max-height:300px; overflow:auto;">\' + (logText.replace(/</g, "&lt;").replace(/>/g, "&gt;")) + \'</pre></div>\';
+    $("#po-menu-last-sync").html(html).show();
+    $(document).off("click", ".btn-toggle-sync-log").on("click", ".btn-toggle-sync-log", function(e) {
+      e.preventDefault();
+      $("#po-menu-sync-log-pre").toggle();
+      $(this).text($("#po-menu-sync-log-pre").is(":visible") ? "Hide log" : "Show request/response log");
+    });
+    $(document).off("click", ".btn-po-menu-reload").on("click", ".btn-po-menu-reload", function() { location.reload(); });
+  }
   $(document).on("click", ".btn-po-menu-sync", function(e) {
     var btn = $(this);
     var poId = btn.data("po-id");
@@ -56,21 +79,35 @@ $(document).ready(function(e) {
       dataType: "json"
     }).done(function(res) {
       btn.prop("disabled", false);
-      if (res && res.debug_log) {
-        console.log("PO menu sync debug log:", res.debug_log);
-      }
+      var key = "po_menu_sync_" + (poId || poCode);
+      var stored = { success: !!(res && res.success), message: (res && res.message) || null, error: (res && res.error) || null, disabled_count: (res && res.disabled_count) || 0, added_count: (res && res.added_count) || 0, add_errors: (res && res.add_errors) || [], debug_log: (res && res.debug_log) || [], time: new Date().toLocaleString() };
+      try { sessionStorage.setItem(key, JSON.stringify(stored)); } catch (e) {}
+      renderPoMenuLastSync(stored);
       if (res && res.success) {
-        showStatus("status", res.message || "Done." + (res.debug_log ? " (F12 → Console for request/response log)" : ""), "ok", true);
-        setTimeout(function() { location.reload(); }, 800);
+        showStatus("status", res.message || "Done. See Last sync below; click Reload to see changes.", "ok", true);
       } else {
-        showStatus("status", (res && res.error) ? res.error : "Sync failed." + (res && res.debug_log ? " See F12 Console for log." : ""), "error", true);
+        showStatus("status", (res && res.error) ? res.error : "Sync failed. See Last sync below.", "error", true);
       }
     }).fail(function(xhr, status, err) {
       btn.prop("disabled", false);
-      console.log("PO menu sync fail:", status, err, xhr && xhr.responseText);
+      var poId = $(".btn-po-menu-sync").data("po-id");
+      var poCode = $(".btn-po-menu-sync").data("po-code");
+      var key = "po_menu_sync_" + (poId || poCode);
+      var stored = { success: false, error: "Request failed: " + (err || status), debug_log: ["Fail: " + status, (xhr && xhr.responseText) ? xhr.responseText.substring(0, 2000) : ""], time: new Date().toLocaleString() };
+      try { sessionStorage.setItem(key, JSON.stringify(stored)); } catch (e) {}
+      renderPoMenuLastSync(stored);
       showStatus("status", "Request failed: " + (err || status), "error", true);
     });
   });
+  var poId = $(".btn-po-menu-sync").data("po-id");
+  var poCode = $(".btn-po-menu-sync").data("po-code");
+  if (poId || poCode) {
+    try {
+      var key = "po_menu_sync_" + (poId || poCode);
+      var saved = sessionStorage.getItem(key);
+      if (saved) { renderPoMenuLastSync(JSON.parse(saved)); }
+    } catch (e) {}
+  }
 });
 </script>';
 
@@ -503,6 +540,7 @@ if ($_po_id && $_po_status_id == 1) {
         <button type="button" class="btn btn-outline-secondary btn-save-menu-pdfs">Save menu PDFs</button>
         <button type="button" class="btn btn-primary btn-po-menu-sync ml-2" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-magic mr-1"></i> Sync PO with menu (AI)</button>
       </form>
+      <div id="po-menu-last-sync" class="mt-3" style="display:none;"></div>
     </div>
   </div>';
 }
