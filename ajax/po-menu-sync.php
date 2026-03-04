@@ -82,24 +82,6 @@ foreach ($products_rs as $row) {
 }
 
 $log_dir = defined('BASE_PATH') ? BASE_PATH . 'log' : dirname(__FILE__) . '/../log';
-$run_in_background = !empty($_POST['background']) || !empty($_GET['background']);
-
-if ($run_in_background) {
-    @ignore_user_abort(true);
-    @set_time_limit(0);
-    $body = json_encode(array(
-        'success' => true,
-        'message' => 'Sync started in background. Refresh the page in 1–2 minutes to see changes.',
-        'background' => true,
-    ));
-    header('Connection: close');
-    header('Content-Length: ' . strlen($body));
-    echo $body;
-    if (function_exists('fastcgi_finish_request')) {
-        fastcgi_finish_request();
-    }
-    flush();
-}
 
 require_once dirname(__FILE__) . '/../inc/ai-po-menu-gemini.php';
 
@@ -183,7 +165,5 @@ $out = array(
 if (is_dir($log_dir)) {
     @file_put_contents($log_dir . '/po-menu-sync-last-' . $po_id . '.json', json_encode($out));
 }
-if (!$run_in_background) {
-    echo json_encode($out);
-}
+echo json_encode($out);
 exit;
