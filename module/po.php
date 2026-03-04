@@ -75,7 +75,7 @@ $(document).ready(function(e) {
     $.ajax({
       url: "/ajax/po-menu-sync",
       type: "POST",
-      data: { po_id: poId, po_code: poCode || "", _r: Math.random() },
+      data: { po_id: poId, po_code: poCode || "", background: 1, _r: Math.random() },
       dataType: "json"
     }).done(function(res) {
       btn.prop("disabled", false);
@@ -85,6 +85,10 @@ $(document).ready(function(e) {
       renderPoMenuLastSync(stored);
       if (res && res.success) {
         showStatus("status", res.message || "Done. See Last sync below; click Reload to see changes.", "ok", true);
+        if (res.background) {
+          stored.message = "Sync running in background. Refresh the page in 1–2 minutes to see changes and the result.";
+          try { sessionStorage.setItem(key, JSON.stringify(stored)); } catch (e) {}
+        }
       } else {
         showStatus("status", (res && res.error) ? res.error : "Sync failed. See Last sync below.", "error", true);
       }
@@ -105,7 +109,17 @@ $(document).ready(function(e) {
     try {
       var key = "po_menu_sync_" + (poId || poCode);
       var saved = sessionStorage.getItem(key);
-      if (saved) { renderPoMenuLastSync(JSON.parse(saved)); }
+      if (saved) {
+        renderPoMenuLastSync(JSON.parse(saved));
+      } else if (poId) {
+        $.getJSON("/ajax/po-menu-sync-last-result.php?po_id=" + poId, function(r) {
+          if (r && r.success && r.result) {
+            var d = r.result;
+            d.time = d.timestamp || "";
+            renderPoMenuLastSync(d);
+          }
+        });
+      }
     } catch (e) {}
   }
 });
