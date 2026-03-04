@@ -204,8 +204,8 @@ PROMPT;
                     'properties' => [
                         'name' => ['type' => 'string'],
                         'price' => ['type' => 'number'],
-                        'brand_id' => ['type' => ['integer', 'null']],
-                        'category_id' => ['type' => ['integer', 'null']],
+                        'brand_id' => ['type' => 'integer'],
+                        'category_id' => ['type' => 'integer'],
                     ],
                     'required' => ['name', 'price'],
                 ],
