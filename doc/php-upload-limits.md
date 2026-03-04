@@ -2,6 +2,8 @@
 
 When you see **"The uploaded file exceeds the upload_max_filesize directive in php.ini"**, the file is larger than PHP’s current limit. Increase the limits as follows.
 
+**This repo includes a `.user.ini`** in the project root with `upload_max_filesize=64M` and `post_max_size=64M`. Many hosts (e.g. Apache with mod_php) apply it automatically. **If you still see 2M/8M**, your host may ignore `.user.ini` (common with PHP-FPM). In that case set the same values in **Plesk → Domains → your domain → PHP Settings** and apply.
+
 ## 1. Set the limits
 
 You need to raise **both** (and keep `post_max_size` ≥ `upload_max_filesize`):
