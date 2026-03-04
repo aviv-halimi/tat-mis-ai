@@ -5,7 +5,8 @@
  * - disable_po_product_ids: PO line IDs to set is_enabled = 0 (not on menu / not available)
  * - add_products: [{ "name": "...", "price": number }, ...] to add as custom products (on menu but not on PO).
  *
- * Requires GEMINI_API_KEY. Model: gemini-2.0-flash (or GEMINI_MODEL).
+ * Requires GEMINI_API_KEY. Model: GEMINI_PO_MENU_MODEL if set (use gemini-1.5-flash-8b for speed), else GEMINI_MODEL.
+ * For 504 Gateway Time-out: increase nginx/proxy and PHP timeouts; see doc/po-menu-sync-504-timeout.md.
  */
 
 if (!defined('GEMINI_API_KEY')) {
@@ -14,6 +15,11 @@ if (!defined('GEMINI_API_KEY')) {
 
 if (!defined('GEMINI_MODEL')) {
     define('GEMINI_MODEL', 'gemini-2.0-flash');
+}
+
+// Faster model for PO menu sync only (reduces chance of 504). Uncomment in _config.php or set in env.
+if (!defined('GEMINI_PO_MENU_MODEL')) {
+    define('GEMINI_PO_MENU_MODEL', '');
 }
 
 /**
@@ -93,7 +99,9 @@ PROMPT;
 
     $parts[] = ['text' => $prompt];
 
-    $model = (defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-2.0-flash';
+    $model = (defined('GEMINI_PO_MENU_MODEL') && GEMINI_PO_MENU_MODEL !== '')
+        ? GEMINI_PO_MENU_MODEL
+        : ((defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-2.0-flash');
     $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode($model) . ':generateContent?key=' . urlencode($apiKey);
 
     $payload = [
