@@ -26,9 +26,11 @@ if (!defined('GEMINI_PO_MENU_MODEL')) {
  * @param array $pdf_file_paths Array of absolute paths to PDF files (brand menu).
  * @param array $po_products Array of ['po_product_id' => int, 'product_name' => string].
  * @param array|null $debug_log Optional array to append log messages.
- * @return array|null ['disable_po_product_ids' => int[], 'add_products' => [['name'=>string,'price'=>float], ...]] or null on failure.
+ * @param array $po_brands Optional list of brands on the PO: [['brand_id'=>int,'brand_name'=>string], ...].
+ * @param array $po_categories Optional list of categories on the PO: [['category_id'=>int,'category_name'=>string], ...].
+ * @return array|null ['disable_po_product_ids' => int[], 'add_products' => [['name'=>string,'price'=>float,'brand_id'=>int|null,'category_id'=>int|null], ...]] or null on failure.
  */
-function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_log = null)
+function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_log = null, array $po_brands = array(), array $po_categories = array())
 {
     $debug_log = $debug_log ?? [];
 
@@ -74,27 +76,42 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
     }
     $po_list_json = json_encode($po_list);
 
+    $brands_text = '';
+    if (!empty($po_brands)) {
+        $brands_text = "**Brands on this PO (use these brand_id values when mapping new products):**\n" . json_encode($po_brands) . "\n\n";
+    }
+    $categories_text = '';
+    if (!empty($po_categories)) {
+        $categories_text = "**Categories on this PO (use these category_id values when mapping new products):**\n" . json_encode($po_categories) . "\n\n";
+    }
+
+    $add_products_schema = ' { "name": "Product Name", "price": number';
+    if (!empty($po_brands) || !empty($po_categories)) {
+        $add_products_schema .= ', "brand_id": number or null, "category_id": number or null';
+    }
+    $add_products_schema .= ' }, ... ]';
+
     $prompt = <<<PROMPT
 You are analyzing brand/vendor menu PDFs and comparing them to the current purchase order (PO) product list.
 
-**PO products (current lines on the order):**
+{$brands_text}{$categories_text}**PO products (current lines on the order):**
 {$po_list_json}
 
 From the attached PDF(s), extract the full product/price list that appears on the brand's current menu (product name and price per unit where visible).
 
 Then:
 1) **Disable PO lines not on the menu**: Any PO product that does NOT appear on the menu (or no clear match) should be considered "not available" — include its po_product_id in disable_po_product_ids. Use fuzzy matching: e.g. "Blue Dream 1/8" on the PO can match "Blue Dream - 1/8 oz" on the menu. Only disable when there is no reasonable match.
-2) **Add menu items not on the PO**: Any product that appears on the menu but does NOT already have a matching line on the PO — include it in add_products with "name" (exact or best product name from the menu) and "price" (numeric unit price from the menu; use 0 if not found).
+2) **Add menu items not on the PO**: Any product that appears on the menu but does NOT already have a matching line on the PO — include it in add_products with "name" (exact or best product name from the menu), "price" (numeric unit price from the menu; use 0 if not found), and when brands/categories are provided above, set "brand_id" and "category_id" to the matching ID from those lists when you can infer the correct brand or category from the product name or menu context (e.g. flower vs edible); use null if unsure.
 
 Reply with ONLY a single JSON object, no other text. Use exactly these keys:
 
 {
   "disable_po_product_ids": [ list of po_product_id integers to disable ],
-  "add_products": [ { "name": "Product Name", "price": number }, ... ]
+  "add_products": [{$add_products_schema}
 }
 
 Example:
-{"disable_po_product_ids": [101, 102], "add_products": [{"name": "New Strain 1g", "price": 15.00}, {"name": "Edible Pack", "price": 25.00}]}
+{"disable_po_product_ids": [101, 102], "add_products": [{"name": "New Strain 1g", "price": 15.00, "brand_id": 5, "category_id": 1}, {"name": "Edible Pack", "price": 25.00, "brand_id": null, "category_id": 2}]}
 PROMPT;
 
     $parts[] = ['text' => $prompt];
@@ -232,7 +249,18 @@ PROMPT;
                 continue;
             }
             $price = isset($item['price']) && is_numeric($item['price']) ? (float) $item['price'] : 0.0;
-            $add_products[] = ['name' => $name, 'price' => $price];
+            $row = ['name' => $name, 'price' => $price];
+            if (isset($item['brand_id']) && (is_int($item['brand_id']) || (is_string($item['brand_id']) && $item['brand_id'] !== '' && is_numeric($item['brand_id'])))) {
+                $row['brand_id'] = (int) $item['brand_id'];
+            } elseif (isset($item['brand_id']) && $item['brand_id'] === null) {
+                $row['brand_id'] = null;
+            }
+            if (isset($item['category_id']) && (is_int($item['category_id']) || (is_string($item['category_id']) && $item['category_id'] !== '' && is_numeric($item['category_id'])))) {
+                $row['category_id'] = (int) $item['category_id'];
+            } elseif (isset($item['category_id']) && $item['category_id'] === null) {
+                $row['category_id'] = null;
+            }
+            $add_products[] = $row;
         }
     }
 

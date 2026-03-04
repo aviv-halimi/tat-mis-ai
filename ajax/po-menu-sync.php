@@ -81,18 +81,43 @@ foreach ($products_rs as $row) {
     );
 }
 
+// Distinct brands and categories on this PO for Gemini to map new products.
+$db = $_Session->db;
+$brands_rs = getRs(
+    "SELECT DISTINCT b.brand_id, b.name AS brand_name FROM po_product p " .
+    "INNER JOIN {$db}.brand b ON b.brand_id = p.brand_id " .
+    "WHERE p.po_id = ? AND p.is_active = 1 AND p.brand_id IS NOT NULL AND p.brand_id > 0",
+    array($po_id)
+);
+$categories_rs = getRs(
+    "SELECT DISTINCT c.category_id, c.name AS category_name FROM po_product p " .
+    "INNER JOIN {$db}.category c ON c.category_id = p.category_id " .
+    "WHERE p.po_id = ? AND p.is_active = 1 AND p.category_id IS NOT NULL AND p.category_id > 0",
+    array($po_id)
+);
+$po_brands = array();
+foreach ($brands_rs as $r) {
+    $po_brands[] = array('brand_id' => (int) $r['brand_id'], 'brand_name' => (string) $r['brand_name']);
+}
+$po_categories = array();
+foreach ($categories_rs as $r) {
+    $po_categories[] = array('category_id' => (int) $r['category_id'], 'category_name' => (string) $r['category_name']);
+}
+$valid_brand_ids = array_column($po_brands, 'brand_id');
+$valid_category_ids = array_column($po_categories, 'category_id');
+
 $log_dir = defined('BASE_PATH') ? BASE_PATH . 'log' : dirname(__FILE__) . '/../log';
 
 require_once dirname(__FILE__) . '/../inc/ai-po-menu-gemini.php';
 
 $debug_log = array();
-$debug_log[] = '[SYNC] ' . date('Y-m-d H:i:s') . ' PO ' . $po_id . ' (' . $po_code . '). PDFs: ' . count($pdf_paths) . ', PO products: ' . count($po_products);
+$debug_log[] = '[SYNC] ' . date('Y-m-d H:i:s') . ' PO ' . $po_id . ' (' . $po_code . '). PDFs: ' . count($pdf_paths) . ', PO products: ' . count($po_products) . ', brands: ' . count($po_brands) . ', categories: ' . count($po_categories);
 
 if (is_dir($log_dir) || @mkdir($log_dir, 0755, true)) {
     @file_put_contents($log_dir . '/po-menu-sync.log', '[' . date('Y-m-d H:i:s') . "] PO {$po_id} START – calling Gemini\n" . implode("\n", $debug_log) . "\n", FILE_APPEND | LOCK_EX);
 }
 
-$result = matchPoToMenuGemini($pdf_paths, $po_products, $debug_log);
+$result = matchPoToMenuGemini($pdf_paths, $po_products, $debug_log, $po_brands, $po_categories);
 
 if ($result === null) {
     $log_dir = defined('BASE_PATH') ? BASE_PATH . 'log' : dirname(__FILE__) . '/../log';
@@ -128,13 +153,20 @@ foreach ($result['add_products'] as $item) {
     if ($name === '') {
         continue;
     }
-    $res = $_PO->SavePOCustomProduct(array(
+    $params = array(
         'po_code' => $po_code,
         'po_product_name' => $name,
         'price' => $price,
         'qty' => 0,
         'is_existing_product' => 0,
-    ));
+    );
+    if (!empty($valid_brand_ids) && isset($item['brand_id']) && (int) $item['brand_id'] > 0 && in_array((int) $item['brand_id'], $valid_brand_ids, true)) {
+        $params['brand_id'] = (int) $item['brand_id'];
+    }
+    if (!empty($valid_category_ids) && isset($item['category_id']) && (int) $item['category_id'] > 0 && in_array((int) $item['category_id'], $valid_category_ids, true)) {
+        $params['category_id'] = (int) $item['category_id'];
+    }
+    $res = $_PO->SavePOCustomProduct($params);
     if (!empty($res['success'])) {
         $added++;
     } else {

@@ -75,7 +75,7 @@ $(document).ready(function(e) {
     $.ajax({
       url: "/ajax/po-menu-sync",
       type: "POST",
-      data: { po_id: poId, po_code: poCode || "", background: 1, _r: Math.random() },
+      data: { po_id: poId, po_code: poCode || "", _r: Math.random() },
       dataType: "json"
     }).done(function(res) {
       btn.prop("disabled", false);
