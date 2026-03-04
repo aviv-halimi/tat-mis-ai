@@ -33,6 +33,40 @@ $(document).ready(function(e) {
       showStatus("status", "Request failed: " + (err || status), "error", true);
     });
   });
+  $(".btn-save-menu-pdfs").on("click", function(e) {
+    var $f = $("#f_po-menu-data");
+    if (!$f.length) return;
+    showStatus("status", "Saving menu PDFs...", "info");
+    postAjax("po-data", $f.serialize(), "status", function(data) {
+      if (data && data.success) showStatus("status", data.response || "Saved.", "ok", true);
+      else showStatus("status", (data && data.response) ? data.response : "Save failed.", "error", true);
+    });
+  });
+  $(document).on("click", ".btn-po-menu-sync", function(e) {
+    var btn = $(this);
+    var poId = btn.data("po-id");
+    var poCode = btn.data("po-code");
+    if (!poId && !poCode) return;
+    btn.prop("disabled", true);
+    showStatus("status", "Syncing PO with menu (AI)...", "info");
+    $.ajax({
+      url: "/ajax/po-menu-sync",
+      type: "POST",
+      data: { po_id: poId, po_code: poCode || "", _r: Math.random() },
+      dataType: "json"
+    }).done(function(res) {
+      btn.prop("disabled", false);
+      if (res && res.success) {
+        showStatus("status", res.message || "Done.", "ok", true);
+        setTimeout(function() { location.reload(); }, 800);
+      } else {
+        showStatus("status", (res && res.error) ? res.error : "Sync failed.", "error", true);
+      }
+    }).fail(function(xhr, status, err) {
+      btn.prop("disabled", false);
+      showStatus("status", "Request failed: " + (err || status), "error", true);
+    });
+  });
 });
 </script>';
 
@@ -98,7 +132,7 @@ if ($po_code) {
 $restock_type_id = $_restock_type_id = null;
 $_hide_options = false;
 $timespan = '';
-$_po_name = $_description = $po_number = $_po_number = $_po_status_id = $_date_ordered = $_date_last_purchased = $_date_requested_ship = $_date_schedule_delivery = $_date_received = $_invoice_number = $_invoice_filename = $_po_filename = $_coa_filename = $_coa_filenames = $_email = $_payment_terms = null;
+$_po_name = $_description = $po_number = $_po_number = $_po_status_id = $_date_ordered = $_date_last_purchased = $_date_requested_ship = $_date_schedule_delivery = $_date_received = $_invoice_number = $_invoice_filename = $_po_filename = $_coa_filename = $_coa_filenames = $_menu_filenames = $_email = $_payment_terms = null;
 
 $_date_schedule_delivery_placeholder = date('n/j/Y', strtotime("+ " . $_Session->GetSetting('scheduling-window') . " days")) . ' (default)';
 
@@ -131,6 +165,7 @@ if ($_po_id) {
     $_po_type_id = $r['po_type_id'];
     $_coa_filename = $r['coa_filename'];
     $_coa_filenames = $r['coa_filenames'];
+    $_menu_filenames = isset($r['menu_filenames']) ? $r['menu_filenames'] : null;
     $_date_ordered = getShortDate($r['date_ordered']);
     $_date_received = getShortDate($r['date_received']);
     //$_date_start = getShortDate($r['date_start']);
@@ -719,6 +754,21 @@ echo '
     <li><a href="javascript:;"><i class="text-muted">E-mail to Admin</i></a></li>
 </ul>
 </div>');
+
+if ($t['po_status_id'] == 2) {
+  echo '
+  <div class="btn-group m-b-5 m-r-5">
+    <span class="btn btn-outline-info"><i class="fa fa-list-alt mr-1"></i> Brand menu</span>
+  </div>
+  <form id="f_po-menu-data" class="po-data d-inline" action="" method="post">
+    <input type="hidden" name="c" value="' . htmlspecialchars($po_code) . '" />
+    <input type="hidden" name="f" value="menu_filenames" />
+    <span class="menu-filenames-widget">' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', 'Upload menu PDF(s)...') . '</span>
+    <button type="button" class="btn btn-outline-secondary btn-save-menu-pdfs ml-2">Save menu PDFs</button>
+  </form>
+  <button type="button" class="btn btn-primary btn-po-menu-sync ml-2" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-magic mr-1"></i> Sync PO with menu (AI)</button>
+  ';
+}
 
 if ($t['po_status_id'] > 2) {
   if ($_coa_filenames) {

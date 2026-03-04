@@ -431,6 +431,9 @@ function initAssets(select2) {
     if ($(this).hasClass('coa_filenames')) {
       updateCOA();
     }
+    if ($(this).hasClass('menu_filenames')) {
+      if (typeof updateMenuPDFs === 'function') updateMenuPDFs();
+    }
   });
 	$('.btn-remove-media-item').off('click').on('click', function(e) {
 		e.preventDefault();
@@ -440,6 +443,9 @@ function initAssets(select2) {
       $(this).remove(); 
       if ($this.hasClass('coa_filenames')) {
         updateCOA();
+      }
+      if ($this.hasClass('menu_filenames')) {
+        if (typeof updateMenuPDFs === 'function') updateMenuPDFs();
       }
     });
   });
@@ -1501,6 +1507,11 @@ function deleteFile($this) {
 
 function updateCOA() {
   postAjax('po-data', $('#f_po-data').serialize(), 'status');
+}
+
+function updateMenuPDFs() {
+  var $f = $('#f_po-menu-data');
+  if ($f.length) postAjax('po-data', $f.serialize(), 'status');
 }
 
 function formatRepo (repo) {

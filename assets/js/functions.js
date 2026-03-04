@@ -981,6 +981,11 @@ function initUploads() {
 									updateCOA();
 								}, 500);
 							}
+							if (id == 'menu_filenames') {
+								setTimeout(function() { 
+									if (typeof updateMenuPDFs === 'function') updateMenuPDFs();
+								}, 500);
+							}
 						}
 						initAssets();
 					}
