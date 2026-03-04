@@ -48,7 +48,10 @@ if (isset($_POST['action']) && $_POST['action'] === 'get_templates') {
         'filename' => isset($rb['filename']) ? $rb['filename'] : '',
     );
     $nt = getRow(getRs("SELECT subject, message FROM notification_type WHERE " . is_enabled() . " AND notification_type_id = ?", array($notification_type_id)));
-    $subj = (isset($nt['subject']) ? insertPlaceholders($nt['subject'], $placeholders) : '');
+    $subj_base = (isset($nt['subject']) ? insertPlaceholders($nt['subject'], $placeholders) : '');
+    $report_date_ts = !empty($rb['date_start']) ? strtotime($rb['date_start']) : time();
+    $subj_prefix = trim(isset($rb['brand_name']) ? $rb['brand_name'] : '') . ' ' . date('M', $report_date_ts) . ' ' . date('Y', $report_date_ts);
+    $subj = $subj_prefix . ($subj_base !== '' ? ' ' . $subj_base : '');
     $msg = (isset($nt['message']) ? insertPlaceholders($nt['message'], $placeholders) : '');
     echo json_encode(array('success' => true, 'subject' => $subj, 'message' => $msg));
     exit;
@@ -108,8 +111,7 @@ if ($store1_db !== '') {
     }
 }
 
-$from_name = ($store1 && !empty($store1['description'])) ? $store1['description'] : 'The Artist Tree';
-// Always send from accounting@ for this module (ignore store settings).
+$from_name = 'Artist Tree Accounting';
 $from_email = 'accounting@theartisttree.com';
 
 $attachments = array();
@@ -128,10 +130,7 @@ if ($report_format === 'xlsx') {
 }
 
 $to_name = $contact_name !== '' ? $contact_name : (isset($rb['brand_name']) ? $rb['brand_name'] : 'Brand');
-// Prepend brand and report month/year (from date_start) to subject: "{Brand} {Month} {Year} {Notification Subject}"
-$report_date_ts = !empty($rb['date_start']) ? strtotime($rb['date_start']) : time();
-$subject_prefix = trim(isset($rb['brand_name']) ? $rb['brand_name'] : '') . ' ' . date('M', $report_date_ts) . ' ' . date('Y', $report_date_ts);
-$subject = $subject_prefix . ($subject !== '' ? ' ' . $subject : '');
+// Subject already includes "{Brand} {Month} {Year} ..." from the modal; use as-is.
 $result = sendEmail($from_name, $from_email, $to_name, $email, $subject, $message, null, $attachments, null, 'accounting@theartisttree.com');
 
 if (!empty($result['success'])) {
