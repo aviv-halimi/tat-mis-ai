@@ -121,7 +121,7 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
     }
     if (count($pdf_text_parts) === count($pdf_file_paths) && count($pdf_text_parts) > 0) {
         $parts = [['text' => "Menu text from PDF(s):\n\n" . implode("\n\n---\n\n", $pdf_text_parts)]];
-        $debug_log[] = '[REQUEST] Using pdftotext (text-only input); ' . count($pdf_text_parts) . ' PDF(s) extracted.';
+        $debug_log[] = '[REQUEST] Input mode: TEXT (pdftotext) — ' . count($pdf_text_parts) . ' PDF(s) converted to text. Smaller payload, faster.';
     }
     if (empty($parts)) {
         foreach ($pdf_file_paths as $path) {
@@ -137,6 +137,9 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
                     ],
                 ];
             }
+        }
+        if (!empty($parts)) {
+            $debug_log[] = '[REQUEST] Input mode: PDF (base64 inline) — sending raw PDFs. Larger payload; use pdftotext on server to switch to text.';
         }
     }
     if (empty($parts)) {
