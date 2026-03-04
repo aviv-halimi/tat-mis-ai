@@ -108,17 +108,20 @@ $(document).ready(function(e) {
   if (poId || poCode) {
     try {
       var key = "po_menu_sync_" + (poId || poCode);
-      var saved = sessionStorage.getItem(key);
-      if (saved) {
-        renderPoMenuLastSync(JSON.parse(saved));
-      } else if (poId) {
+      if (poId) {
         $.getJSON("/ajax/po-menu-sync-last-result.php?po_id=" + poId, function(r) {
           if (r && r.success && r.result) {
             var d = r.result;
-            d.time = d.timestamp || "";
+            d.time = d.time || d.timestamp || "";
             renderPoMenuLastSync(d);
+          } else {
+            var saved = sessionStorage.getItem(key);
+            if (saved) { renderPoMenuLastSync(JSON.parse(saved)); }
           }
         });
+      } else {
+        var saved = sessionStorage.getItem(key);
+        if (saved) { renderPoMenuLastSync(JSON.parse(saved)); }
       }
     } catch (e) {}
   }
