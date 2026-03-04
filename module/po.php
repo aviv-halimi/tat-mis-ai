@@ -103,7 +103,7 @@ $(document).ready(function(e) {
     }).fail(function(xhr, status, err) {
       stopStatus();
       var key = "po_menu_sync_" + (poId || poCode);
-      var is504 = (xhr && xhr.status === 504) || (xhr && xhr.responseText && xhr.responseText.indexOf('504') !== -1);
+      var is504 = (xhr && xhr.status === 504) || (xhr && xhr.responseText && xhr.responseText.indexOf(\'504\') !== -1);
       $statusText.text(is504
         ? "Request timed out (504). If the sync completed on the server, click \"Reload to see changes\" below to load the result."
         : "Request failed. If the sync completed, click \"Reload to see changes\" below to load the result.");
