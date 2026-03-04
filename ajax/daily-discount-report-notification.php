@@ -109,14 +109,8 @@ if ($store1_db !== '') {
 }
 
 $from_name = ($store1 && !empty($store1['description'])) ? $store1['description'] : 'The Artist Tree';
-// Daily discount report emails show From accounting@; SMTP login is unchanged (e.g. Gmail).
+// Always send from accounting@ for this module (ignore store settings).
 $from_email = 'accounting@theartisttree.com';
-if ($store1 && !empty($store1['params'])) {
-    $params = @json_decode($store1['params'], true);
-    if (is_array($params) && !empty($params['po_email'])) {
-        $from_email = trim($params['po_email']);
-    }
-}
 
 $attachments = array();
 $dir = MEDIA_PATH . 'daily_discount_report_brand/';
@@ -134,6 +128,10 @@ if ($report_format === 'xlsx') {
 }
 
 $to_name = $contact_name !== '' ? $contact_name : (isset($rb['brand_name']) ? $rb['brand_name'] : 'Brand');
+// Prepend brand and report month/year (from date_start) to subject: "{Brand} {Month} {Year} {Notification Subject}"
+$report_date_ts = !empty($rb['date_start']) ? strtotime($rb['date_start']) : time();
+$subject_prefix = trim(isset($rb['brand_name']) ? $rb['brand_name'] : '') . ' ' . date('M', $report_date_ts) . ' ' . date('Y', $report_date_ts);
+$subject = $subject_prefix . ($subject !== '' ? ' ' . $subject : '');
 $result = sendEmail($from_name, $from_email, $to_name, $email, $subject, $message, null, $attachments, null, 'accounting@theartisttree.com');
 
 if (!empty($result['success'])) {
