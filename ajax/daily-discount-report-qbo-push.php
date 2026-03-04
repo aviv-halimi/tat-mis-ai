@@ -20,7 +20,7 @@ if (!$daily_discount_report_brand_id) {
 }
 
 $rb = getRow(getRs(
-    "SELECT rb.daily_discount_report_brand_id, rb.brand_id, rb.filename, r.date_start, r.date_end, b.name AS brand_name FROM daily_discount_report_brand rb INNER JOIN daily_discount_report r ON r.daily_discount_report_id = rb.daily_discount_report_id INNER JOIN blaze1.brand b ON b.brand_id = rb.brand_id WHERE rb.daily_discount_report_brand_id = ? AND " . is_enabled('rb,r'),
+    "SELECT rb.daily_discount_report_brand_id, rb.brand_id, rb.filename, r.date_start, r.date_end, b.name AS brand_name, b.QBO_Brand_Name FROM daily_discount_report_brand rb INNER JOIN daily_discount_report r ON r.daily_discount_report_id = rb.daily_discount_report_id INNER JOIN blaze1.brand b ON b.brand_id = rb.brand_id WHERE rb.daily_discount_report_brand_id = ? AND " . is_enabled('rb,r'),
     array($daily_discount_report_brand_id)
 ));
 if (!$rb) {
@@ -246,11 +246,8 @@ if ($action === 'preview_push') {
     $base_preview = $brand_preview . ' - ' . date('M j', $report_date_preview) . ' - Rebate Report';
     $filename_preview = isset($rb['filename']) && trim($rb['filename']) !== '' ? trim($rb['filename']) : ($base_preview . '.pdf');
     $pdf_name_preview = $preview_format === 'xlsx' ? ($base_preview . '.xlsx') : basename($filename_preview);
-    $brand_name_preview = isset($rb['brand_name']) ? trim((string)$rb['brand_name']) : '';
-    $doc_suffix_preview = '-' . date('M', $report_date_preview) . ' DD'; // report month, e.g. "-Mar DD"
-    $doc_max_brand_preview = 21 - strlen($doc_suffix_preview);
-    $doc_base_preview = ($doc_max_brand_preview > 0 && $brand_name_preview !== '') ? mb_substr($brand_name_preview, 0, $doc_max_brand_preview) : 'DD';
-    $doc_number_preview = mb_substr($doc_base_preview . $doc_suffix_preview, 0, 21);
+    $doc_brand_name_preview = (isset($rb['QBO_Brand_Name']) && trim((string)$rb['QBO_Brand_Name']) !== '') ? trim((string)$rb['QBO_Brand_Name']) : (isset($rb['brand_name']) ? trim((string)$rb['brand_name']) : '');
+    $doc_suffix_preview = '-' . date('M', $report_date_preview) . ' DD';
     $txn_date_preview = date('Y-m-d');
 
     $s1 = isset($stores[0]) ? $stores[0] : null;
@@ -259,8 +256,17 @@ if ($action === 'preview_push') {
         exit;
     }
     $store_id = (int)$s1['store_id'];
-    if ($store_id == 12) $doc_number_preview .= ' (Dv)';
-    elseif ($store_id == 13) $doc_number_preview .= ' (Dx)';
+    if ($store_id == 12) {
+        $suffix_extra_preview = ' (Dv)';
+    } elseif ($store_id == 13) {
+        $suffix_extra_preview = ' (Dx)';
+    } else {
+        $suffix_extra_preview = '';
+    }
+    $full_suffix_preview = $doc_suffix_preview . $suffix_extra_preview;
+    $max_brand_preview = 21 - strlen($full_suffix_preview);
+    $doc_base_preview = ($max_brand_preview > 0 && $doc_brand_name_preview !== '') ? mb_substr($doc_brand_name_preview, 0, $max_brand_preview) : 'DD';
+    $doc_number_preview = $doc_base_preview . $full_suffix_preview;
     $store_name = isset($s1['store_name']) ? $s1['store_name'] : 'Store ' . $store_id;
     $store_db = isset($s1['store_db']) ? preg_replace('/[^a-z0-9_]/i', '', $s1['store_db']) : '';
     $dr = getRow(getRs("SELECT params FROM daily_discount_report_store WHERE daily_discount_report_brand_id = ? AND store_id = ?", array($daily_discount_report_brand_id, $store_id)));
@@ -415,10 +421,21 @@ foreach ($stores as $s) {
 
     $token = qbo_get_access_token($store_id);
     $account_daily = isset($token['account_id_daily_discount']) ? trim($token['account_id_daily_discount']) : '';
-    $doc_number = $doc_number_template; // e.g. "Wavvy-Mar DD"
-    if ($store_id == 12) $doc_number .= ' (Dv)';
-    elseif ($store_id == 13) $doc_number .= ' (Dx)';
-    $doc_number = mb_substr($doc_number, 0, 21);
+    if ($store_id == 12) {
+        $suffix_extra = ' (Dv)';
+    } elseif ($store_id == 13) {
+        $suffix_extra = ' (Dx)';
+    } else {
+        $suffix_extra = '';
+    }
+    if ($suffix_extra !== '') {
+        $full_suffix = $doc_number_suffix . $suffix_extra;
+        $max_brand_len = 21 - strlen($full_suffix);
+        $doc_number = ($max_brand_len > 0 && $doc_brand_name !== '') ? mb_substr($doc_brand_name, 0, $max_brand_len) : 'DD';
+        $doc_number .= $full_suffix;
+    } else {
+        $doc_number = $doc_number_template;
+    }
     $txn_date = date('Y-m-d'); // today's date
 
     $qbo_send_str = 'store_id=' . $store_id . ' vendor_id=' . $qbo_vendor_id . ' amount=' . $store_total . ' account_daily=' . $account_daily . ' doc_number=' . $doc_number . ' txn_date=' . $txn_date . ' note=' . substr($note, 0, 80);

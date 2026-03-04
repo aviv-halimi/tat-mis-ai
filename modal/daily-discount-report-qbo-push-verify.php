@@ -12,15 +12,20 @@ if (!$daily_discount_report_brand_id) {
     exit;
 }
 $rb = getRow(getRs(
-    "SELECT rb.daily_discount_report_brand_id, rb.brand_id, b.name AS brand_name FROM daily_discount_report_brand rb INNER JOIN blaze1.brand b ON b.brand_id = rb.brand_id WHERE rb.daily_discount_report_brand_id = ? AND " . is_enabled('rb'),
+    "SELECT rb.daily_discount_report_brand_id, rb.brand_id, b.name AS brand_name, b.QBO_Brand_Name FROM daily_discount_report_brand rb INNER JOIN blaze1.brand b ON b.brand_id = rb.brand_id WHERE rb.daily_discount_report_brand_id = ? AND " . is_enabled('rb'),
     array($daily_discount_report_brand_id)
 ));
 if (!$rb) {
     echo '<div class="alert alert-danger">Report brand not found.</div>';
     exit;
 }
+$qbo_brand_name = isset($rb['QBO_Brand_Name']) ? trim((string)$rb['QBO_Brand_Name']) : '';
 ?>
 <div class="dd-qbo-push-verify" data-daily-discount-report-brand-id="<?php echo (int)$daily_discount_report_brand_id; ?>" data-format="<?php echo htmlspecialchars($report_format); ?>">
+  <div class="row m-b-10">
+    <div class="col-sm-4 col-form-label">QBO Brand Name:</div>
+    <div class="col-sm-8"><input type="text" name="qbo_brand_name" id="dd-qbo-brand-name" class="form-control" value="<?php echo htmlspecialchars($qbo_brand_name); ?>" placeholder="Override brand name for QBO doc number (saved per brand)" /></div>
+  </div>
   <p class="text-muted">Verify rebate totals below, then push to QuickBooks for all stores.</p>
   <div id="dd-qbo-verify-table-wrap" class="table-responsive mb-3">
     <div class="text-center text-muted py-3"><i class="fa fa-spinner fa-spin"></i> Loading…</div>

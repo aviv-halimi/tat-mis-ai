@@ -441,7 +441,7 @@ function updateDialog2(url, title, a, c, format) {
 			});
 			$('#modal').off('click.dd_qbo_verify').on('click.dd_qbo_verify', '#dd-qbo-push-verify-btn', function() {
 				var $btn = $(this);
-				var payload = { action: 'push', daily_discount_report_brand_id: brandIdVerify, format: formatVerify };
+				var payload = { action: 'push', daily_discount_report_brand_id: brandIdVerify, format: formatVerify, qbo_brand_name: ($('#modal input[name="qbo_brand_name"]').val() || '').trim() };
 				$btn.prop('disabled', true);
 				var $result = $('#modal #dd-qbo-push-verify-result');
 				var $log = $('#modal #dd-qbo-push-verify-log');
