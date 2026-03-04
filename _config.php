@@ -51,8 +51,9 @@ define('INVOICE_VALIDATE_PHP_CLI', '/opt/plesk/php/8.3/bin/php');
 
 # Optional: for invoice validation with Gemini. Set in env as GEMINI_API_KEY or uncomment below.
 // define('GEMINI_API_KEY', '');
-# Faster model for PO menu sync (reduces 504 timeouts). Use gemini-1.5-flash or leave commented to use GEMINI_MODEL (e.g. gemini-2.0-flash). See doc/po-menu-sync-504-timeout.md.
-define('GEMINI_PO_MENU_MODEL', 'gemini-1.5-flash');
+# Optional: use a different model for PO menu sync only. If unset, uses GEMINI_MODEL (e.g. gemini-2.0-flash).
+# Some keys/regions only support certain models; if you get 404, leave this commented. See doc/po-menu-sync-504-timeout.md.
+// define('GEMINI_PO_MENU_MODEL', 'gemini-1.5-flash');
 
 require_once(BASE_PATH . 'inc/settings.php')
 ?>
