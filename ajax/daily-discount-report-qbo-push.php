@@ -358,7 +358,7 @@ if ($single_store_id > 0) {
 }
 
 $brand_name = isset($rb['brand_name']) ? trim((string)$rb['brand_name']) : '';
-$doc_number_suffix = ' -' . date('M j') . '-DD'; // e.g. " -Feb 26-DD"
+$doc_number_suffix = '-' . date('M') . ' DD'; // e.g. "-Mar DD" (no day)
 $doc_number_max_brand = 21 - strlen($doc_number_suffix);
 $doc_number_base = ($doc_number_max_brand > 0 && $brand_name !== '') ? mb_substr($brand_name, 0, $doc_number_max_brand) : 'DD';
 $doc_number_template = $doc_number_base . $doc_number_suffix;
@@ -410,6 +410,7 @@ foreach ($stores as $s) {
     $doc_number = $doc_number_template; // e.g. "Wavvy-Mar DD"
     if ($store_id == 12) $doc_number .= ' (Dv)';
     elseif ($store_id == 13) $doc_number .= ' (Dx)';
+    $doc_number = mb_substr($doc_number, 0, 21);
     $txn_date = date('Y-m-d'); // today's date
 
     $qbo_send_str = 'store_id=' . $store_id . ' vendor_id=' . $qbo_vendor_id . ' amount=' . $store_total . ' account_daily=' . $account_daily . ' doc_number=' . $doc_number . ' txn_date=' . $txn_date . ' note=' . substr($note, 0, 80);
