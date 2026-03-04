@@ -71,12 +71,12 @@ A smaller, faster model can shorten the sync time and reduce the chance of hitti
 In **\_config.php** (or in environment), set a model used **only** for PO menu sync:
 
 ```php
-// Faster model for PO menu sync (helps avoid 504)
-define('GEMINI_PO_MENU_MODEL', 'gemini-1.5-flash-8b');
+// Faster model for PO menu sync (helps avoid 504). Use gemini-1.5-flash.
+define('GEMINI_PO_MENU_MODEL', 'gemini-1.5-flash');
 ```
 
 If `GEMINI_PO_MENU_MODEL` is set, the app uses it for “Sync PO with menu” only; other features (e.g. invoice validation) keep using `GEMINI_MODEL`.  
-`gemini-1.5-flash-8b` is typically faster than `gemini-2.0-flash`; if you still see 504, increase timeouts as in section 1.
+Use **gemini-1.5-flash** (the correct API model ID). If you still see 504, increase timeouts as in section 1. To use the default model (e.g. gemini-2.0-flash) instead, comment out the `define` line.
 
 ---
 

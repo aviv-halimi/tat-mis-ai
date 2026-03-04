@@ -5,7 +5,7 @@
  * - disable_po_product_ids: PO line IDs to set is_enabled = 0 (not on menu / not available)
  * - add_products: [{ "name": "...", "price": number }, ...] to add as custom products (on menu but not on PO).
  *
- * Requires GEMINI_API_KEY. Model: GEMINI_PO_MENU_MODEL if set (use gemini-1.5-flash-8b for speed), else GEMINI_MODEL.
+ * Requires GEMINI_API_KEY. Model: GEMINI_PO_MENU_MODEL if set (e.g. gemini-1.5-flash for speed), else GEMINI_MODEL.
  * For 504 Gateway Time-out: increase nginx/proxy and PHP timeouts; see doc/po-menu-sync-504-timeout.md.
  */
 
