@@ -157,10 +157,16 @@ PROMPT;
     }
 
     $text = trim($text);
-    $text = preg_replace('/^[^{]+/', '', $text);
-    $text = preg_replace('/[^}]+$/', '', $text);
+    // Strip markdown code fences (Gemini often returns ```json\n{...}\n```)
+    $text = preg_replace('/^\s*```(?:json)?\s*\n?/i', '', $text);
+    $text = preg_replace('/\s*```\s*$/s', '', $text);
+    $text = trim($text);
+    // Fallback: strip any leading non-JSON (but do NOT strip from end - that breaks nested JSON)
+    if (!preg_match('/^\s*[{\[]/', $text)) {
+        $text = preg_replace('/^[^{[]+/', '', $text);
+    }
     // Handle array at top level: some models return [ { ... } ]
-    if (preg_match('/^\[/', $text)) {
+    if (preg_match('/^\s*\[/', $text)) {
         $arr = json_decode($text, true);
         if (is_array($arr) && isset($arr[0])) {
             $text = json_encode($arr[0]);
@@ -169,7 +175,7 @@ PROMPT;
     $parsed = json_decode($text, true);
 
     if (!is_array($parsed)) {
-        $debug_log[] = 'Could not parse Gemini JSON: ' . substr($text, 0, 300);
+        $debug_log[] = 'Could not parse Gemini JSON. Last 500 chars: ' . substr($text, -500);
         return null;
     }
 
