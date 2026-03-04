@@ -56,14 +56,18 @@ $(document).ready(function(e) {
       dataType: "json"
     }).done(function(res) {
       btn.prop("disabled", false);
+      if (res && res.debug_log) {
+        console.log("PO menu sync debug log:", res.debug_log);
+      }
       if (res && res.success) {
-        showStatus("status", res.message || "Done.", "ok", true);
+        showStatus("status", res.message || "Done." + (res.debug_log ? " (F12 → Console for request/response log)" : ""), "ok", true);
         setTimeout(function() { location.reload(); }, 800);
       } else {
-        showStatus("status", (res && res.error) ? res.error : "Sync failed.", "error", true);
+        showStatus("status", (res && res.error) ? res.error : "Sync failed." + (res && res.debug_log ? " See F12 Console for log." : ""), "error", true);
       }
     }).fail(function(xhr, status, err) {
       btn.prop("disabled", false);
+      console.log("PO menu sync fail:", status, err, xhr && xhr.responseText);
       showStatus("status", "Request failed: " + (err || status), "error", true);
     });
   });

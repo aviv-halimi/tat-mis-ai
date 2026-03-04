@@ -108,21 +108,37 @@ PROMPT;
         ],
     ];
 
+    $payload_json = json_encode($payload);
+    $payload_bytes = strlen($payload_json);
+    $payload_mb = round($payload_bytes / 1024 / 1024, 2);
+
+    $debug_log[] = '[REQUEST] ' . date('Y-m-d H:i:s') . ' URL: ' . preg_replace('/key=[^&]+/', 'key=***', $url);
+    $debug_log[] = '[REQUEST] Parts: ' . count($parts) . ' (PDFs: ' . (count($parts) - 1) . ', prompt: 1). Payload size: ' . $payload_bytes . ' bytes (' . $payload_mb . ' MB)';
+    $debug_log[] = '[REQUEST] PO products sent: ' . count($po_list) . ' items. Prompt length: ' . strlen($prompt) . ' chars';
+
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_POST => true,
         CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-        CURLOPT_POSTFIELDS => json_encode($payload),
+        CURLOPT_POSTFIELDS => $payload_json,
+        CURLOPT_TIMEOUT => 120,
+        CURLOPT_CONNECTTIMEOUT => 15,
     ]);
 
+    $t0 = microtime(true);
     $response = curl_exec($ch);
+    $elapsed = round(microtime(true) - $t0, 2);
     $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $curlErr = curl_error($ch);
+    $curlErrno = curl_errno($ch);
     curl_close($ch);
 
-    $debug_log[] = 'Gemini HTTP ' . $httpCode . ($curlErr ? ' curl: ' . $curlErr : '')
-        . ' response: ' . (is_string($response) && strlen($response) < 1500 ? $response : substr((string) $response, 0, 1500) . (strlen((string) $response) > 1500 ? '...' : ''));
+    $debug_log[] = '[RESPONSE] ' . date('Y-m-d H:i:s') . ' HTTP ' . $httpCode . ' in ' . $elapsed . 's' . ($curlErr ? ' | curl errno ' . $curlErrno . ': ' . $curlErr : '');
+    $debug_log[] = '[RESPONSE] Body length: ' . (is_string($response) ? strlen($response) : 0) . ' bytes';
+    $debug_log[] = '[RESPONSE] Raw body (first 2000 chars): ' . (is_string($response) && strlen($response) > 0
+        ? substr($response, 0, 2000) . (strlen($response) > 2000 ? ' ...' : '')
+        : '(empty)');
 
     if ($response === false || $curlErr || $httpCode >= 300) {
         return null;
@@ -131,8 +147,12 @@ PROMPT;
     $json = json_decode($response, true);
     $text = $json['candidates'][0]['content']['parts'][0]['text'] ?? null;
 
+    if ($text !== null && $text !== '') {
+        $debug_log[] = '[RESPONSE] Extracted text from Gemini (first 1500 chars): ' . substr($text, 0, 1500) . (strlen($text) > 1500 ? ' ...' : '');
+    }
+
     if ($text === null || $text === '') {
-        $debug_log[] = 'No text in Gemini response.';
+        $debug_log[] = 'No text in Gemini response. candidates: ' . (isset($json['candidates']) ? json_encode($json['candidates']) : 'none');
         return null;
     }
 

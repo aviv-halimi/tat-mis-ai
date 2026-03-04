@@ -84,9 +84,21 @@ foreach ($products_rs as $row) {
 require_once dirname(__FILE__) . '/../inc/ai-po-menu-gemini.php';
 
 $debug_log = array();
+$debug_log[] = '[SYNC] ' . date('Y-m-d H:i:s') . ' PO ' . $po_id . ' (' . $po_code . '). PDFs: ' . count($pdf_paths) . ', PO products: ' . count($po_products);
+
+$log_dir = defined('BASE_PATH') ? BASE_PATH . 'log' : dirname(__FILE__) . '/../log';
+if (is_dir($log_dir) || @mkdir($log_dir, 0755, true)) {
+    @file_put_contents($log_dir . '/po-menu-sync.log', '[' . date('Y-m-d H:i:s') . "] PO {$po_id} START – calling Gemini\n" . implode("\n", $debug_log) . "\n", FILE_APPEND | LOCK_EX);
+}
+
 $result = matchPoToMenuGemini($pdf_paths, $po_products, $debug_log);
 
 if ($result === null) {
+    $log_dir = defined('BASE_PATH') ? BASE_PATH . 'log' : dirname(__FILE__) . '/../log';
+    if (is_dir($log_dir) || @mkdir($log_dir, 0755, true)) {
+        $log_file = $log_dir . '/po-menu-sync.log';
+        @file_put_contents($log_file, '[' . date('Y-m-d H:i:s') . "] PO {$po_id} FAIL\n" . implode("\n", $debug_log) . "\n---\n", FILE_APPEND | LOCK_EX);
+    }
     echo json_encode(array(
         'success' => false,
         'error' => 'AI could not process the menu PDFs.',
@@ -94,6 +106,8 @@ if ($result === null) {
     ));
     exit;
 }
+
+$debug_log[] = '[SYNC] Gemini returned: disable=' . count($result['disable_po_product_ids']) . ', add=' . count($result['add_products']);
 
 $disabled = 0;
 foreach ($result['disable_po_product_ids'] as $pid) {
@@ -135,11 +149,15 @@ if (!empty($add_errors)) {
     }
 }
 
+$log_file = $log_dir . '/po-menu-sync.log';
+@file_put_contents($log_file, '[' . date('Y-m-d H:i:s') . "] PO {$po_id} OK\n" . implode("\n", $debug_log) . "\n---\n", FILE_APPEND | LOCK_EX);
+
 echo json_encode(array(
     'success' => true,
     'message' => $message,
     'disabled_count' => $disabled,
     'added_count' => $added,
     'add_errors' => $add_errors,
+    'debug_log' => $debug_log,
 ));
 exit;
