@@ -39,8 +39,11 @@ if (isset($_POST['action']) && $_POST['action'] === 'get_templates') {
     }
     $contact_name_val = trim(getVar('contact_name', ''));
     $email_val = trim(getVar('email', ''));
+    $report_date_ts = !empty($rb['date_start']) ? strtotime($rb['date_start']) : time();
     $placeholders = array(
         'brand_name' => isset($rb['brand_name']) ? $rb['brand_name'] : '',
+        'Brand_Name' => isset($rb['brand_name']) ? $rb['brand_name'] : '',
+        'Report_Month' => date('M Y', $report_date_ts),
         'contact_name' => $contact_name_val,
         'contact_email' => $email_val,
         'date_start' => isset($rb['date_start']) ? $rb['date_start'] : '',
@@ -49,7 +52,6 @@ if (isset($_POST['action']) && $_POST['action'] === 'get_templates') {
     );
     $nt = getRow(getRs("SELECT subject, message FROM notification_type WHERE " . is_enabled() . " AND notification_type_id = ?", array($notification_type_id)));
     $subj_base = (isset($nt['subject']) ? insertPlaceholders($nt['subject'], $placeholders) : '');
-    $report_date_ts = !empty($rb['date_start']) ? strtotime($rb['date_start']) : time();
     $subj_prefix = trim(isset($rb['brand_name']) ? $rb['brand_name'] : '') . ' ' . date('M', $report_date_ts) . ' ' . date('Y', $report_date_ts);
     $subj = $subj_prefix . ($subj_base !== '' ? ' ' . $subj_base : '');
     $msg = (isset($nt['message']) ? insertPlaceholders($nt['message'], $placeholders) : '');

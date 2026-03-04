@@ -80,8 +80,11 @@ if (!$r) {
     exit;
 }
 
+$report_date_ts = !empty($rb['date_start']) ? strtotime($rb['date_start']) : time();
 $placeholders = array(
     'brand_name' => isset($rb['brand_name']) ? $rb['brand_name'] : '',
+    'Brand_Name' => isset($rb['brand_name']) ? $rb['brand_name'] : '',
+    'Report_Month' => date('M Y', $report_date_ts),
     'contact_name' => $contact_name,
     'contact_email' => $email,
     'date_start' => isset($rb['date_start']) ? $rb['date_start'] : '',
@@ -89,7 +92,6 @@ $placeholders = array(
     'filename' => isset($rb['filename']) ? $rb['filename'] : '',
 );
 $subject_base = insertPlaceholders(isset($r['subject']) ? $r['subject'] : '', $placeholders);
-$report_date_ts = !empty($rb['date_start']) ? strtotime($rb['date_start']) : time();
 $subject_prefix = trim(isset($rb['brand_name']) ? $rb['brand_name'] : '') . ' ' . date('M', $report_date_ts) . ' ' . date('Y', $report_date_ts);
 $subject = $subject_prefix . ($subject_base !== '' ? ' ' . $subject_base : '');
 $message = insertPlaceholders(isset($r['message']) ? $r['message'] : '', $placeholders);
