@@ -23,6 +23,61 @@ if (!defined('GEMINI_PO_MENU_MODEL')) {
 }
 
 /**
+ * Extract a JSON array value for a key from a string (handles truncated/malformed JSON).
+ * Finds "\"key\":", then the next '[', then the matching ']' respecting strings. Returns the substring [ ... ] or null.
+ */
+function _gemini_extract_json_array($text, $key)
+{
+    $qkey = '"' . $key . '"';
+    $pos = strpos($text, $qkey);
+    if ($pos === false) {
+        return null;
+    }
+    $pos += strlen($qkey);
+    $len = strlen($text);
+    while ($pos < $len && strpos(" \t\n\r:", $text[$pos]) !== false) {
+        $pos++;
+    }
+    if ($pos >= $len || $text[$pos] !== '[') {
+        return null;
+    }
+    $start = $pos;
+    $depth = 0;
+    $inString = false;
+    $escape = false;
+    $quote = '"';
+    for ($i = $pos; $i < $len; $i++) {
+        $c = $text[$i];
+        if ($escape) {
+            $escape = false;
+            continue;
+        }
+        if ($inString) {
+            if ($c === '\\') {
+                $escape = true;
+            } elseif ($c === $quote) {
+                $inString = false;
+            }
+            continue;
+        }
+        if ($c === '"' || $c === "'") {
+            $inString = true;
+            $quote = $c;
+            continue;
+        }
+        if ($c === '[') {
+            $depth++;
+        } elseif ($c === ']') {
+            $depth--;
+            if ($depth === 0) {
+                return substr($text, $start, $i - $start + 1);
+            }
+        }
+    }
+    return null;
+}
+
+/**
  * @param array $pdf_file_paths Array of absolute paths to PDF files (brand menu).
  * @param array $po_products Array of ['po_product_id' => int, 'product_name' => string].
  * @param array|null $debug_log Optional array to append log messages.
@@ -103,15 +158,15 @@ Then:
 1) **Disable PO lines not on the menu**: Any PO product that does NOT appear on the menu (or no clear match) should be considered "not available" — include its po_product_id in disable_po_product_ids. Use fuzzy matching: e.g. "Blue Dream 1/8" on the PO can match "Blue Dream - 1/8 oz" on the menu. Only disable when there is no reasonable match.
 2) **Add menu items not on the PO**: Any product that appears on the menu but does NOT already have a matching line on the PO — include it in add_products with "name" (exact or best product name from the menu), "price" (numeric unit price from the menu; use 0 if not found), and when brands/categories are provided above, set "brand_id" and "category_id" to the matching ID from those lists when you can infer the correct brand or category from the product name or menu context (e.g. flower vs edible); use null if unsure.
 
-Reply with ONLY a single JSON object, no other text. Use exactly these keys:
+Reply with ONLY a single JSON object, no other text. Put add_products FIRST, then disable_po_product_ids (so new products are not cut off if the response is long). Use exactly these keys and order:
 
 {
-  "disable_po_product_ids": [ list of po_product_id integers to disable ],
-  "add_products": [{$add_products_schema}
+  "add_products": [{$add_products_schema},
+  "disable_po_product_ids": [ list of po_product_id integers to disable ]
 }
 
 Example:
-{"disable_po_product_ids": [101, 102], "add_products": [{"name": "New Strain 1g", "price": 15.00, "brand_id": 5, "category_id": 1}, {"name": "Edible Pack", "price": 25.00, "brand_id": null, "category_id": 2}]}
+{"add_products": [{"name": "New Strain 1g", "price": 15.00, "brand_id": 5, "category_id": 1}, {"name": "Edible Pack", "price": 25.00, "brand_id": null, "category_id": 2}], "disable_po_product_ids": [101, 102]}
 PROMPT;
 
     $parts[] = ['text' => $prompt];
@@ -201,11 +256,26 @@ PROMPT;
 
     if (!is_array($parsed)) {
         $parsed = [];
-        $debug_log[] = 'Standard JSON parse failed (response may be truncated). Trying fallback extraction.';
-        // Fallback: extract disable_po_product_ids and add_products from truncated/invalid JSON via regex
-        if (preg_match('/"disable_po_product_ids"\s*:\s*\[([\d,\s]*)/s', $text, $m)) {
-            $ids_str = $m[1];
-            if (preg_match_all('/\d+/', $ids_str, $id_matches)) {
+        $json_err = function_exists('json_last_error_msg') ? json_last_error_msg() : 'unknown';
+        $debug_log[] = 'Standard JSON parse failed (' . $json_err . '). Trying fallback extraction.';
+        // Fallback: extract add_products and disable_po_product_ids by bracket-counting (works when truncated or reordered)
+        $add_arr_str = _gemini_extract_json_array($text, 'add_products');
+        if ($add_arr_str !== null) {
+            $add_arr = json_decode($add_arr_str, true);
+            if (is_array($add_arr)) {
+                $parsed['add_products'] = $add_arr;
+            }
+        }
+        $disable_arr_str = _gemini_extract_json_array($text, 'disable_po_product_ids');
+        if ($disable_arr_str !== null) {
+            $disable_arr = json_decode($disable_arr_str, true);
+            if (is_array($disable_arr)) {
+                $parsed['disable_po_product_ids'] = array_values(array_filter(array_map('intval', $disable_arr), function ($id) { return $id > 0; }));
+            }
+        }
+        // Legacy regex fallback for disable_po_product_ids if bracket extract missed (e.g. truncated mid-array)
+        if (empty($parsed['disable_po_product_ids']) && preg_match('/"disable_po_product_ids"\s*:\s*\[([\d,\s]*)/s', $text, $m)) {
+            if (preg_match_all('/\d+/', $m[1], $id_matches)) {
                 foreach ($id_matches[0] as $id) {
                     $id = (int) $id;
                     if ($id > 0) {
@@ -214,17 +284,12 @@ PROMPT;
                 }
             }
         }
+        if (empty($parsed['add_products'])) {
+            $parsed['add_products'] = [];
+        }
         if (empty($parsed['disable_po_product_ids'])) {
             $debug_log[] = 'Could not parse Gemini JSON. Last 500 chars: ' . substr($text, -500);
             return null;
-        }
-        $parsed['add_products'] = [];
-        if (preg_match('/"add_products"\s*:\s*\[(.*)\]\s*}\s*$/s', $text, $m)) {
-            $arr_json = '[' . $m[1] . ']';
-            $add_arr = json_decode($arr_json, true);
-            if (is_array($add_arr)) {
-                $parsed['add_products'] = $add_arr;
-            }
         }
     }
 
