@@ -76,7 +76,7 @@ define('GEMINI_PO_MENU_MODEL', 'gemini-1.5-flash');
 ```
 
 If `GEMINI_PO_MENU_MODEL` is set, the app uses it for “Sync PO with menu” only; other features (e.g. invoice validation) keep using `GEMINI_MODEL`.  
-Use **gemini-1.5-flash** (the correct API model ID). If you still see 504, increase timeouts as in section 1. To use the default model (e.g. gemini-2.0-flash) instead, comment out the `define` line.
+**Some API keys or regions only support certain models.** If you get a 404 "model not found", leave `GEMINI_PO_MENU_MODEL` commented out so the app uses `GEMINI_MODEL` (e.g. gemini-2.0-flash). If you still see 504 timeouts, increase Nginx/PHP timeouts as in section 1.
 
 ---
 
