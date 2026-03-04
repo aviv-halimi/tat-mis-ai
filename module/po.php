@@ -564,6 +564,23 @@ if (true) { //sizeof($rs)) {
     </div>';
   }
 
+  if ($t['po_status_id'] == 1) {
+    echo '
+    <div class="panel panel-default mt-3">
+      <div class="panel-heading"><h4 class="panel-title"><i class="fa fa-list-alt mr-1"></i> Brand menu – sync PO with current menu (AI)</h4></div>
+      <div class="panel-body">
+        <p class="text-muted mb-3">Upload the brand\'s current menu PDF(s), then run Sync to disable PO lines not on the menu and add menu items that are not yet on the PO.</p>
+        <form id="f_po-menu-data" class="po-data" action="" method="post">
+          <input type="hidden" name="c" value="' . htmlspecialchars($po_code) . '" />
+          <input type="hidden" name="f" value="menu_filenames" />
+          <div class="mb-2">' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', 'Upload menu PDF(s)...') . '</div>
+          <button type="button" class="btn btn-outline-secondary btn-save-menu-pdfs">Save menu PDFs</button>
+          <button type="button" class="btn btn-primary btn-po-menu-sync ml-2" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-magic mr-1"></i> Sync PO with menu (AI)</button>
+        </form>
+      </div>
+    </div>';
+  }
+
 $qbo_term_display = '';
 $po_amount_due = null;
 if (isset($t['po_status_id']) && (int)$t['po_status_id'] >= 5 && $_po_id) {
@@ -754,21 +771,6 @@ echo '
     <li><a href="javascript:;"><i class="text-muted">E-mail to Admin</i></a></li>
 </ul>
 </div>');
-
-if ($t['po_status_id'] == 1) {
-  echo '
-  <div class="btn-group m-b-5 m-r-5">
-    <span class="btn btn-outline-info"><i class="fa fa-list-alt mr-1"></i> Brand menu</span>
-  </div>
-  <form id="f_po-menu-data" class="po-data d-inline" action="" method="post">
-    <input type="hidden" name="c" value="' . htmlspecialchars($po_code) . '" />
-    <input type="hidden" name="f" value="menu_filenames" />
-    <span class="menu-filenames-widget">' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', 'Upload menu PDF(s)...') . '</span>
-    <button type="button" class="btn btn-outline-secondary btn-save-menu-pdfs ml-2">Save menu PDFs</button>
-  </form>
-  <button type="button" class="btn btn-primary btn-po-menu-sync ml-2" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-magic mr-1"></i> Sync PO with menu (AI)</button>
-  ';
-}
 
 if ($t['po_status_id'] > 2) {
   if ($_coa_filenames) {
