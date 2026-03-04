@@ -47,7 +47,7 @@ proxy_read_timeout 120s;
 
 Then: `sudo nginx -t` and `sudo systemctl reload nginx`.
 
-**Suggested value:** **120** seconds. Use a higher value (e.g. 180) if you have very large PDFs or many products.
+**Suggested value:** **120** seconds. If you still get 504, use **180** or **300** seconds (large PDFs or 1000+ PO products often need 90+ seconds). Ensure these directives apply to the **server** or **location** block that serves this app (e.g. run `sudo nginx -T | grep read_timeout` to verify).
 
 ### PHP (max execution time)
 

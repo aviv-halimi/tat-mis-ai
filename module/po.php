@@ -103,12 +103,15 @@ $(document).ready(function(e) {
     }).fail(function(xhr, status, err) {
       stopStatus();
       var key = "po_menu_sync_" + (poId || poCode);
-      $statusText.text("Request timed out or failed. The sync may have completed on the server—refresh the page to see the result.");
+      var is504 = (xhr && xhr.status === 504) || (xhr && xhr.responseText && xhr.responseText.indexOf('504') !== -1);
+      $statusText.text(is504
+        ? "Request timed out (504). If the sync completed on the server, click \"Reload to see changes\" below to load the result."
+        : "Request failed. If the sync completed, click \"Reload to see changes\" below to load the result.");
       $statusEl.show().removeClass("alert-info").addClass("alert-warning");
       var stored = { success: false, error: "Request failed: " + (err || status), debug_log: ["Fail: " + status, (xhr && xhr.responseText) ? xhr.responseText.substring(0, 2000) : ""], time: new Date().toLocaleString() };
       try { sessionStorage.setItem(key, JSON.stringify(stored)); } catch (e) {}
       renderPoMenuLastSync(stored);
-      showStatus("status", "Request failed. If you see 504, refresh the page—the sync may have completed.", "error", true);
+      showStatus("status", is504 ? "504 timeout. Click \"Reload to see changes\" below if the sync completed." : "Request failed. Click \"Reload to see changes\" below to check result.", "error", true);
     });
   });
   var poId = $(".btn-po-menu-sync").data("po-id");
