@@ -1,21 +1,34 @@
 <?php
 /**
- * Sync PO with brand menu (status 2): run Gemini on uploaded menu PDFs and
- * (1) set is_enabled = 0 for PO lines not on the menu,
+ * Sync PO with brand menu: run Gemini on uploaded menu PDFs and
+ * (1) set is_enabled = 0 for PO lines not on the menu (match by name + category),
  * (2) add custom products for menu items not already on the PO.
+ * Can run via HTTP POST (sync or async) or CLI: php ajax/po-menu-sync.php <po_id>
  */
-require_once dirname(__FILE__) . '/../_config.php';
-
-header('Cache-Control: no-cache, must-revalidate');
-header('Expires: ' . date('r', time() + 86400 * 365));
-header('Content-type: application/json');
-
-$po_code = isset($_POST['po_code']) ? trim((string) $_POST['po_code']) : '';
-$po_id = isset($_POST['po_id']) ? (int) $_POST['po_id'] : 0;
+$is_cli = (php_sapi_name() === 'cli');
+if ($is_cli) {
+    if (isset($argv[1])) {
+        chdir(dirname(__FILE__) . '/..');
+        require_once __DIR__ . '/../_config.php';
+        $po_id = (int) $argv[1];
+        $po_code = '';
+    } else {
+        exit(1);
+    }
+} else {
+    require_once dirname(__FILE__) . '/../_config.php';
+    header('Cache-Control: no-cache, must-revalidate');
+    header('Expires: ' . date('r', time() + 86400 * 365));
+    header('Content-type: application/json');
+    $po_code = isset($_POST['po_code']) ? trim((string) $_POST['po_code']) : '';
+    $po_id = isset($_POST['po_id']) ? (int) $_POST['po_id'] : 0;
+}
 
 if (!$po_code && !$po_id) {
-    echo json_encode(array('success' => false, 'error' => 'Missing po_code or po_id'));
-    exit;
+    if (!$is_cli) {
+        echo json_encode(array('success' => false, 'error' => 'Missing po_code or po_id'));
+    }
+    exit($is_cli ? 1 : 0);
 }
 
 $rs = getRs(
@@ -61,15 +74,41 @@ foreach ($files as $f) {
     }
 }
 if (empty($pdf_paths)) {
-    echo json_encode(array('success' => false, 'error' => 'Menu PDF files not found on disk.'));
-    exit;
+    if (!$is_cli) {
+        echo json_encode(array('success' => false, 'error' => 'Menu PDF files not found on disk.'));
+    }
+    exit($is_cli ? 1 : 0);
 }
 
-// PO products: all lines currently on the PO (enabled); AI will return which to disable and which to add.
+// Optional: run in background to avoid 504 (returns immediately; front-end polls status).
+$log_dir = defined('BASE_PATH') ? BASE_PATH . 'log' : dirname(__FILE__) . '/../log';
+if (!$is_cli && !empty($_POST['async']) && $po_id > 0 && (is_dir($log_dir) || @mkdir($log_dir, 0755, true))) {
+    $job_file = $log_dir . '/po-menu-sync-job-' . $po_id . '.json';
+    @file_put_contents($job_file, json_encode(array('status' => 'running', 'started_at' => date('Y-m-d H:i:s'))), LOCK_EX);
+    $php = defined('INVOICE_VALIDATE_PHP_CLI') ? INVOICE_VALIDATE_PHP_CLI : 'php';
+    $scriptPath = (defined('BASE_PATH') ? rtrim(BASE_PATH, '/\\') . '/' : dirname(__FILE__) . '/../') . 'ajax/po-menu-sync.php';
+    $script = @realpath($scriptPath) ?: $scriptPath;
+    if ($script && is_file($script)) {
+        $cmd = escapeshellcmd($php) . ' ' . escapeshellarg($script) . ' ' . (int) $po_id;
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            pclose(popen('start /B ' . $cmd, 'r'));
+        } else {
+            exec($cmd . ' > /dev/null 2>&1 &');
+        }
+        echo json_encode(array('success' => true, 'started' => true, 'message' => 'Sync started. Waiting for result…', 'po_id' => $po_id));
+        exit;
+    }
+}
+
+// PO products: include category and brand so AI matches by name+category (same strain in different categories = different lines).
+$db = $_Session->db;
 $products_rs = getRs(
-    "SELECT t.po_product_id, COALESCE(s.name, t.po_product_name) AS product_name " .
+    "SELECT t.po_product_id, COALESCE(s.name, t.po_product_name) AS product_name, " .
+    "t.category_id, c.name AS category_name, t.brand_id, b.name AS brand_name " .
     "FROM po_product t " .
-    "LEFT JOIN " . $_Session->db . ".product s ON s.product_id = t.product_id " .
+    "LEFT JOIN {$db}.product s ON s.product_id = t.product_id " .
+    "LEFT JOIN {$db}.category c ON c.category_id = t.category_id " .
+    "LEFT JOIN {$db}.brand b ON b.brand_id = t.brand_id " .
     "WHERE t.po_id = ? AND t.is_active = 1 AND t.is_enabled = 1",
     array($po_id)
 );
@@ -78,11 +117,14 @@ foreach ($products_rs as $row) {
     $po_products[] = array(
         'po_product_id' => (int) $row['po_product_id'],
         'product_name' => (string) $row['product_name'],
+        'category_id' => isset($row['category_id']) ? (int) $row['category_id'] : null,
+        'category_name' => isset($row['category_name']) ? (string) $row['category_name'] : '',
+        'brand_id' => isset($row['brand_id']) ? (int) $row['brand_id'] : null,
+        'brand_name' => isset($row['brand_name']) ? (string) $row['brand_name'] : '',
     );
 }
 
 // Distinct brands and categories on this PO for Gemini to map new products.
-$db = $_Session->db;
 $brands_rs = getRs(
     "SELECT DISTINCT b.brand_id, b.name AS brand_name FROM po_product p " .
     "INNER JOIN {$db}.brand b ON b.brand_id = p.brand_id " .
@@ -124,13 +166,18 @@ if ($result === null) {
     if (is_dir($log_dir) || @mkdir($log_dir, 0755, true)) {
         $log_file = $log_dir . '/po-menu-sync.log';
         @file_put_contents($log_file, '[' . date('Y-m-d H:i:s') . "] PO {$po_id} FAIL\n" . implode("\n", $debug_log) . "\n---\n", FILE_APPEND | LOCK_EX);
+        if ($is_cli) {
+            @file_put_contents($log_dir . '/po-menu-sync-job-' . $po_id . '.json', json_encode(array('status' => 'completed', 'finished_at' => date('Y-m-d H:i:s'))), LOCK_EX);
+        }
     }
-    echo json_encode(array(
-        'success' => false,
-        'error' => 'AI could not process the menu PDFs.',
-        'debug_log' => $debug_log,
-    ));
-    exit;
+    if (!$is_cli) {
+        echo json_encode(array(
+            'success' => false,
+            'error' => 'AI could not process the menu PDFs.',
+            'debug_log' => $debug_log,
+        ));
+    }
+    exit($is_cli ? 1 : 0);
 }
 
 $debug_log[] = '[SYNC] Gemini returned: disable=' . count($result['disable_po_product_ids']) . ', add=' . count($result['add_products']);
@@ -196,6 +243,11 @@ $out = array(
 );
 if (is_dir($log_dir)) {
     @file_put_contents($log_dir . '/po-menu-sync-last-' . $po_id . '.json', json_encode($out));
+    if ($is_cli) {
+        @file_put_contents($log_dir . '/po-menu-sync-job-' . $po_id . '.json', json_encode(array('status' => 'completed', 'started_at' => null, 'finished_at' => date('Y-m-d H:i:s'))), LOCK_EX);
+    }
 }
-echo json_encode($out);
-exit;
+if (!$is_cli) {
+    echo json_encode($out);
+}
+exit(0);

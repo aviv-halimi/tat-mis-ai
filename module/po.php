@@ -71,36 +71,64 @@ $(document).ready(function(e) {
     var poCode = btn.data("po-code");
     if (!poId && !poCode) return;
     btn.prop("disabled", true);
+    var $statusEl = $("#po-menu-sync-status");
+    var $statusText = $("#po-menu-sync-status-text");
+    $statusText.text("Syncing… This may take 1–2 minutes. Do not close the page.");
+    $statusEl.removeClass("alert-warning").addClass("alert-info").show();
     showStatus("status", "Syncing PO with menu (AI)...", "info");
-    $.ajax({
-      url: "/ajax/po-menu-sync",
-      type: "POST",
-      data: { po_id: poId, po_code: poCode || "", _r: Math.random() },
-      dataType: "json"
-    }).done(function(res) {
+    var pollInterval;
+    function stopPolling() {
+      if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
       btn.prop("disabled", false);
+      $statusEl.hide();
+    }
+    function applyResult(res) {
       var key = "po_menu_sync_" + (poId || poCode);
-      var stored = { success: !!(res && res.success), message: (res && res.message) || null, error: (res && res.error) || null, disabled_count: (res && res.disabled_count) || 0, added_count: (res && res.added_count) || 0, add_errors: (res && res.add_errors) || [], debug_log: (res && res.debug_log) || [], time: new Date().toLocaleString() };
+      var stored = { success: !!(res && res.success), message: (res && res.message) || null, error: (res && res.error) || null, disabled_count: (res && res.disabled_count) || 0, added_count: (res && res.added_count) || 0, add_errors: (res && res.add_errors) || [], debug_log: (res && res.debug_log) || [], time: (res && res.time) || new Date().toLocaleString() };
       try { sessionStorage.setItem(key, JSON.stringify(stored)); } catch (e) {}
       renderPoMenuLastSync(stored);
       if (res && res.success) {
         showStatus("status", res.message || "Done. See Last sync below; click Reload to see changes.", "ok", true);
-        if (res.background) {
-          stored.message = "Sync running in background. Refresh the page in 1–2 minutes to see changes and the result.";
-          try { sessionStorage.setItem(key, JSON.stringify(stored)); } catch (e) {}
-        }
       } else {
         showStatus("status", (res && res.error) ? res.error : "Sync failed. See Last sync below.", "error", true);
       }
+    }
+    $.ajax({
+      url: "/ajax/po-menu-sync",
+      type: "POST",
+      data: { po_id: poId, po_code: poCode || "", async: 1, _r: Math.random() },
+      dataType: "json"
+    }).done(function(res) {
+      if (res && res.started) {
+        $statusText.text("Sync started. Waiting for result…");
+        pollInterval = setInterval(function() {
+          $.getJSON("/ajax/po-menu-sync-status.php?po_id=" + poId, function(r) {
+            if (r && r.status === "completed") {
+              stopPolling();
+              if (r.result) {
+                applyResult(r.result);
+              } else {
+                $.getJSON("/ajax/po-menu-sync-last-result.php?po_id=" + poId, function(lr) {
+                  if (lr && lr.result) applyResult(lr.result);
+                  else applyResult({ success: false, error: "Sync finished; result not found." });
+                });
+              }
+            }
+          });
+        }, 4000);
+      } else {
+        stopPolling();
+        applyResult(res);
+      }
     }).fail(function(xhr, status, err) {
-      btn.prop("disabled", false);
-      var poId = $(".btn-po-menu-sync").data("po-id");
-      var poCode = $(".btn-po-menu-sync").data("po-code");
+      stopPolling();
       var key = "po_menu_sync_" + (poId || poCode);
+      $statusText.text("Request timed out or failed. The sync may have completed on the server—refresh the page to see the result.");
+      $statusEl.show().removeClass("alert-info").addClass("alert-warning");
       var stored = { success: false, error: "Request failed: " + (err || status), debug_log: ["Fail: " + status, (xhr && xhr.responseText) ? xhr.responseText.substring(0, 2000) : ""], time: new Date().toLocaleString() };
       try { sessionStorage.setItem(key, JSON.stringify(stored)); } catch (e) {}
       renderPoMenuLastSync(stored);
-      showStatus("status", "Request failed: " + (err || status), "error", true);
+      showStatus("status", "Request failed. If you see 504, refresh the page—the sync may have completed.", "error", true);
     });
   });
   var poId = $(".btn-po-menu-sync").data("po-id");
@@ -557,7 +585,8 @@ if ($_po_id && $_po_status_id == 1) {
         <button type="button" class="btn btn-outline-secondary btn-save-menu-pdfs">Save menu PDFs</button>
         <button type="button" class="btn btn-primary btn-po-menu-sync ml-2" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-magic mr-1"></i> Sync PO with menu (AI)</button>
       </form>
-      <p class="text-muted small mt-2 mb-0">If you get a <strong>504 Gateway Time-out</strong>, increase Nginx and PHP timeouts on the server and/or use the faster model in config. See <a href="doc/po-menu-sync-504-timeout.md" target="_blank" rel="noopener">doc/po-menu-sync-504-timeout.md</a>.</p>
+      <div id="po-menu-sync-status" class="alert alert-info mt-2" style="display:none;"><i class="fa fa-spinner fa-spin mr-1"></i><span id="po-menu-sync-status-text"></span></div>
+      <p class="text-muted small mt-2 mb-0">If you get a <strong>504 Gateway Time-out</strong>, the sync may still complete—refresh to see the result. To avoid timeouts, sync runs in the background; wait for the status above to finish.</p>
       <div id="po-menu-last-sync" class="mt-3" style="display:none;"></div>
     </div>
   </div>';

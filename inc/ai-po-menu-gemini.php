@@ -126,7 +126,20 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
         $id = isset($p['po_product_id']) ? (int) $p['po_product_id'] : 0;
         $name = isset($p['product_name']) ? trim((string) $p['product_name']) : '';
         if ($id && $name !== '') {
-            $po_list[] = ['po_product_id' => $id, 'product_name' => $name];
+            $row = ['po_product_id' => $id, 'product_name' => $name];
+            if (isset($p['category_id']) && $p['category_id'] !== null) {
+                $row['category_id'] = (int) $p['category_id'];
+            }
+            if (!empty($p['category_name'])) {
+                $row['category_name'] = (string) $p['category_name'];
+            }
+            if (isset($p['brand_id']) && $p['brand_id'] !== null) {
+                $row['brand_id'] = (int) $p['brand_id'];
+            }
+            if (!empty($p['brand_name'])) {
+                $row['brand_name'] = (string) $p['brand_name'];
+            }
+            $po_list[] = $row;
         }
     }
     $po_list_json = json_encode($po_list);
@@ -155,7 +168,7 @@ You are analyzing brand/vendor menu PDFs and comparing them to the current purch
 From the attached PDF(s), extract the full product/price list that appears on the brand's current menu (product name and price per unit where visible).
 
 Then:
-1) **Disable PO lines not on the menu**: Any PO product that does NOT appear on the menu (or no clear match) should be considered "not available" — include its po_product_id in disable_po_product_ids. Use fuzzy matching: e.g. "Blue Dream 1/8" on the PO can match "Blue Dream - 1/8 oz" on the menu. Only disable when there is no reasonable match.
+1) **Disable PO lines not on the menu**: Each PO line has a product name AND a category (and optionally brand). The SAME product name can appear on the PO in MULTIPLE categories (e.g. "Strain A" in Flower and "Strain A" in Pre-roll). Disable a PO line ONLY if the menu does NOT list that product IN THAT CATEGORY. So if "Strain A" appears on the menu only in the Flower category, then disable the "Strain A" PO line that is in Pre-roll (or any other category), but KEEP the "Strain A" line that is in Flower. Match by product name (fuzzy) AND category (use category_name). Only include po_product_id in disable_po_product_ids when there is no matching menu item for that exact (name + category) combination.
 2) **Add menu items not on the PO**: Any product that appears on the menu but does NOT already have a matching line on the PO — include it in add_products with "name" (exact or best product name from the menu), "price" (numeric unit price from the menu; use 0 if not found), and when brands/categories are provided above, set "brand_id" and "category_id" to the matching ID from those lists when you can infer the correct brand or category from the product name or menu context (e.g. flower vs edible); use null if unsure.
 
 Reply with ONLY a single JSON object, no other text. Put add_products FIRST, then disable_po_product_ids (so new products are not cut off if the response is long). Use exactly these keys and order:
