@@ -557,6 +557,7 @@ if ($_po_id && $_po_status_id == 1) {
         <button type="button" class="btn btn-outline-secondary btn-save-menu-pdfs">Save menu PDFs</button>
         <button type="button" class="btn btn-primary btn-po-menu-sync ml-2" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-magic mr-1"></i> Sync PO with menu (AI)</button>
       </form>
+      <p class="text-muted small mt-2 mb-0">If you get a <strong>504 Gateway Time-out</strong>, increase Nginx and PHP timeouts on the server and/or use the faster model in config. See <a href="doc/po-menu-sync-504-timeout.md" target="_blank" rel="noopener">doc/po-menu-sync-504-timeout.md</a>.</p>
       <div id="po-menu-last-sync" class="mt-3" style="display:none;"></div>
     </div>
   </div>';
