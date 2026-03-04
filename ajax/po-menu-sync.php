@@ -31,8 +31,8 @@ if (!$po) {
 $po_id = (int) $po['po_id'];
 $po_code = $po['po_code'];
 
-if ((int) $po['po_status_id'] !== 2) {
-    echo json_encode(array('success' => false, 'error' => 'Sync with menu is only available when PO is in status 2 (Ordered).'));
+if ((int) $po['po_status_id'] !== 1) {
+    echo json_encode(array('success' => false, 'error' => 'Sync with menu is only available when PO is in status 1 (Draft).'));
     exit;
 }
 
