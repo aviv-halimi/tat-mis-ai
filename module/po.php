@@ -755,7 +755,7 @@ echo '
 </ul>
 </div>');
 
-if ($t['po_status_id'] == 2) {
+if ($t['po_status_id'] == 1) {
   echo '
   <div class="btn-group m-b-5 m-r-5">
     <span class="btn btn-outline-info"><i class="fa fa-list-alt mr-1"></i> Brand menu</span>
