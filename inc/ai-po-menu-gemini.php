@@ -98,45 +98,23 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
         return null;
     }
 
-    // Optional: extract text from all PDFs with pdftotext (poppler-utils) for faster, smaller requests. Fall back to inline PDFs if any fail.
     $parts = [];
-    $pdf_text_parts = [];
-    $try_text = (function_exists('shell_exec') && strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN');
     foreach ($pdf_file_paths as $path) {
         if (!is_string($path) || trim($path) === '' || !file_exists($path)) {
             $debug_log[] = 'Invalid or missing file: ' . (is_string($path) ? $path : 'non-string');
             continue;
         }
-        if ($try_text) {
-            $escaped = escapeshellarg($path);
-            $text = @shell_exec("pdftotext -layout -enc UTF-8 {$escaped} - 2>/dev/null");
-            if ($text !== null && trim($text) !== '') {
-                $pdf_text_parts[] = trim($text);
-            } else {
-                $pdf_text_parts = [];
-                break;
-            }
+        $bytes = @file_get_contents($path);
+        if ($bytes === false || strlen($bytes) === 0) {
+            $debug_log[] = 'Could not read file or empty: ' . $path;
+            continue;
         }
-    }
-    if (count($pdf_text_parts) === count($pdf_file_paths) && count($pdf_text_parts) > 0) {
-        $parts = [['text' => "Menu text from PDF(s):\n\n" . implode("\n\n---\n\n", $pdf_text_parts)]];
-        $debug_log[] = '[REQUEST] Using pdftotext (text-only input); ' . count($pdf_text_parts) . ' PDF(s) extracted.';
-    }
-    if (empty($parts)) {
-        foreach ($pdf_file_paths as $path) {
-            if (!is_string($path) || !file_exists($path)) {
-                continue;
-            }
-            $bytes = @file_get_contents($path);
-            if ($bytes !== false && strlen($bytes) > 0) {
-                $parts[] = [
-                    'inline_data' => [
-                        'mime_type' => 'application/pdf',
-                        'data' => base64_encode($bytes),
-                    ],
-                ];
-            }
-        }
+        $parts[] = [
+            'inline_data' => [
+                'mime_type' => 'application/pdf',
+                'data' => base64_encode($bytes),
+            ],
+        ];
     }
     if (empty($parts)) {
         $debug_log[] = 'No valid PDF content.';
@@ -175,15 +153,30 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
         $categories_text = "**Categories on this PO (use these category_id values when mapping new products):**\n" . json_encode($po_categories) . "\n\n";
     }
 
+    $add_products_schema = ' { "name": "Product Name", "price": number';
+    if (!empty($po_brands) || !empty($po_categories)) {
+        $add_products_schema .= ', "brand_id": number or null, "category_id": number or null';
+    }
+    $add_products_schema .= ' }, ... ]';
+
     $prompt = <<<PROMPT
+You are analyzing brand/vendor menu PDFs and comparing them to the current purchase order (PO) product list.
+
 {$brands_text}{$categories_text}**PO products (current lines on the order):**
 {$po_list_json}
 
-From the attached PDF(s) or menu text, extract the full product/price list on the brand's current menu (product name and price per unit where visible).
+From the attached PDF(s), extract the full product/price list that appears on the brand's current menu (product name and price per unit where visible).
 
-1) **Disable PO lines not on the menu**: Each PO line has product name AND category (and optionally brand). The same product name can appear in multiple categories (e.g. "Strain A" in Flower and in Pre-roll). Disable a PO line ONLY if the menu does NOT list that product IN THAT CATEGORY. Match by product name (fuzzy) AND category (category_name). Include po_product_id in disable_po_product_ids only when there is no matching menu item for that (name + category).
+Then:
+1) **Disable PO lines not on the menu**: Each PO line has a product name AND a category (and optionally brand). The SAME product name can appear on the PO in MULTIPLE categories (e.g. "Strain A" in Flower and "Strain A" in Pre-roll). Disable a PO line ONLY if the menu does NOT list that product IN THAT CATEGORY. Match by product name (fuzzy) AND category (use category_name). Only include po_product_id in disable_po_product_ids when there is no matching menu item for that exact (name + category) combination.
+2) **Add menu items not on the PO**: Any product that appears on the menu but does NOT already have a matching line on the PO — include it in add_products with "name", "price", and when brands/categories are provided above, set "brand_id" and "category_id" from those lists when you can infer; use null if unsure.
 
-2) **Add menu items not on the PO**: Products on the menu but not already on the PO — add to add_products with name (from menu), price (unit price; 0 if not found). When brands/categories are listed above, set brand_id and category_id from those lists when you can infer from product name or context; use null if unsure.
+Reply with ONLY a single JSON object, no other text. Put add_products FIRST, then disable_po_product_ids. Use exactly these keys:
+
+{
+  "add_products": [{$add_products_schema},
+  "disable_po_product_ids": [ list of po_product_id integers to disable ]
+}
 PROMPT;
 
     $parts[] = ['text' => $prompt];
@@ -193,46 +186,15 @@ PROMPT;
         : ((defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-2.0-flash');
     $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode($model) . ':generateContent?key=' . urlencode($apiKey);
 
-    $response_schema = [
-        'type' => 'object',
-        'properties' => [
-            'add_products' => [
-                'type' => 'array',
-                'items' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'name' => ['type' => 'string'],
-                        'price' => ['type' => 'number'],
-                        'brand_id' => ['type' => ['integer', 'null']],
-                        'category_id' => ['type' => ['integer', 'null']],
-                    ],
-                    'required' => ['name', 'price'],
-                ],
-            ],
-            'disable_po_product_ids' => [
-                'type' => 'array',
-                'items' => ['type' => 'integer'],
-            ],
-        ],
-        'required' => ['add_products', 'disable_po_product_ids'],
-    ];
-
     $payload = [
-        'systemInstruction' => [
-            'parts' => [
-                ['text' => 'You are a strict data-extraction assistant. You analyze vendor menus and compare them to purchase orders. Return only the requested JSON structure.'],
-            ],
-        ],
         'contents' => [
             [
                 'parts' => $parts,
             ],
         ],
         'generationConfig' => [
-            'temperature' => 0.0,
+            'temperature' => 0.2,
             'maxOutputTokens' => 8192,
-            'responseMimeType' => 'application/json',
-            'responseSchema' => $response_schema,
         ],
     ];
 
@@ -240,14 +202,8 @@ PROMPT;
     $payload_bytes = strlen($payload_json);
     $payload_mb = round($payload_bytes / 1024 / 1024, 2);
 
-    $pdf_count = 0;
-    foreach ($parts as $p) {
-        if (isset($p['inline_data'])) {
-            $pdf_count++;
-        }
-    }
     $debug_log[] = '[REQUEST] ' . date('Y-m-d H:i:s') . ' URL: ' . preg_replace('/key=[^&]+/', 'key=***', $url);
-    $debug_log[] = '[REQUEST] Parts: ' . count($parts) . ' (PDFs: ' . $pdf_count . ', prompt: 1). Payload size: ' . $payload_bytes . ' bytes (' . $payload_mb . ' MB)';
+    $debug_log[] = '[REQUEST] Parts: ' . count($parts) . ' (PDFs: ' . (count($parts) - 1) . ', prompt: 1). Payload size: ' . $payload_bytes . ' bytes (' . $payload_mb . ' MB)';
     $debug_log[] = '[REQUEST] PO products sent: ' . count($po_list) . ' items. Prompt length: ' . strlen($prompt) . ' chars';
 
     $ch = curl_init($url);
