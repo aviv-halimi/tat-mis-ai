@@ -15,7 +15,7 @@ if (!defined('GEMINI_API_KEY')) {
 }
 
 if (!defined('GEMINI_MODEL')) {
-    define('GEMINI_MODEL', 'gemini-2.5-flash');
+    define('GEMINI_MODEL', 'gemini-2.0-flash');
 }
 
 // Faster model for PO menu sync only (reduces chance of 504). Uncomment in _config.php or set in env.
@@ -170,6 +170,15 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
     }
     $po_list_json = json_encode($po_list);
 
+    $brand_names_for_prompt = '';
+    if (!empty($po_brands)) {
+        $names = array_unique(array_filter(array_column($po_brands, 'brand_name')));
+        $brand_names_for_prompt = implode('" or "', $names);
+    }
+    if ($brand_names_for_prompt === '') {
+        $brand_names_for_prompt = 'the brand name';
+    }
+
     $brands_text = '';
     if (!empty($po_brands)) {
         $brands_text = "**Brands on this PO (use these brand_id values when mapping new products):**\n" . json_encode($po_brands) . "\n\n";
@@ -180,14 +189,28 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
     }
 
     $prompt = <<<PROMPT
+### ROLE
+You are a strict inventory reconciler. Your goal is to identify which PO products have an EXACT match on the provided menu for BOTH the strain name and the specific product type/weight. Only include a po_product_id in found_po_product_ids if you found a true 1-to-1 match.
+
+### MATCHING RULES (STRICT)
+1. IGNORE the prefix "{$brand_names_for_prompt}" in PO product names when matching.
+2. MATCH the strain name (e.g., "SB36 #1") to the menu.
+3. MATCH the weight/type strictly:
+   - If the PO says "3.5g" or "Eighth," only match if the menu section says "EIGHTHS" or "3.5 GRAMS".
+   - If the PO says "14g" or "Half Ounce," only match if the menu section says "HALF OUNCE" or "14 GRAMS".
+   - If the PO says "Preroll" or "Joint," only match if the menu section says "SINGLE JOINTS" or "DOINKS".
+4. NO GUESSTIMATING: If a strain is on the menu as a "Live Rosin AIO" but the PO line is for a "Flower 3.5g", do NOT add that PO line to found_po_product_ids. They are different products.
+
+### TASK
+1. Examine the PO products list below.
+2. Compare each line to the attached PDF/menu text.
+3. For each PO line where you find a 1-to-1 match for [Strain] + [Specific Product Type/Weight] on the menu, add that po_product_id to found_po_product_ids. If unsure or no match, do NOT add it (fail-safe: when in doubt, omit).
+4. Also list any products that appear on the menu but are NOT already on the PO — add them to add_products with name, price, and when possible brand_id and category_id from the lists below.
+
 {$brands_text}{$categories_text}**PO products (current lines on the order):**
 {$po_list_json}
 
-From the attached PDF(s) or menu text, extract the full product/price list on the brand's current menu (product name and price per unit where visible).
-
-1) **Disable PO lines not on the menu**: Each PO line has product name AND category (and optionally brand). The same product name can appear in multiple categories (e.g. "Strain A" in Flower and in Pre-roll). Disable a PO line ONLY if the menu does NOT list that product IN THAT CATEGORY. Match by product name (fuzzy) AND category (category_name). Include po_product_id in disable_po_product_ids only when there is no matching menu item for that (name + category).
-
-2) **Add menu items not on the PO**: Products on the menu but not already on the PO — add to add_products with name (from menu), price (unit price; 0 if not found). When brands/categories are listed above, set brand_id and category_id from those lists when you can infer from product name or context; use null if unsure.
+Return JSON with: found_po_product_ids (array of po_product_id that have a match on the menu), and add_products (array of {name, price, brand_id?, category_id?} for menu items not on the PO).
 PROMPT;
 
     $parts[] = ['text' => $prompt];
@@ -198,33 +221,33 @@ PROMPT;
     $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode($model) . ':generateContent?key=' . urlencode($apiKey);
 
     $response_schema = [
-        'type' => 'object',
+        'type' => 'OBJECT',
         'properties' => [
             'add_products' => [
-                'type' => 'array',
+                'type' => 'ARRAY',
                 'items' => [
-                    'type' => 'object',
+                    'type' => 'OBJECT',
                     'properties' => [
-                        'name' => ['type' => 'string'],
-                        'price' => ['type' => 'number'],
-                        'brand_id' => ['type' => 'integer'],
-                        'category_id' => ['type' => 'integer'],
+                        'name' => ['type' => 'STRING'],
+                        'price' => ['type' => 'NUMBER'],
+                        'brand_id' => ['type' => 'INTEGER', 'nullable' => true],
+                        'category_id' => ['type' => 'INTEGER', 'nullable' => true],
                     ],
                     'required' => ['name', 'price'],
                 ],
             ],
-            'disable_po_product_ids' => [
-                'type' => 'array',
-                'items' => ['type' => 'integer'],
+            'found_po_product_ids' => [
+                'type' => 'ARRAY',
+                'items' => ['type' => 'INTEGER'],
             ],
         ],
-        'required' => ['add_products', 'disable_po_product_ids'],
+        'required' => ['add_products', 'found_po_product_ids'],
     ];
 
     $payload = [
-        'systemInstruction' => [
+        'system_instruction' => [
             'parts' => [
-                ['text' => 'You are a strict data-extraction assistant. You analyze vendor menus and compare them to purchase orders. Return only the requested JSON structure.'],
+                ['text' => 'You are a strict data-extraction assistant. Match products by name and category. Return only valid JSON.'],
             ],
         ],
         'contents' => [
@@ -326,19 +349,19 @@ PROMPT;
                 $parsed['add_products'] = $add_arr;
             }
         }
-        $disable_arr_str = _gemini_extract_json_array($text, 'disable_po_product_ids');
-        if ($disable_arr_str !== null) {
-            $disable_arr = json_decode($disable_arr_str, true);
-            if (is_array($disable_arr)) {
-                $parsed['disable_po_product_ids'] = array_values(array_filter(array_map('intval', $disable_arr), function ($id) { return $id > 0; }));
+        $found_arr_str = _gemini_extract_json_array($text, 'found_po_product_ids');
+        if ($found_arr_str !== null) {
+            $found_arr = json_decode($found_arr_str, true);
+            if (is_array($found_arr)) {
+                $parsed['found_po_product_ids'] = array_values(array_filter(array_map('intval', $found_arr), function ($id) { return $id > 0; }));
             }
         }
-        if (empty($parsed['disable_po_product_ids']) && preg_match('/"disable_po_product_ids"\s*:\s*\[([\d,\s]*)/s', $text, $m)) {
+        if (empty($parsed['found_po_product_ids']) && preg_match('/"found_po_product_ids"\s*:\s*\[([\d,\s]*)/s', $text, $m)) {
             if (preg_match_all('/\d+/', $m[1], $id_matches)) {
                 foreach ($id_matches[0] as $id) {
                     $id = (int) $id;
                     if ($id > 0) {
-                        $parsed['disable_po_product_ids'][] = $id;
+                        $parsed['found_po_product_ids'][] = $id;
                     }
                 }
             }
@@ -346,21 +369,22 @@ PROMPT;
         if (empty($parsed['add_products'])) {
             $parsed['add_products'] = [];
         }
-        if (empty($parsed['disable_po_product_ids'])) {
-            $debug_log[] = 'Could not parse Gemini JSON. Last 500 chars: ' . substr($text, -500);
-            return null;
+        if (!isset($parsed['found_po_product_ids']) || !is_array($parsed['found_po_product_ids'])) {
+            $parsed['found_po_product_ids'] = [];
         }
     }
 
-    $disable_ids = [];
-    if (isset($parsed['disable_po_product_ids']) && is_array($parsed['disable_po_product_ids'])) {
-        foreach ($parsed['disable_po_product_ids'] as $id) {
+    $all_po_ids = array_column($po_list, 'po_product_id');
+    $kept_ids = [];
+    if (isset($parsed['found_po_product_ids']) && is_array($parsed['found_po_product_ids'])) {
+        foreach ($parsed['found_po_product_ids'] as $id) {
             $id = (int) $id;
             if ($id > 0) {
-                $disable_ids[] = $id;
+                $kept_ids[] = $id;
             }
         }
     }
+    $disable_ids = array_values(array_diff($all_po_ids, $kept_ids));
 
     $add_products = [];
     if (isset($parsed['add_products']) && is_array($parsed['add_products'])) {
