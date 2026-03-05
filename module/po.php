@@ -155,6 +155,118 @@ $(document).ready(function(e) {
       $("#po-menu-apply-status").html(\'<span class="text-danger">Request failed: \' + _esc(err || status) + \'</span>\');
     });
   });
+
+  // ---- Test button: parallel Gemini batches with verbose log ----
+  $(document).on("click", ".btn-po-menu-test", function() {
+    var btn = $(this);
+    var poId = btn.data("po-id");
+    if (!poId) return;
+    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Starting test…\');
+    $("#po-menu-test-status").show();
+    $("#po-menu-test-status-text").text("Spawning CLI background process…");
+    $.ajax({
+      url: "/ajax/po-menu-test",
+      type: "POST",
+      data: { po_id: poId, async: 1, _r: Math.random() },
+      dataType: "json"
+    }).done(function(res) {
+      if (!res || !res.success) {
+        btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini (verbose log)\');
+        $("#po-menu-test-status").hide();
+        showStatus("status", "Test failed to start: " + (res && res.error ? res.error : "unknown error"), "error", true);
+        return;
+      }
+      $("#po-menu-test-status-text").text("Running parallel Gemini batches in background. Polling for result…");
+      var testStart = new Date();
+      var maxWait = 10 * 60 * 1000; // 10 min max poll
+      var pollTimer = setInterval(function() {
+        $.getJSON("/ajax/po-menu-test-result.php?po_id=" + poId + "&_r=" + Math.random(), function(r) {
+          if (r && r.found && r.data && r.data.status === "completed") {
+            clearInterval(pollTimer);
+            btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini (verbose log)\');
+            $("#po-menu-test-status").hide();
+            _renderTestModal(r.data);
+            $("#po-menu-test-modal").modal("show");
+          }
+        });
+        if (new Date() - testStart > maxWait) {
+          clearInterval(pollTimer);
+          btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini (verbose log)\');
+          $("#po-menu-test-status-text").text("Test is taking too long — result file may not be ready yet.");
+        }
+      }, 5000);
+    }).fail(function(xhr, status, err) {
+      btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini (verbose log)\');
+      $("#po-menu-test-status").hide();
+      showStatus("status", "Test spawn failed: " + (err || status), "error", true);
+    });
+  });
+
+  function _renderTestModal(data) {
+    var s = data.summary || {};
+    var batches = data.batches || [];
+    // Sort batches by index
+    batches.sort(function(a, b) { return a.batch_index - b.batch_index; });
+    var html = "";
+    // Summary
+    html += \'<div class="alert alert-secondary mb-3"><strong>Summary</strong><br>\';
+    html += "PO: <b>" + _esc(data.po_code || data.po_id) + "</b> &nbsp;|&nbsp; ";
+    html += "Products: <b>" + (s.total_products || 0) + "</b> &nbsp;|&nbsp; ";
+    html += "Batches: <b>" + (s.total_batches || 0) + "</b> (size " + (s.batch_size || 100) + ", concurrency " + (s.concurrency || 4) + ") &nbsp;|&nbsp; ";
+    html += "Total time: <b>" + (s.total_time_s || "?") + "s</b><br>";
+    html += "Found on menu: <b>" + (s.total_found_ids || 0) + "</b> &nbsp;|&nbsp; ";
+    html += "Disable (not on menu): <b>" + (s.total_disable_ids || 0) + "</b> &nbsp;|&nbsp; ";
+    html += "Add (new): <b>" + (s.total_add_products || 0) + "</b>";
+    html += \'</div>\';
+    // Per-batch accordion
+    html += \'<div id="test-batch-accordion">\';
+    for (var i = 0; i < batches.length; i++) {
+      var b = batches[i];
+      var ok = (b.http_status === 200 && !b.curl_error && !b.parse_error);
+      var badge = ok ? \'<span class="badge badge-success">OK</span>\' : \'<span class="badge badge-danger">ERR</span>\';
+      var bId = "test-batch-" + b.batch_index;
+      html += \'<div class="card mb-1">\';
+      html += \'<div class="card-header p-2" style="cursor:pointer" data-toggle="collapse" data-target="#\' + bId + \'">\';
+      html += badge + " <strong>Batch " + (b.batch_index + 1) + "/" + batches.length + "</strong>";
+      html += " &nbsp; " + (b.product_count || 0) + " products";
+      html += " &nbsp; HTTP " + (b.http_status || "?");
+      html += " &nbsp; <b>" + (b.duration_s || "?") + "s</b>";
+      html += " &nbsp; finishReason: " + _esc(b.finish_reason || "?");
+      html += " &nbsp; found=" + (b.parsed_found_ids || []).length;
+      html += " / disable=" + (b.parsed_disable_ids || []).length;
+      if (b.is_primary) { html += \' <span class="badge badge-info">primary (add_products)</span>\'; }
+      html += \'</div>\'; // card-header
+      html += \'<div id="\' + bId + \'" class="collapse">\';
+      html += \'<div class="card-body p-2">\';
+      // Error banner
+      if (b.curl_error) { html += \'<div class="alert alert-danger p-1 mb-2">cURL error: \' + _esc(b.curl_error) + \'</div>\'; }
+      if (b.parse_error) { html += \'<div class="alert alert-warning p-1 mb-2">Parse error: \' + _esc(b.parse_error) + \'</div>\'; }
+      // Sections
+      html += _testSection("System Instruction", b.system_instruction || "", bId + "-sys");
+      html += _testSection("Brands Array (" + (b.brands_array || []).length + " items)", JSON.stringify(b.brands_array || [], null, 2), bId + "-brands");
+      html += _testSection("Categories Array (" + (b.categories_array || []).length + " items)", JSON.stringify(b.categories_array || [], null, 2), bId + "-cats");
+      html += _testSection("PO Products Sent (" + (b.po_products_array || []).length + " items)", JSON.stringify(b.po_products_array || [], null, 2), bId + "-prods");
+      var menuPreview = (b.menu_text || "").substring(0, 3000) + (b.menu_text && b.menu_text.length > 3000 ? "\n... [truncated, " + b.menu_text.length + " total chars]" : "");
+      html += _testSection("Menu Text (" + (b.menu_text ? b.menu_text.length : 0) + " chars)", menuPreview, bId + "-menu");
+      html += _testSection("Schema Used", JSON.stringify(b.schema || {}, null, 2), bId + "-schema");
+      html += _testSection("Raw Gemini Response (" + (b.response_size || 0) + " bytes)", b.raw_response || "(empty)", bId + "-raw");
+      html += _testSection("Parsed: found_po_product_ids (" + (b.parsed_found_ids || []).length + ")", JSON.stringify(b.parsed_found_ids || [], null, 2), bId + "-found");
+      html += _testSection("Parsed: disable_po_product_ids (" + (b.parsed_disable_ids || []).length + ")", JSON.stringify(b.parsed_disable_ids || [], null, 2), bId + "-disable");
+      if (b.is_primary) {
+        html += _testSection("Parsed: add_products (" + (b.parsed_add_products || []).length + ")", JSON.stringify(b.parsed_add_products || [], null, 2), bId + "-add");
+      }
+      html += \'</div></div></div>\'; // card-body, collapse, card
+    }
+    html += \'</div>\'; // accordion
+    $("#po-menu-test-body").html(html);
+  }
+
+  function _testSection(label, content, id) {
+    return \'<div class="mb-1"><a href="#" class="text-muted small" data-toggle="collapse" data-target="#\' + id + \'">\' + _esc(label) + \'</a>\' +
+      \'<pre id="\' + id + \'" class="collapse bg-light p-2 mt-1 small" style="max-height:300px;overflow:auto;white-space:pre-wrap;word-break:break-all;">\' +
+      _esc(typeof content === "string" ? content : JSON.stringify(content, null, 2)) +
+      \'</pre></div>\';
+  }
 });
 </script>';
 
@@ -586,7 +698,9 @@ if ($_po_id && $_po_status_id == 1) {
         <div class="mb-2">' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', 'Upload menu PDF(s)...') . '</div>
         <button type="button" class="btn btn-outline-secondary btn-save-menu-pdfs">Save menu PDFs</button>
         <button type="button" class="btn btn-primary btn-po-menu-extract ml-2" data-po-id="' . (int)$_po_id . '"><i class="fa fa-magic mr-1"></i> Extract Menu &amp; Match Products (AI)</button>
+        <button type="button" class="btn btn-outline-warning btn-po-menu-test ml-2" data-po-id="' . (int)$_po_id . '" title="Runs parallel Gemini batches (100 products/batch). Matching done by Gemini. No DB writes — diagnostic only."><i class="fa fa-flask mr-1"></i> Test: Parallel Gemini (verbose log)</button>
       </form>
+      <div id="po-menu-test-status" class="alert alert-info mt-2" style="display:none;"><i class="fa fa-spinner fa-spin mr-1"></i><span id="po-menu-test-status-text">Running parallel Gemini batches in background…</span></div>
       <div id="po-menu-last-sync" class="mt-3" style="display:none;"></div>
     </div>
   </div>
@@ -606,6 +720,24 @@ if ($_po_id && $_po_status_id == 1) {
           <div id="po-menu-apply-status" class="mr-auto small text-muted"></div>
           <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
           <button type="button" class="btn btn-success" id="btn-po-menu-apply"><i class="fa fa-check mr-1"></i>Add Selected to PO</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PO Menu Test Results Modal -->
+  <div class="modal fade" id="po-menu-test-modal" tabindex="-1" role="dialog" aria-labelledby="po-menu-test-modal-title">
+    <div class="modal-dialog modal-xl" role="document" style="max-width:95vw;">
+      <div class="modal-content">
+        <div class="modal-header bg-warning">
+          <h5 class="modal-title" id="po-menu-test-modal-title"><i class="fa fa-flask mr-2"></i>Parallel Gemini Test — Verbose Log</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span>&times;</span></button>
+        </div>
+        <div class="modal-body" id="po-menu-test-body" style="max-height:80vh;overflow-y:auto;font-size:12px;">
+          <p class="text-muted">Loading…</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
         </div>
       </div>
     </div>
