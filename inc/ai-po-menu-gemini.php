@@ -159,8 +159,9 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
                 }
             }
         }
-        // Only take add_products from first batch to avoid duplicates
-        if ($index === 0 && !empty($data['add_products']) && is_array($data['add_products'])) {
+        // Merge add_products from every batch (dedupe by name so we don't add the same product twice)
+        if (!empty($data['add_products']) && is_array($data['add_products'])) {
+            $seen_names = array_flip(array_map(function ($r) { return strtolower(trim($r['name'])); }, $all_add_products));
             foreach ($data['add_products'] as $item) {
                 if (!is_array($item)) {
                     continue;
@@ -169,6 +170,11 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
                 if ($name === '') {
                     continue;
                 }
+                $key = strtolower($name);
+                if (isset($seen_names[$key])) {
+                    continue;
+                }
+                $seen_names[$key] = true;
                 $row = [
                     'name' => $name,
                     'price' => isset($item['price']) && is_numeric($item['price']) ? (float) $item['price'] : 0,
