@@ -1,10 +1,10 @@
 <?php
 /**
- * PO vs Brand Menu matching via Google Gemini 2.0 Flash.
- * Optimized with: curl_multi (Parallelism) and CLI Progress Tracking.
+ * PO vs Brand Menu matching - NUCLEAR SPEED EDITION
+ * Parallel execution + Pruned Schema (No explanations, just IDs)
  */
 
-set_time_limit(0); // Ensure CLI doesn't timeout
+set_time_limit(0); 
 
 function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_log = null, array $po_brands = array(), array $po_categories = array())
 {
@@ -12,7 +12,7 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
     $apiKey = getenv('GEMINI_API_KEY') ?: (defined('GEMINI_API_KEY') ? GEMINI_API_KEY : null);
     if (!$apiKey) return null;
 
-    // 1. Fast Text Extraction
+    // 1. FAST TEXT EXTRACTION (Crucial: sending raw PDFs to 5 threads will 504)
     $menu_text = "";
     foreach ($pdf_file_paths as $path) {
         if (!file_exists($path)) continue;
@@ -26,16 +26,12 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
     $mh = curl_multi_init();
     $requests = [];
 
-    echo "\n🚀 Initializing parallel sync for " . count($po_products) . " items ($total_batches batches)...\n";
-
     foreach ($batches as $index => $batch) {
         $batch_json = json_encode($batch);
-        
-        // Batch 0 handles 'add_products', others handle 'matching' only to save speed
         $is_primary = ($index === 0);
-        $task = $is_primary ? "Verify matches AND list new products." : "Verify matches ONLY.";
 
-        $current_schema = [
+        // NUCLEAR PRUNING: We only ask for the IDs. No logs, no explanations.
+        $schema = [
             'type' => 'OBJECT',
             'properties' => [
                 'found_po_product_ids' => ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']]
@@ -43,8 +39,9 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
             'required' => ['found_po_product_ids']
         ];
         
+        // Only the first thread handles the "Add New" logic to save time on others
         if ($is_primary) {
-            $current_schema['properties']['add_products'] = [
+            $schema['properties']['add_products'] = [
                 'type' => 'ARRAY',
                 'items' => [
                     'type' => 'OBJECT',
@@ -55,15 +52,15 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
                     'required' => ['name', 'price']
                 ]
             ];
-            $current_schema['required'][] = 'add_products';
+            $schema['required'][] = 'add_products';
         }
 
         $payload = json_encode([
-            'contents' => [['parts' => [['text' => $menu_text], ['text' => "### TASK: $task\nBatch: $batch_json"]]]],
+            'contents' => [['parts' => [['text' => $menu_text], ['text' => "Match Batch: $batch_json"]]]],
             'generationConfig' => [
                 'temperature' => 0.0,
                 'responseMimeType' => 'application/json',
-                'responseSchema' => $current_schema
+                'responseSchema' => $schema
             ]
         ]);
 
@@ -73,57 +70,43 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $payload,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_TIMEOUT => 60
+            CURLOPT_TIMEOUT => 45 // Tight timeout for speed
         ]);
 
         curl_multi_add_handle($mh, $ch);
-        $requests[$index] = ['handle' => $ch, 'done' => false];
+        $requests[$index] = $ch;
     }
 
-    // 2. Parallel Execution with CLI Feedback
+    // 2. EXECUTE ALL IN PARALLEL
     $active = null;
     do {
-        $status = curl_multi_exec($mh, $active);
-        
-        // Track which handles finished in this loop
-        while ($info = curl_multi_info_read($mh)) {
-            foreach ($requests as $idx => $req) {
-                if ($req['handle'] === $info['handle'] && !$req['done']) {
-                    $requests[$idx]['done'] = true;
-                    echo " ✅ Batch " . ($idx + 1) . " completed.\n";
-                }
-            }
-        }
-        usleep(100000); // 0.1s sleep to prevent CPU spike
-    } while ($active && $status == CURLM_OK);
+        $mrc = curl_multi_exec($mh, $active);
+    } while ($active > 0);
 
-    // 3. Merge Results
+    // 3. MERGE RESULTS
     $all_found_ids = [];
     $all_add_products = [];
 
-    foreach ($requests as $index => $req) {
-        $response = curl_multi_getcontent($req['handle']);
-        $result = json_decode($response, true);
-        $data = json_decode($result['candidates'][0]['content']['parts'][0]['text'] ?? '{}', true);
+    foreach ($requests as $index => $ch) {
+        $raw_response = curl_multi_getcontent($ch);
+        $res_array = json_decode($raw_response, true);
+        $clean_json = json_decode($res_array['candidates'][0]['content']['parts'][0]['text'] ?? '{}', true);
 
-        if (!empty($data['found_po_product_ids'])) {
-            $all_found_ids = array_merge($all_found_ids, $data['found_po_product_ids']);
+        if (!empty($clean_json['found_po_product_ids'])) {
+            $all_found_ids = array_merge($all_found_ids, $clean_json['found_po_product_ids']);
         }
-        if ($index === 0 && !empty($data['add_products'])) {
-            $all_add_products = $data['add_products'];
+        if ($index === 0 && !empty($clean_json['add_products'])) {
+            $all_add_products = $clean_json['add_products'];
         }
         
-        curl_multi_remove_handle($mh, $req['handle']);
-        curl_close($req['handle']);
+        curl_multi_remove_handle($mh, $ch);
+        curl_close($ch);
     }
     curl_multi_close($mh);
 
+    // 4. FINAL DIFF
     $original_ids = array_column($po_products, 'po_product_id');
     $disable_ids = array_values(array_diff($original_ids, $all_found_ids));
-
-    echo "\n✨ Total Processed: " . count($po_products) . "\n";
-    echo "👍 Kept: " . count($all_found_ids) . "\n";
-    echo "👎 Disabled: " . count($disable_ids) . "\n\n";
 
     return [
         'disable_po_product_ids' => $disable_ids,
