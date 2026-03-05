@@ -80,7 +80,7 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
             ],
             'generationConfig' => [
                 'temperature' => 0.0,
-                'maxOutputTokens' => 8192,
+                'maxOutputTokens' => 16384,
                 'responseMimeType' => 'application/json',
                 'responseSchema' => $schema,
             ],
@@ -110,20 +110,46 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
         }
 
         $res = json_decode($raw, true);
-        $text = $res['candidates'][0]['content']['parts'][0]['text'] ?? '';
+        $candidate = $res['candidates'][0] ?? null;
+        $text = $candidate['content']['parts'][0]['text'] ?? '';
+        $finishReason = $candidate['finishReason'] ?? '';
+
+        $text_len = strlen($text);
+        $debug_log[] = "[SYNC] Batch {$batch_num} response: {$text_len} chars, finishReason=" . ($finishReason ?: 'UNSPECIFIED');
+        if ($text_len > 0) {
+            $head = substr($text, 0, 500);
+            $tail = $text_len > 1000 ? substr($text, -500) : '';
+            $debug_log[] = "[SYNC] Batch {$batch_num} response START: " . $head;
+            if ($tail !== '') {
+                $debug_log[] = "[SYNC] Batch {$batch_num} response END: " . $tail;
+            }
+        }
+        if ($finishReason === 'MAX_TOKENS') {
+            $debug_log[] = "[SYNC] Batch {$batch_num} WARNING: Response was truncated (MAX_TOKENS). Consider smaller batch or check parsed counts.";
+        }
+
         if ($text === '') {
             $debug_log[] = "[SYNC] Batch {$batch_num} empty response.";
             continue;
         }
 
         $data = json_decode($text, true);
+        $used_fallback = false;
         if (!is_array($data)) {
             $data = _gemini_parse_json_fallback($text);
+            $used_fallback = is_array($data);
         }
         if (!is_array($data)) {
-            $debug_log[] = "[SYNC] Batch {$batch_num} invalid JSON.";
+            $debug_log[] = "[SYNC] Batch {$batch_num} invalid JSON. Last 300 chars: " . substr($text, -300);
             continue;
         }
+        if ($used_fallback) {
+            $debug_log[] = "[SYNC] Batch {$batch_num} used fallback JSON parse (response may be truncated).";
+        }
+
+        $num_found = isset($data['found_po_product_ids']) && is_array($data['found_po_product_ids']) ? count($data['found_po_product_ids']) : 0;
+        $num_add = isset($data['add_products']) && is_array($data['add_products']) ? count($data['add_products']) : 0;
+        $debug_log[] = "[SYNC] Batch {$batch_num} parsed: found_po_product_ids={$num_found}, add_products={$num_add}";
 
         if (!empty($data['found_po_product_ids']) && is_array($data['found_po_product_ids'])) {
             foreach ($data['found_po_product_ids'] as $id) {
