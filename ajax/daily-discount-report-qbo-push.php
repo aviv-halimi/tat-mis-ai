@@ -371,10 +371,21 @@ if ($single_store_id > 0) {
 }
 
 $brand_name = isset($rb['brand_name']) ? trim((string)$rb['brand_name']) : '';
+// Prefer submitted qbo_brand_name from Verify modal; then DB QBO_Brand_Name; then brand name
+$qbo_brand_name_submitted = isset($_POST['qbo_brand_name']) ? trim((string)$_POST['qbo_brand_name']) : '';
+if ($qbo_brand_name_submitted !== '') {
+    $doc_brand_name = $qbo_brand_name_submitted;
+    $col_qbo = getRow(getRs("SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'blaze1' AND TABLE_NAME = 'brand' AND COLUMN_NAME = 'QBO_Brand_Name'"));
+    if ($col_qbo) {
+        setRs("UPDATE blaze1.brand SET QBO_Brand_Name = ? WHERE brand_id = ?", array($qbo_brand_name_submitted, $brand_id));
+    }
+} else {
+    $doc_brand_name = (isset($rb['QBO_Brand_Name']) && trim((string)$rb['QBO_Brand_Name']) !== '') ? trim((string)$rb['QBO_Brand_Name']) : $brand_name;
+}
 $report_month_ts = !empty($rb['date_start']) ? strtotime($rb['date_start']) : time();
 $doc_number_suffix = '-' . date('M', $report_month_ts) . ' DD'; // report month, e.g. "-Mar DD"
 $doc_number_max_brand = 21 - strlen($doc_number_suffix);
-$doc_number_base = ($doc_number_max_brand > 0 && $brand_name !== '') ? mb_substr($brand_name, 0, $doc_number_max_brand) : 'DD';
+$doc_number_base = ($doc_number_max_brand > 0 && $doc_brand_name !== '') ? mb_substr($doc_brand_name, 0, $doc_number_max_brand) : 'DD';
 $doc_number_template = $doc_number_base . $doc_number_suffix;
 $doc_number_template = mb_substr($doc_number_template, 0, 21);
 

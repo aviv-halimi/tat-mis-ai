@@ -1041,6 +1041,11 @@ function initPushDailyDiscountReportQbo() {
   $(document).off('change', '.dd-report-format-switch').on('change', '.dd-report-format-switch', function() {
     var f = $(this).prop('checked') ? 'xlsx' : 'pdf';
     $(this).closest('.dd-report-brand-actions, .dd-report-row-actions').data('format', f);
+    var $brandActions = $(this).closest('.dd-report-brand-actions');
+    if ($brandActions.length && $brandActions.data('daily-discount-report-brand-id')) {
+      var excelReport = $(this).prop('checked') ? 1 : 0;
+      $.post('/ajax/daily-discount-report-set-format.php', { daily_discount_report_brand_id: $brandActions.data('daily-discount-report-brand-id'), excel_report: excelReport });
+    }
   });
   $(document).off('click', '.btn-download-dd-report-brand').on('click', '.btn-download-dd-report-brand', function(e) {
     e.preventDefault();

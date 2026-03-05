@@ -19,7 +19,7 @@ $params_kw = array();
 
 if (str_len($ListSql) == 0) {
 	//$sql = "SELECT {$PrimaryKey},{$FieldNames}" . iif(str_len($ExtraFields), ",{$ExtraFields}") . " FROM {$TableName} WHERE is_active = 1" . iif(str_len($Where), " AND {$Where}");
-	$sql = "SELECT " . implode(',', $arr_SqlFieldNames) . iif(str_len($DetailsUrl), ", t1." . $TableName . "_code") . ", " . iif($ActiveRecords, "t1.is_enabled", "1") . " AS is_enabled" . ($TableName === 'daily_discount_report_brand' ? ", t1.qbo_push_log" : "") . " FROM {$TableSql} WHERE 1 = 1" . iif($ActiveRecords, " AND t1.is_active = 1") . iif(str_len($Where), " AND {$Where}");
+	$sql = "SELECT " . implode(',', $arr_SqlFieldNames) . iif(str_len($DetailsUrl), ", t1." . $TableName . "_code") . ", " . iif($ActiveRecords, "t1.is_enabled", "1") . " AS is_enabled" . ($TableName === 'daily_discount_report_brand' ? ", t1.qbo_push_log, (SELECT COALESCE(b.excel_report,0) FROM blaze1.brand b WHERE b.brand_id = t1.brand_id LIMIT 1) AS excel_report" : "") . " FROM {$TableSql} WHERE 1 = 1" . iif($ActiveRecords, " AND t1.is_active = 1") . iif(str_len($Where), " AND {$Where}");
 }
 else {
 	$sql = $ListSql;
@@ -210,7 +210,9 @@ foreach($rs as $row) {
 	  $bid = (int)$row['daily_discount_report_brand_id'];
 	  $brand_code = getIdCode($TableName, $bid);
 	  $brand_code_esc = $brand_code !== null ? htmlspecialchars($brand_code, ENT_QUOTES, 'UTF-8') : '';
-	  $dd .= '<span class="dd-report-brand-actions" data-daily-discount-report-brand-id="' . $bid . '" data-format="pdf" data-code="' . $brand_code_esc . '">';
+	  $excel_report = isset($row['excel_report']) ? (int)$row['excel_report'] : 0;
+	  $row_format = ($excel_report === 1) ? 'xlsx' : 'pdf';
+	  $dd .= '<span class="dd-report-brand-actions" data-daily-discount-report-brand-id="' . $bid . '" data-format="' . $row_format . '" data-code="' . $brand_code_esc . '">';
 	  $dd .= '<span class="dd-report-actions-cell">';
 	  $dd .= '<button type="button" class="btn btn-outline-secondary btn-xs ml-1 dd-report-actions-expand-btn" aria-expanded="false" title="Show more actions"><i class="fa fa-chevron-down"></i><i class="fa fa-chevron-up"></i> <span class="dd-report-actions-expand-label">More</span></button>';
 	  $dd .= '<span class="dd-report-actions-extra">';
@@ -219,7 +221,7 @@ foreach($rs as $row) {
 	  $dd .= ' <button type="button" class="btn btn-outline-info btn-xs ml-1 dd-view-push-log" data-daily-discount-report-brand-id="' . $bid . '" title="View log">View Log</button>';
 	  $dd .= '</span>';
 	  $dd .= '</span>';
-	  $dd .= ' <label class="dd-format-switch-wrap d-inline-flex align-items-center mr-1 mb-0" title="PDF when off, Excel when on"><span class="small text-muted mr-1">PDF</span><span class="dd-format-switch-cell"><input type="checkbox" class="dd-report-format-switch" role="switch" aria-label="Format: PDF or Excel"><span class="dd-format-switch-slider"></span></span><span class="small text-muted ml-1">Excel</span></label>';
+	  $dd .= ' <label class="dd-format-switch-wrap d-inline-flex align-items-center mr-1 mb-0" title="PDF when off, Excel when on"><span class="small text-muted mr-1">PDF</span><span class="dd-format-switch-cell"><input type="checkbox" class="dd-report-format-switch" role="switch" aria-label="Format: PDF or Excel"' . ($row_format === 'xlsx' ? ' checked' : '') . '><span class="dd-format-switch-slider"></span></span><span class="small text-muted ml-1">Excel</span></label>';
 	  $dd .= ' <a href="javascript:;" class="btn btn-info btn-xs ml-1 btn-download-dd-report-brand" title="Download report (PDF or Excel per switch)"><i class="fa fa-download"></i> Download</a>';
 	  $dd .= ' <button type="button" class="btn btn-success btn-xs ml-1 btn-push-dd-report-qbo" data-daily-discount-report-brand-id="' . $bid . '" title="Push to QuickBooks"><i class="fa fa-cloud-upload-alt"></i> Push to QBO</button>';
 	  $dd .= '</span>';

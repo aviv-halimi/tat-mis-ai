@@ -18,3 +18,6 @@ ALTER TABLE daily_discount_report_brand
 
 -- 4) QBO pushed and Email sent indicators (main DB). Run once.
 ALTER TABLE daily_discount_report_brand ADD COLUMN qbo_pushed_at DATETIME DEFAULT NULL, ADD COLUMN email_sent_at DATETIME DEFAULT NULL;
+
+-- 5) PDF/Excel format preference per brand (master brand table). Run once on blaze1.
+-- ALTER TABLE blaze1.brand ADD COLUMN excel_report TINYINT(1) NOT NULL DEFAULT 0;

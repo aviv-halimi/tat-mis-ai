@@ -290,11 +290,12 @@ function qbo_list_vendors($store_id) {
         _qbo_forward_auth($out, $token);
         return $out;
     }
+    $pageSize = 1000;
     if (is_array($request_log)) {
         $request_log[] = array(
-            'label' => '2. QBO API request (Query Vendor)',
+            'label' => '2. QBO API request (Query Vendor, paginated)',
             'sdk_used' => true,
-            'note' => 'DataService::Query("SELECT * FROM Vendor MAXRESULTS 1000")',
+            'note' => 'DataService::Query("SELECT * FROM Vendor MAXRESULTS ' . $pageSize . ' STARTPOSITION n") in a loop until full list',
         );
     }
     try {
@@ -304,33 +305,41 @@ function qbo_list_vendors($store_id) {
             $out['request_log'] = $request_log;
             return $out;
         }
-        $vendorsResult = $dataService->Query('SELECT * FROM Vendor MAXRESULTS 1000');
-        $error = $dataService->getLastError();
-        if ($error) {
-            $out = array(
-                'success' => false,
-                'vendors' => array(),
-                'error' => $error->getResponseBody() ?: $error->getOAuthHelperError() ?: 'QBO API error',
-                'debug' => array(
-                    'step' => 'qbo_query_vendor',
-                    'sdk_used' => true,
-                    'http_status' => $error->getHttpStatusCode(),
-                    'response_body' => $error->getResponseBody(),
-                ),
-            );
-            $out['request_log'] = $request_log;
-            return $out;
-        }
         $vendors = array();
-        if (is_array($vendorsResult)) {
-            foreach ($vendorsResult as $v) {
-                $id = is_object($v) ? (isset($v->Id) ? $v->Id : null) : (isset($v['Id']) ? $v['Id'] : null);
-                $name = is_object($v) ? (isset($v->DisplayName) ? $v->DisplayName : 'Vendor ' . $id) : (isset($v['DisplayName']) ? $v['DisplayName'] : 'Vendor ' . $id);
-                if ($id !== null) {
-                    $vendors[] = array('id' => $id, 'DisplayName' => $name);
+        $startPosition = 1;
+        do {
+            $query = 'SELECT * FROM Vendor MAXRESULTS ' . (int)$pageSize . ' STARTPOSITION ' . (int)$startPosition;
+            $vendorsResult = $dataService->Query($query);
+            $error = $dataService->getLastError();
+            if ($error) {
+                $out = array(
+                    'success' => false,
+                    'vendors' => $vendors,
+                    'error' => $error->getResponseBody() ?: $error->getOAuthHelperError() ?: 'QBO API error',
+                    'debug' => array(
+                        'step' => 'qbo_query_vendor',
+                        'sdk_used' => true,
+                        'http_status' => $error->getHttpStatusCode(),
+                        'response_body' => $error->getResponseBody(),
+                    ),
+                );
+                $out['request_log'] = $request_log;
+                return $out;
+            }
+            $pageCount = 0;
+            if (is_array($vendorsResult)) {
+                foreach ($vendorsResult as $v) {
+                    $id = is_object($v) ? (isset($v->Id) ? $v->Id : null) : (isset($v['Id']) ? $v['Id'] : null);
+                    $name = is_object($v) ? (isset($v->DisplayName) ? $v->DisplayName : 'Vendor ' . $id) : (isset($v['DisplayName']) ? $v['DisplayName'] : 'Vendor ' . $id);
+                    if ($id !== null) {
+                        $vendors[] = array('id' => $id, 'DisplayName' => $name);
+                        $pageCount++;
+                    }
                 }
             }
-        }
+            $startPosition += $pageSize;
+        } while ($pageCount >= $pageSize);
+
         return array('success' => true, 'vendors' => $vendors, 'request_log' => $request_log);
     } catch (\Exception $e) {
         $out = array(
