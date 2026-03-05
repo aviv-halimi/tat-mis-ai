@@ -1,10 +1,10 @@
 <?php
 /**
  * PO vs Brand Menu matching via Google Gemini 2.0 Flash.
- * Optimized with: Smart Batching, Response Schema, and Category Normalization.
+ * Optimized with: curl_multi (Parallelism) and CLI Progress Tracking.
  */
 
-// ... (Keep your existing defined constants and _gemini_extract_json_array function) ...
+set_time_limit(0); // Ensure CLI doesn't timeout
 
 function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_log = null, array $po_brands = array(), array $po_categories = array())
 {
@@ -12,122 +12,118 @@ function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_
     $apiKey = getenv('GEMINI_API_KEY') ?: (defined('GEMINI_API_KEY') ? GEMINI_API_KEY : null);
     if (!$apiKey) return null;
 
-    // 1. Convert PDFs to Text (Highly Recommended for Speed)
+    // 1. Fast Text Extraction
     $menu_text = "";
     foreach ($pdf_file_paths as $path) {
         if (!file_exists($path)) continue;
-        $escaped = escapeshellarg($path);
-        $text = @shell_exec("pdftotext -layout -enc UTF-8 {$escaped} - 2>/dev/null");
-        if ($text) $menu_text .= "--- MENU START ---\n" . trim($text) . "\n--- MENU END ---\n\n";
+        $menu_text .= @shell_exec("pdftotext -layout -enc UTF-8 " . escapeshellarg($path) . " - 2>/dev/null") . "\n\n";
     }
 
-    // Fallback: If text extraction fails, send raw PDF (Slower)
-    $inline_pdf_parts = [];
-    if (empty($menu_text)) {
-        foreach ($pdf_file_paths as $path) {
-            $inline_pdf_parts[] = [
-                'inline_data' => [
-                    'mime_type' => 'application/pdf',
-                    'data' => base64_encode(file_get_contents($path))
-                ]
-            ];
-        }
-    }
-
-    // 2. Reconciliation Logic Constants
     $brand_names = implode('" or "', array_unique(array_filter(array_column($po_brands, 'brand_name')))) ?: '710 Labs';
-    $all_found_ids = [];
-    $all_add_products = [];
-    
-    // Split into batches of 100 to prevent token cutoffs
     $batches = array_chunk($po_products, 100); 
+    $total_batches = count($batches);
+    
+    $mh = curl_multi_init();
+    $requests = [];
+
+    echo "\n🚀 Initializing parallel sync for " . count($po_products) . " items ($total_batches batches)...\n";
 
     foreach ($batches as $index => $batch) {
         $batch_json = json_encode($batch);
-        $prompt = <<<PROMPT
-### TASK
-Verify which PO items exist on the vendor menu. 
-Normalization: Ignore "{$brand_names}" prefix. "Lunar Z" and "LunarZ" are an EXACT MATCH.
+        
+        // Batch 0 handles 'add_products', others handle 'matching' only to save speed
+        $is_primary = ($index === 0);
+        $task = $is_primary ? "Verify matches AND list new products." : "Verify matches ONLY.";
 
-### CATEGORY MAPPING
-- PO "Solventless Extracts" = Menu "BADDER", "ROSIN", "SAUCE", "THUMB PRINT".
-- PO "Vape Carts .5g" / "AIO" = Menu "PERSY POD", "SOLVENTLESS PODS", "ALL IN ONE".
-- PO "Flowers" = Menu "FLOWER", "EIGHTHS", "3.5G", "14G".
-
-### INPUT
-PO Batch: {$batch_json}
-PROMPT;
-
-        $contents_parts = !empty($menu_text) ? [['text' => $menu_text]] : $inline_pdf_parts;
-        $contents_parts[] = ['text' => $prompt];
-
-        // 3. Define Schema (found_po_product_ids FIRST is critical)
-        $response_schema = [
+        $current_schema = [
             'type' => 'OBJECT',
             'properties' => [
-                'found_po_product_ids' => ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']],
-                'add_products' => [
-                    'type' => 'ARRAY',
-                    'items' => [
-                        'type' => 'OBJECT',
-                        'properties' => [
-                            'name' => ['type' => 'STRING'],
-                            'price' => ['type' => 'NUMBER'],
-                            'brand_id' => ['type' => 'INTEGER', 'nullable' => true],
-                            'category_id' => ['type' => 'INTEGER', 'nullable' => true]
-                        ],
-                        'required' => ['name', 'price']
-                    ]
-                ]
+                'found_po_product_ids' => ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']]
             ],
-            'required' => ['found_po_product_ids', 'add_products']
+            'required' => ['found_po_product_ids']
         ];
+        
+        if ($is_primary) {
+            $current_schema['properties']['add_products'] = [
+                'type' => 'ARRAY',
+                'items' => [
+                    'type' => 'OBJECT',
+                    'properties' => [
+                        'name' => ['type' => 'STRING'],
+                        'price' => ['type' => 'NUMBER']
+                    ],
+                    'required' => ['name', 'price']
+                ]
+            ];
+            $current_schema['required'][] = 'add_products';
+        }
 
-        // 4. API Call
-        $model = defined('GEMINI_PO_MENU_MODEL') && GEMINI_PO_MENU_MODEL !== '' ? GEMINI_PO_MENU_MODEL : 'gemini-2.0-flash';
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
-
-        $payload = [
-            'system_instruction' => ['parts' => [['text' => 'Precision Auditor. Return valid JSON only.']]],
-            'contents' => [['parts' => $contents_parts]],
+        $payload = json_encode([
+            'contents' => [['parts' => [['text' => $menu_text], ['text' => "### TASK: $task\nBatch: $batch_json"]]]],
             'generationConfig' => [
                 'temperature' => 0.0,
                 'responseMimeType' => 'application/json',
-                'responseSchema' => $response_schema
+                'responseSchema' => $current_schema
             ]
-        ];
-
-        // Execute Request
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POSTFIELDS => json_encode($payload),
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_TIMEOUT => 90
         ]);
 
-        $response = curl_exec($ch);
-        $result = json_decode($response, true);
-        $text = $result['candidates'][0]['content']['parts'][0]['text'] ?? '{}';
-        $data = json_decode($text, true);
+        $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey");
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_TIMEOUT => 60
+        ]);
 
-        // Aggregate Results
+        curl_multi_add_handle($mh, $ch);
+        $requests[$index] = ['handle' => $ch, 'done' => false];
+    }
+
+    // 2. Parallel Execution with CLI Feedback
+    $active = null;
+    do {
+        $status = curl_multi_exec($mh, $active);
+        
+        // Track which handles finished in this loop
+        while ($info = curl_multi_info_read($mh)) {
+            foreach ($requests as $idx => $req) {
+                if ($req['handle'] === $info['handle'] && !$req['done']) {
+                    $requests[$idx]['done'] = true;
+                    echo " ✅ Batch " . ($idx + 1) . " completed.\n";
+                }
+            }
+        }
+        usleep(100000); // 0.1s sleep to prevent CPU spike
+    } while ($active && $status == CURLM_OK);
+
+    // 3. Merge Results
+    $all_found_ids = [];
+    $all_add_products = [];
+
+    foreach ($requests as $index => $req) {
+        $response = curl_multi_getcontent($req['handle']);
+        $result = json_decode($response, true);
+        $data = json_decode($result['candidates'][0]['content']['parts'][0]['text'] ?? '{}', true);
+
         if (!empty($data['found_po_product_ids'])) {
             $all_found_ids = array_merge($all_found_ids, $data['found_po_product_ids']);
         }
-        // Only add products from the first batch to avoid 400+ duplicates
         if ($index === 0 && !empty($data['add_products'])) {
             $all_add_products = $data['add_products'];
         }
         
-        curl_close($ch);
+        curl_multi_remove_handle($mh, $req['handle']);
+        curl_close($req['handle']);
     }
+    curl_multi_close($mh);
 
-    // 5. Final Reconciliation in PHP
     $original_ids = array_column($po_products, 'po_product_id');
     $disable_ids = array_values(array_diff($original_ids, $all_found_ids));
 
-    $debug_log[] = "[SYNC] Done. Kept: " . count($all_found_ids) . " | Disabled: " . count($disable_ids);
+    echo "\n✨ Total Processed: " . count($po_products) . "\n";
+    echo "👍 Kept: " . count($all_found_ids) . "\n";
+    echo "👎 Disabled: " . count($disable_ids) . "\n\n";
 
     return [
         'disable_po_product_ids' => $disable_ids,
