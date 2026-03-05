@@ -35,6 +35,7 @@ Normalization: Ignore "{$brand_names}". "Lunar Z" = "LunarZ".
 - PO "Solventless Extracts" = Menu "BADDER", "ROSIN", "SAUCE", "THUMB PRINT".
 - PO "Vape Carts .5g" / "AIO" = Menu "PERSY POD", "VAPE", "ALL IN ONE".
 
+
 ### PO DATA (Format: ID|Name|Category)
 {$compressed_po}
 PROMPT;
@@ -65,9 +66,14 @@ PROMPT;
     ]);
 
     $raw = curl_exec($ch);
-    $res = json_decode($raw, true);
-    $data = json_decode($res['candidates'][0]['content']['parts'][0]['text'] ?? '{}', true);
+    $res = is_string($raw) ? json_decode($raw, true) : null;
+    $response_text = isset($res['candidates'][0]['content']['parts'][0]['text'])
+        ? $res['candidates'][0]['content']['parts'][0]['text']
+        : '';
+    $debug_log[] = '[SYNC] Full Gemini response (' . strlen($response_text) . ' chars):';
+    $debug_log[] = $response_text !== '' ? $response_text : '(empty)';
 
+    $data = json_decode($response_text, true);
     $found_ids = $data['found_po_product_ids'] ?? [];
     $all_ids = array_column($po_products, 'po_product_id');
 
