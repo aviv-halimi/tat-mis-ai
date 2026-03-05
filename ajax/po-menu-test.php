@@ -185,6 +185,103 @@ SYS;
 $brands_json     = json_encode($all_brands,     JSON_UNESCAPED_UNICODE);
 $categories_json = json_encode($all_categories, JSON_UNESCAPED_UNICODE);
 
+// ---- SINGLE BATCH: send exactly one batch to Gemini and return full verbose response ----
+$is_single_batch = !$is_cli && !$is_dry_run && !empty($_POST['single_batch']);
+if ($is_single_batch) {
+    $batch_index = max(0, (int) ($_POST['batch_index'] ?? 0));
+    if (!isset($batches[$batch_index])) {
+        echo json_encode(['success' => false, 'error' => "Batch index {$batch_index} does not exist (total: {$n_batches})"]);
+        exit;
+    }
+    $is_primary  = ($batch_index === 0);
+    $batch       = $batches[$batch_index];
+    $schema      = $is_primary ? $schema_primary : $schema_ids_only;
+    $batch_json  = json_encode($batch, JSON_UNESCAPED_UNICODE);
+
+    $prompt = "AVAILABLE BRANDS:\n" . $brands_json
+        . "\n\nAVAILABLE CATEGORIES:\n" . $categories_json
+        . "\n\nCATEGORY TRANSLATIONS:\n"
+        . "- \"PERSY BADDER\",\"PERSY ROSIN\",\"LIVE ROSIN\",\"THUMB PRINT\",\"SAUCE\" → \"Solventless Extracts\"\n"
+        . "- \"PERSY POD\",\"SOLVENTLESS PODS\",\"ALL IN ONE\",\"AIO\" → \"Vape Carts .5g\" or \"AIO\"\n"
+        . "- \"FLOWER\",\"EIGHTHS\",\"HALF OUNCE\",\"3.5G\",\"14G\" → \"Flowers\"\n"
+        . "- \"GUMMIS\",\"EDIBLES\",\"HASH ROSIN GUMMIS\" → \"Edibles\"\n"
+        . "- \"PREROLL\",\"JOINTS\",\"DOINKS\" → \"Pre-Rolls\"\n"
+        . "\nPO PRODUCTS BATCH " . ($batch_index + 1) . " of {$n_batches} (JSON):\n" . $batch_json
+        . "\n\nMENU TEXT:\n" . $menu_text;
+
+    $payload      = [
+        'system_instruction' => ['parts' => [['text' => $system_instr]]],
+        'contents' => [['parts' => [['text' => $prompt]]]],
+        'generationConfig' => [
+            'temperature'      => 0.0,
+            'maxOutputTokens'  => $is_primary ? 8192 : 4096,
+            'responseMimeType' => 'application/json',
+            'responseSchema'   => $schema,
+        ],
+    ];
+    $payload_json = json_encode($payload);
+
+    $start = microtime(true);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => $payload_json,
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        CURLOPT_TIMEOUT        => 120,
+        CURLOPT_CONNECTTIMEOUT => 15,
+    ]);
+    $raw      = curl_exec($ch);
+    $curl_err = curl_error($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    $elapsed = round(microtime(true) - $start, 3);
+
+    $parsed_found = $parsed_add = [];
+    $finish_reason = $parse_error = null;
+    $response_text = '';
+    if (!$curl_err && $raw && $http_code === 200) {
+        $res  = json_decode($raw, true);
+        $response_text = $res['candidates'][0]['content']['parts'][0]['text'] ?? '';
+        $finish_reason = $res['candidates'][0]['finishReason'] ?? null;
+        if ($response_text !== '') {
+            $data = json_decode($response_text, true);
+            if (is_array($data)) {
+                $parsed_found = array_map('intval', $data['found_po_product_ids'] ?? []);
+                $parsed_add   = $data['add_products'] ?? [];
+            } else {
+                $parse_error = json_last_error_msg();
+            }
+        }
+    }
+    $batch_ids   = array_column($batch, 'po_product_id');
+    $found_set   = array_flip($parsed_found);
+    $disable_ids = array_values(array_filter($batch_ids, fn($id) => !isset($found_set[$id])));
+
+    echo json_encode([
+        'success'            => true,
+        'batch_index'        => $batch_index,
+        'is_primary'         => $is_primary,
+        'product_count'      => count($batch),
+        'duration_s'         => $elapsed,
+        'http_status'        => $http_code,
+        'curl_error'         => $curl_err ?: null,
+        'payload_size'       => strlen($payload_json),
+        'finish_reason'      => $finish_reason,
+        'response_size'      => strlen($raw ?? ''),
+        'raw_response'       => $raw ?? '',
+        'response_text'      => $response_text,
+        'parse_error'        => $parse_error,
+        'parsed_found_ids'   => $parsed_found,
+        'parsed_disable_ids' => $disable_ids,
+        'parsed_add_products'=> $parsed_add,
+        'po_products_sent'   => $batch,
+        'prompt'             => $prompt,
+        'schema'             => $schema,
+    ]);
+    exit;
+}
+
 // ---- DRY RUN: build payloads and return without calling Gemini ----
 if ($is_dry_run) {
     $dry_batches = [];

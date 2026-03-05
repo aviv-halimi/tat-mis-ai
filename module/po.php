@@ -332,6 +332,8 @@ $(document).ready(function(e) {
       html += \'<div id="\' + bId + \'" class="collapse">\';
       html += \'<div class="card-body p-2">\';
       html += \'<p class="text-muted small mb-1"><strong>URL:</strong> \' + _esc((b.url || "").replace(/key=[^&]+/, "key=***")) + \'</p>\';
+      html += \'<div class="mb-2"><button type="button" class="btn btn-sm btn-warning btn-send-single-batch" data-po-id="\' + (window._dryRunPoId || "") + \'" data-batch="\' + b.batch_index + \'"><i class="fa fa-send mr-1"></i>Send this batch to Gemini</button> <span class="send-batch-status-\' + b.batch_index + \' text-muted small ml-2"></span></div>\';
+      html += \'<div class="send-batch-result-\' + b.batch_index + \'"></div>\';
       html += _testSection("System Instruction", b.system_instruction || "", bId + "-sys");
       html += _testSection("Full Prompt (brands + categories + PO products + menu text)", b.prompt || "", bId + "-prompt");
       html += _testSection("Brands Array (" + (b.brands_array || []).length + " items)", JSON.stringify(b.brands_array || [], null, 2), bId + "-brands");
@@ -346,7 +348,54 @@ $(document).ready(function(e) {
     html += \'</div>\';
     $("#po-menu-test-modal .modal-title").html(\'<i class="fa fa-eye mr-2"></i>Dry Run — Gemini Payloads (NOT sent)\');
     $("#po-menu-test-body").html(html);
+    window._dryRunPoId = res.po_id;
   }
+
+  // ---- Send single batch to Gemini from dry-run modal ----
+  $(document).on("click", ".btn-send-single-batch", function() {
+    var btn = $(this);
+    var poId = btn.data("po-id");
+    var batchIdx = btn.data("batch");
+    if (!poId) return;
+    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Sending…\');
+    $(".send-batch-status-" + batchIdx).text("Waiting for Gemini… (up to 120s)");
+    $(".send-batch-result-" + batchIdx).html("");
+    $.ajax({
+      url: "/ajax/po-menu-test",
+      type: "POST",
+      data: { po_id: poId, single_batch: 1, batch_index: batchIdx, _r: Math.random() },
+      dataType: "json",
+      timeout: 150000
+    }).done(function(res) {
+      btn.prop("disabled", false).html(\'<i class="fa fa-send mr-1"></i>Send this batch to Gemini\');
+      $(".send-batch-status-" + batchIdx).text("");
+      if (!res || !res.success) {
+        $(".send-batch-result-" + batchIdx).html(\'<div class="alert alert-danger p-2 small">\' + _esc((res && res.error) ? res.error : "Request failed") + \'</div>\');
+        return;
+      }
+      var ok = (res.http_status === 200 && !res.curl_error && !res.parse_error);
+      var html = \'<div class="card border-\' + (ok ? "success" : "danger") + \' mb-2"><div class="card-body p-2">\';
+      html += \'<div class="mb-1"><strong>HTTP \' + res.http_status + \'</strong>\';
+      html += \' &nbsp; \' + res.duration_s + \'s\';
+      html += \' &nbsp; finishReason: \' + _esc(res.finish_reason || "?");
+      html += \' &nbsp; Response: \' + (res.response_size || 0) + \' bytes</div>\';
+      if (res.curl_error) { html += \'<div class="text-danger small">cURL: \' + _esc(res.curl_error) + \'</div>\'; }
+      if (res.parse_error) { html += \'<div class="text-warning small">Parse error: \' + _esc(res.parse_error) + \'</div>\'; }
+      html += \'<div class="mb-1 small"><strong>found_po_product_ids (\' + (res.parsed_found_ids||[]).length + \'):</strong> \' + _esc(JSON.stringify(res.parsed_found_ids||[])) + \'</div>\';
+      html += \'<div class="mb-1 small"><strong>disable_po_product_ids (\' + (res.parsed_disable_ids||[]).length + \'):</strong> \' + _esc(JSON.stringify(res.parsed_disable_ids||[])) + \'</div>\';
+      if (res.is_primary && (res.parsed_add_products||[]).length) {
+        html += \'<div class="mb-1 small"><strong>add_products (\' + res.parsed_add_products.length + \'):</strong><pre class="bg-light p-1 mt-1" style="max-height:150px;overflow:auto;">\' + _esc(JSON.stringify(res.parsed_add_products,null,2)) + \'</pre></div>\';
+      }
+      html += \'<div><a href="#" class="small" data-toggle="collapse" data-target="#raw-resp-\' + batchIdx + \'">Raw Gemini response</a>\';
+      html += \'<pre id="raw-resp-\' + batchIdx + \'" class="collapse bg-light p-1 mt-1 small" style="max-height:250px;overflow:auto;white-space:pre-wrap;">\' + _esc(res.raw_response||"") + \'</pre></div>\';
+      html += \'</div></div>\';
+      $(".send-batch-result-" + batchIdx).html(html);
+    }).fail(function(xhr, status, err) {
+      btn.prop("disabled", false).html(\'<i class="fa fa-send mr-1"></i>Send this batch to Gemini\');
+      $(".send-batch-status-" + batchIdx).text("");
+      $(".send-batch-result-" + batchIdx).html(\'<div class="alert alert-danger p-2 small">Request failed: \' + _esc(err || status) + \'</div>\');
+    });
+  });
 
   // ---- View last result (even if status=running/failed) ----
   $(document).on("click", ".btn-po-menu-view-last", function() {
