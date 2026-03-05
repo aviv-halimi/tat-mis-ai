@@ -332,7 +332,7 @@ $(document).ready(function(e) {
       html += \'<div id="\' + bId + \'" class="collapse">\';
       html += \'<div class="card-body p-2">\';
       html += \'<p class="text-muted small mb-1"><strong>URL:</strong> \' + _esc((b.url || "").replace(/key=[^&]+/, "key=***")) + \'</p>\';
-      html += \'<div class="mb-2"><button type="button" class="btn btn-sm btn-warning btn-send-single-batch" data-po-id="\' + (window._dryRunPoId || "") + \'" data-batch="\' + b.batch_index + \'"><i class="fa fa-send mr-1"></i>Send this batch to Gemini</button> <span class="send-batch-status-\' + b.batch_index + \' text-muted small ml-2"></span></div>\';
+      html += \'<div class="mb-2"><button type="button" class="btn btn-sm btn-warning btn-send-single-batch" data-po-id="\' + res.po_id + \'" data-batch="\' + b.batch_index + \'"><i class="fa fa-send mr-1"></i>Send this batch to Gemini</button> <span class="send-batch-status-\' + b.batch_index + \' text-muted small ml-2"></span></div>\';
       html += \'<div class="send-batch-result-\' + b.batch_index + \'"></div>\';
       html += _testSection("System Instruction", b.system_instruction || "", bId + "-sys");
       html += _testSection("Full Prompt (brands + categories + PO products + menu text)", b.prompt || "", bId + "-prompt");
