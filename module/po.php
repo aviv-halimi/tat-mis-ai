@@ -156,58 +156,144 @@ $(document).ready(function(e) {
     });
   });
 
-  // ---- Test button: parallel Gemini batches with verbose log ----
+  // ---- Test button: all batches in parallel via browser (dry-run → N simultaneous single_batch) ----
   function _testStatusError(btn, msg) {
-    btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini (verbose log)\');
-    $("#po-menu-test-status").removeClass("alert-info").addClass("alert-danger");
+    btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini\');
+    $("#po-menu-test-status").removeClass("alert-info").addClass("alert-danger").show();
     $("#po-menu-test-status-text").html(\'<strong>Error:</strong> \' + _esc(msg));
   }
+
   $(document).on("click", ".btn-po-menu-test", function() {
     var btn = $(this);
     var poId = btn.data("po-id");
     if (!poId) return;
-    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Starting test…\');
+    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Building batches…\');
     $("#po-menu-test-status").removeClass("alert-danger").addClass("alert-info").show();
-    $("#po-menu-test-status-text").text("Spawning CLI background process…");
+    $("#po-menu-test-status-text").text("Step 1/2: Building batch structure…");
+
+    // Step 1: dry run — fast, gets batch count + structure without calling Gemini
     $.ajax({
       url: "/ajax/po-menu-test",
       type: "POST",
-      data: { po_id: poId, async: 1, _r: Math.random() },
-      dataType: "json"
-    }).done(function(res) {
-      console.log("[po-menu-test] spawn response:", res);
-      if (!res || !res.success) {
-        _testStatusError(btn, (res && res.error) ? res.error : "Unexpected response — check browser console");
+      data: { po_id: poId, dry_run: 1, _r: Math.random() },
+      dataType: "json",
+      timeout: 60000
+    }).done(function(dry) {
+      if (!dry || !dry.success) {
+        _testStatusError(btn, (dry && dry.error) ? dry.error : "Failed to build batches");
         return;
       }
-      $("#po-menu-test-status-text").html(\'<i class="fa fa-spinner fa-spin mr-1"></i> Running parallel Gemini batches in background. Polling every 5s for result…\');
-      var testStart = new Date();
-      var maxWait = 10 * 60 * 1000;
-      var pollTimer = setInterval(function() {
-        if (new Date() - testStart > maxWait) {
-          clearInterval(pollTimer);
-          _testStatusError(btn, "Timed out waiting for result. The CLI may still be running — try clicking again in a minute.");
-          return;
-        }
-        $.getJSON("/ajax/po-menu-test-result.php?po_id=" + poId + "&_r=" + Math.random(), function(r) {
-          console.log("[po-menu-test] poll:", r && r.data && r.data.status);
-          if (r && r.found && r.data && r.data.status === "completed") {
-            clearInterval(pollTimer);
-            btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini (verbose log)\');
-            $("#po-menu-test-status").hide();
-            _renderTestModal(r.data);
-            $("#po-menu-test-modal").modal("show");
-          } else if (r && r.found && r.data && r.data.status === "failed") {
-            clearInterval(pollTimer);
-            _testStatusError(btn, "CLI process failed: " + (r.data.error || "unknown error"));
-          }
-        }).fail(function() { console.warn("[po-menu-test] poll request failed"); });
-      }, 5000);
+      var total = dry.batches.length;
+      var done = 0;
+      var batchResults = new Array(total);
+      var startAll = new Date();
+      btn.html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Sending \' + total + \' batches…\');
+      $("#po-menu-test-status-text").html(\'Step 2/2: Sending all \' + total + \' batches to Gemini simultaneously… <span id="test-par-prog">0/\' + total + \'</span>\');
+
+      // Step 2: fire all batches at once from the browser
+      for (var bi = 0; bi < total; bi++) {
+        (function(batchIdx) {
+          $.ajax({
+            url: "/ajax/po-menu-test",
+            type: "POST",
+            data: { po_id: poId, single_batch: 1, batch_index: batchIdx, _r: Math.random() },
+            dataType: "json",
+            timeout: 150000
+          }).done(function(res) {
+            batchResults[batchIdx] = res;
+          }).fail(function(xhr, status, err) {
+            batchResults[batchIdx] = { success: false, batch_index: batchIdx, error: err || status };
+          }).always(function() {
+            done++;
+            var elapsed = ((new Date() - startAll) / 1000).toFixed(1);
+            $("#test-par-prog").text(done + "/" + total + " (" + elapsed + "s)");
+            if (done >= total) { _finishParallelTest(btn, dry, batchResults, startAll); }
+          });
+        })(bi);
+      }
     }).fail(function(xhr, status, err) {
-      console.error("[po-menu-test] AJAX fail:", status, err, xhr.responseText);
-      _testStatusError(btn, "Request failed (" + (err || status) + "). Raw: " + xhr.responseText.substring(0, 200));
+      _testStatusError(btn, "Batch setup failed: " + (err || status));
     });
   });
+
+  function _finishParallelTest(btn, dry, batchResults, startAll) {
+    var elapsed = ((new Date() - startAll) / 1000).toFixed(1);
+    btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini\');
+    $("#po-menu-test-status").hide();
+    var s = dry.summary || {};
+    var allFound = [], allDisable = [], allAdd = [], seenAdd = {};
+    batchResults.forEach(function(r) {
+      if (r && r.success) {
+        allFound   = allFound.concat(r.parsed_found_ids   || []);
+        allDisable = allDisable.concat(r.parsed_disable_ids || []);
+        (r.parsed_add_products || []).forEach(function(p) {
+          var k = (p.name || "").toLowerCase().trim();
+          if (k && !seenAdd[k]) { seenAdd[k] = true; allAdd.push(p); }
+        });
+      }
+    });
+    // Build structure compatible with _renderTestModal
+    var consolidated = {
+      status: "completed",
+      po_id: dry.po_id,
+      po_code: dry.po_code,
+      summary: {
+        total_products:    s.total_products,
+        total_batches:     batchResults.length,
+        batch_size:        s.batch_size,
+        concurrency:       batchResults.length,
+        total_time_s:      parseFloat(elapsed),
+        total_found_ids:   allFound.length,
+        total_disable_ids: allDisable.length,
+        total_add_products: allAdd.length,
+      },
+      batches: batchResults.map(function(r, idx) {
+        var d = dry.batches[idx] || {};
+        var base = {
+          batch_index:       idx,
+          is_primary:        (idx === 0),
+          product_count:     d.product_count || 0,
+          duration_s:        0,
+          http_status:       0,
+          curl_error:        null,
+          payload_size:      d.payload_size || 0,
+          finish_reason:     null,
+          response_size:     0,
+          raw_response:      "",
+          system_instruction: d.system_instruction || "",
+          brands_array:      d.brands_array || [],
+          categories_array:  d.categories_array || [],
+          po_products_array: d.po_products_array || [],
+          menu_text:         d.menu_text || "",
+          schema:            d.schema || {},
+          parsed_found_ids:  [],
+          parsed_disable_ids:[],
+          parsed_add_products:[],
+          parse_error:       null,
+        };
+        if (!r || !r.success) {
+          base.curl_error = (r && r.error) ? r.error : "Request failed";
+          return base;
+        }
+        return $.extend(base, {
+          duration_s:         r.duration_s,
+          http_status:        r.http_status,
+          curl_error:         r.curl_error,
+          finish_reason:      r.finish_reason,
+          response_size:      r.response_size,
+          raw_response:       r.raw_response,
+          po_products_array:  r.po_products_sent || d.po_products_array || [],
+          schema:             r.schema || d.schema || {},
+          parsed_found_ids:   r.parsed_found_ids   || [],
+          parsed_disable_ids: r.parsed_disable_ids || [],
+          parsed_add_products:r.parsed_add_products || [],
+          parse_error:        r.parse_error,
+        });
+      })
+    };
+    _renderTestModal(consolidated);
+    $("#po-menu-test-modal").modal("show");
+  }
 
   function _renderTestModal(data) {
     var s = data.summary || {};
