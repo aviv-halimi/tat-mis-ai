@@ -42,132 +42,119 @@ $(document).ready(function(e) {
       else showStatus("status", (data && data.response) ? data.response : "Save failed.", "error", true);
     });
   });
-  function renderPoMenuLastSync(data) {
-    if (!data) return;
-    var html = \'<div class="alert alert-\' + (data.success ? "info" : "warning") + \' mb-0">\' +
-      \'<strong>Last sync</strong> (\' + (data.time || "") + \'): \' + (data.message || data.error || "—") + \'\';
-    if (data.success && (data.disabled_count > 0 || data.added_count > 0)) {
-      html += \'<br><span class="text-muted">\' + (data.disabled_count || 0) + \' line(s) disabled, \' + (data.added_count || 0) + \' product(s) added.</span>\';
-    }
-    if (data.add_errors && data.add_errors.length) {
-      html += \'<br><small class="text-danger">Add issues: \' + data.add_errors.slice(0, 3).join("; ") + (data.add_errors.length > 3 ? " ..." : "") + \'</small>\';
-    }
-    html += \' <button type="button" class="btn btn-sm btn-outline-secondary ml-2 btn-po-menu-reload">Reload to see changes</button>\';
-    html += \'</div>\';
-    html += \'<div class="mt-2"><a href="#" class="btn btn-sm btn-default btn-toggle-sync-log">Show request/response log</a>\';
-    var logText = (data.debug_log && data.debug_log.length) ? data.debug_log.join("\\n") : "—";
-    html += \'<pre id="po-menu-sync-log-pre" class="bg-light p-2 mt-2 small" style="display:none; max-height:300px; overflow:auto;">\' + (logText.replace(/</g, "&lt;").replace(/>/g, "&gt;")) + \'</pre></div>\';
-    $("#po-menu-last-sync").html(html).show();
-    $(document).off("click", ".btn-toggle-sync-log").on("click", ".btn-toggle-sync-log", function(e) {
-      e.preventDefault();
-      $("#po-menu-sync-log-pre").toggle();
-      $(this).text($("#po-menu-sync-log-pre").is(":visible") ? "Hide log" : "Show request/response log");
-    });
-    $(document).off("click", ".btn-po-menu-reload").on("click", ".btn-po-menu-reload", function() { location.reload(); });
+  // ---- PO Menu Sync (new flow: extract → modal → apply) ----
+  function _esc(s) {
+    return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
-  $(document).on("click", ".btn-po-menu-sync", function(e) {
+  $(document).on("click", ".btn-po-menu-extract", function(e) {
     var btn = $(this);
     var poId = btn.data("po-id");
-    var poCode = btn.data("po-code");
-    if (!poId && !poCode) return;
-    btn.prop("disabled", true);
-    var $statusEl = $("#po-menu-sync-status");
-    var $statusText = $("#po-menu-sync-status-text");
-    $statusText.text("Syncing… This may take 1–2 minutes. Do not close the page.");
-    $statusEl.removeClass("alert-warning").addClass("alert-info").show();
-    showStatus("status", "Syncing PO with menu (AI)...", "info");
-    function stopStatus() {
-      btn.prop("disabled", false);
-      $statusEl.hide();
-    }
-    function applyResult(res) {
-      var key = "po_menu_sync_" + (poId || poCode);
-      var stored = { success: !!(res && res.success), message: (res && res.message) || null, error: (res && res.error) || null, disabled_count: (res && res.disabled_count) || 0, added_count: (res && res.added_count) || 0, add_errors: (res && res.add_errors) || [], debug_log: (res && res.debug_log) || [], time: (res && res.time) || new Date().toLocaleString() };
-      try { sessionStorage.setItem(key, JSON.stringify(stored)); } catch (e) {}
-      renderPoMenuLastSync(stored);
-      if (res && res.success) {
-        showStatus("status", res.message || "Done. See Last sync below; click Reload to see changes.", "ok", true);
-      } else {
-        showStatus("status", (res && res.error) ? res.error : "Sync failed. See Last sync below.", "error", true);
-      }
-    }
-    var startTime = new Date();
-    var pollMs = 4000;
-    var maxPollMs = 5 * 60 * 1000;
-    var pollTimer = null;
-    function stopPolling() {
-      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-    }
-    function pollResult() {
-      $.getJSON("/ajax/po-menu-sync-last-result.php?po_id=" + poId + "&_r=" + Math.random(), function(r) {
-        if (!r || !r.result) return;
-        var t = r.result.time;
-        if (t && (new Date(t).getTime() >= startTime.getTime() - 10000)) {
-          stopPolling();
-          stopStatus();
-          applyResult(r.result);
-        }
-      });
-    }
+    if (!poId) return;
+    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Extracting menu…\');
+    showStatus("status", "Extracting menu items via AI. This may take 30–60 seconds…", "info");
     $.ajax({
-      url: "/ajax/po-menu-sync",
+      url: "/ajax/po-menu-extract",
       type: "POST",
-      data: { po_id: poId, po_code: poCode || "", async: 1, _r: Math.random() },
-      dataType: "json"
+      data: { po_id: poId, _r: Math.random() },
+      dataType: "json",
+      timeout: 180000
     }).done(function(res) {
-      if (res && res.started) {
-        $statusText.text("Syncing in background (CLI). Waiting for result…");
-        pollTimer = setInterval(pollResult, pollMs);
-        pollResult();
-        setTimeout(function() {
-          if (pollTimer) {
-            stopPolling();
-            stopStatus();
-            $statusText.text("Sync may still be running. Click \"Reload to see changes\" below to check.");
-            $statusEl.removeClass("alert-info").addClass("alert-warning").show();
-          }
-        }, maxPollMs);
-      } else {
-        stopStatus();
-        applyResult(res);
+      btn.prop("disabled", false).html(\'<i class="fa fa-magic mr-1"></i>Extract Menu &amp; Match Products (AI)\');
+      if (!res || !res.success) {
+        showStatus("status", (res && res.error) ? res.error : "Extraction failed.", "error", true);
+        if (res && res.debug_log && res.debug_log.length) {
+          $("#po-menu-last-sync").html(\'<div class="mt-2"><a href="#" class="btn btn-sm btn-default btn-toggle-sync-log">Show log</a><pre id="po-menu-sync-log-pre" class="bg-light p-2 mt-2 small" style="display:none;max-height:300px;overflow:auto;">\' + _esc(res.debug_log.join("\\n")) + \'</pre></div>\').show();
+        }
+        return;
+      }
+      showStatus("status", "Extraction complete. Review and confirm matches below.", "ok", true);
+      _populateMatchModal(res, poId);
+      $("#po-menu-match-modal").modal("show");
+      // Show debug log toggle below panel
+      if (res.debug_log && res.debug_log.length) {
+        $("#po-menu-last-sync").html(\'<div class="mt-2"><a href="#" class="btn btn-sm btn-default btn-toggle-sync-log">Show extraction log</a><pre id="po-menu-sync-log-pre" class="bg-light p-2 mt-2 small" style="display:none;max-height:300px;overflow:auto;">\' + _esc(res.debug_log.join("\\n")) + \'</pre></div>\').show();
+        $(document).off("click",".btn-toggle-sync-log").on("click",".btn-toggle-sync-log",function(e){ e.preventDefault(); $("#po-menu-sync-log-pre").toggle(); $(this).text($("#po-menu-sync-log-pre").is(":visible")?"Hide log":"Show extraction log"); });
       }
     }).fail(function(xhr, status, err) {
-      stopPolling();
-      stopStatus();
-      var key = "po_menu_sync_" + (poId || poCode);
-      var is504 = (xhr && xhr.status === 504) || (xhr && xhr.responseText && xhr.responseText.indexOf(\'504\') !== -1);
-      $statusText.text(is504
-        ? "Request timed out (504). If the sync completed on the server, click \"Reload to see changes\" below to load the result."
-        : "Request failed. If the sync completed, click \"Reload to see changes\" below to load the result.");
-      $statusEl.show().removeClass("alert-info").addClass("alert-warning");
-      var stored = { success: false, error: "Request failed: " + (err || status), debug_log: ["Fail: " + status, (xhr && xhr.responseText) ? xhr.responseText.substring(0, 2000) : ""], time: new Date().toLocaleString() };
-      try { sessionStorage.setItem(key, JSON.stringify(stored)); } catch (e) {}
-      renderPoMenuLastSync(stored);
-      showStatus("status", is504 ? "504 timeout. Click \"Reload to see changes\" below if the sync completed." : "Request failed. Click \"Reload to see changes\" below to check result.", "error", true);
+      btn.prop("disabled", false).html(\'<i class="fa fa-magic mr-1"></i>Extract Menu &amp; Match Products (AI)\');
+      showStatus("status", "Request failed: " + (err || status), "error", true);
     });
   });
-  var poId = $(".btn-po-menu-sync").data("po-id");
-  var poCode = $(".btn-po-menu-sync").data("po-code");
-  if (poId || poCode) {
-    try {
-      var key = "po_menu_sync_" + (poId || poCode);
-      if (poId) {
-        $.getJSON("/ajax/po-menu-sync-last-result.php?po_id=" + poId, function(r) {
-          if (r && r.success && r.result) {
-            var d = r.result;
-            d.time = d.time || d.timestamp || "";
-            renderPoMenuLastSync(d);
-          } else {
-            var saved = sessionStorage.getItem(key);
-            if (saved) { renderPoMenuLastSync(JSON.parse(saved)); }
-          }
-        });
-      } else {
-        var saved = sessionStorage.getItem(key);
-        if (saved) { renderPoMenuLastSync(JSON.parse(saved)); }
+
+  function _populateMatchModal(data, poId) {
+    var matches = data.matches || [];
+    var unmatched = data.unmatched || [];
+    var html = "";
+    if (matches.length) {
+      html += \'<h6 class="mb-1">Matched Products (\' + matches.length + \') <small class="text-muted font-weight-normal">Uncheck any incorrect matches</small></h6>\';
+      html += \'<div class="table-responsive mb-3"><table class="table table-sm table-bordered table-hover mb-0"><thead class="thead-light"><tr><th style="width:36px"><input type="checkbox" id="chk-all-match" checked title="Toggle all"></th><th>Our Product</th><th>Menu Item</th><th>Price</th><th>Category</th><th style="width:50px">Match</th></tr></thead><tbody>\';
+      for (var i = 0; i < matches.length; i++) {
+        var m = matches[i];
+        html += \'<tr><td><input type="checkbox" class="match-cb" checked data-idx="\' + i + \'"></td>\';
+        html += \'<td><small>\' + _esc(m.product_name) + \'</small></td>\';
+        html += \'<td><small>\' + _esc(m.menu_name) + \'</small></td>\';
+        html += \'<td><small>$\' + parseFloat(m.menu_price || 0).toFixed(2) + \'</small></td>\';
+        html += \'<td><small>\' + _esc(m.category_name) + \'</small></td>\';
+        html += \'<td><small class="text-muted">\' + (m.match_score || "?") + \'%</small></td></tr>\';
       }
-    } catch (e) {}
+      html += \'</tbody></table></div>\';
+    } else {
+      html += \'<p class="text-muted">No existing catalogue products matched. All items will be added as custom.</p>\';
+    }
+    if (unmatched.length) {
+      html += \'<h6 class="mb-1">New Items – will be added as custom products (\' + unmatched.length + \') <small class="text-muted font-weight-normal">Uncheck to skip</small></h6>\';
+      html += \'<div class="table-responsive"><table class="table table-sm table-bordered table-hover mb-0"><thead class="thead-light"><tr><th style="width:36px"><input type="checkbox" id="chk-all-custom" checked title="Toggle all"></th><th>Menu Item</th><th>Price</th><th>Brand</th><th>Category</th></tr></thead><tbody>\';
+      for (var j = 0; j < unmatched.length; j++) {
+        var u = unmatched[j];
+        html += \'<tr><td><input type="checkbox" class="custom-cb" checked data-idx="\' + j + \'"></td>\';
+        html += \'<td><small>\' + _esc(u.menu_name) + \'</small></td>\';
+        html += \'<td><small>$\' + parseFloat(u.menu_price || 0).toFixed(2) + \'</small></td>\';
+        html += \'<td><small>\' + _esc(u.brand_name) + \'</small></td>\';
+        html += \'<td><small>\' + _esc(u.category_name) + \'</small></td></tr>\';
+      }
+      html += \'</tbody></table></div>\';
+    }
+    if (!matches.length && !unmatched.length) {
+      html = \'<p class="text-muted">No products found on the menu.</p>\';
+    }
+    $("#po-menu-match-body").html(html);
+    $("#po-menu-match-modal").data("po-id", poId).data("match-data", data);
+    // Toggle-all checkboxes
+    $(document).off("change","#chk-all-match").on("change","#chk-all-match",function(){ $(".match-cb").prop("checked", $(this).is(":checked")); });
+    $(document).off("change","#chk-all-custom").on("change","#chk-all-custom",function(){ $(".custom-cb").prop("checked", $(this).is(":checked")); });
   }
+
+  $(document).on("click", "#btn-po-menu-apply", function() {
+    var modal = $("#po-menu-match-modal");
+    var poId = modal.data("po-id");
+    var data = modal.data("match-data");
+    if (!poId || !data) return;
+    var confirmed = [];
+    var custom_items = [];
+    $(".match-cb:checked").each(function() { confirmed.push(data.matches[$(this).data("idx")]); });
+    $(".custom-cb:checked").each(function() { custom_items.push(data.unmatched[$(this).data("idx")]); });
+    var btn = $(this);
+    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Adding…\');
+    $("#po-menu-apply-status").text("Adding " + (confirmed.length + custom_items.length) + " product(s) to PO…");
+    $.ajax({
+      url: "/ajax/po-menu-apply",
+      type: "POST",
+      data: { po_id: poId, confirmed: JSON.stringify(confirmed), custom_items: JSON.stringify(custom_items) },
+      dataType: "json"
+    }).done(function(res) {
+      btn.prop("disabled", false).html(\'<i class="fa fa-check mr-1"></i>Add Selected to PO\');
+      if (res && res.success) {
+        modal.modal("hide");
+        showStatus("status", res.message || "Done.", "ok", true);
+        setTimeout(function() { location.reload(); }, 1200);
+      } else {
+        $("#po-menu-apply-status").html(\'<span class="text-danger">\' + _esc(res && res.error ? res.error : "Apply failed") + \'</span>\');
+      }
+    }).fail(function(xhr, status, err) {
+      btn.prop("disabled", false).html(\'<i class="fa fa-check mr-1"></i>Add Selected to PO\');
+      $("#po-menu-apply-status").html(\'<span class="text-danger">Request failed: \' + _esc(err || status) + \'</span>\');
+    });
+  });
 });
 </script>';
 
@@ -590,19 +577,37 @@ foreach($rf as $f) {
 if ($_po_id && $_po_status_id == 1) {
   echo '
   <div class="panel panel-default mt-3" id="po-brand-menu-panel">
-    <div class="panel-heading"><h4 class="panel-title"><i class="fa fa-list-alt mr-1"></i> Brand menu – sync PO with current menu (AI)</h4></div>
+    <div class="panel-heading"><h4 class="panel-title"><i class="fa fa-list-alt mr-1"></i> Brand menu – add menu items to PO (AI)</h4></div>
     <div class="panel-body">
-      <p class="text-muted mb-3">Upload the brand\'s current menu PDF(s), then run Sync to disable PO lines not on the menu and add menu items that are not yet on the PO.</p>
+      <p class="text-muted mb-3">Upload the brand\'s current menu PDF(s), then click <strong>Extract Menu &amp; Match Products</strong>. Gemini will parse the menu and match items to products in your catalogue. Review matches in the modal, then add them to the PO.</p>
       <form id="f_po-menu-data" class="po-data" action="" method="post">
         <input type="hidden" name="c" value="' . htmlspecialchars($po_code) . '" />
         <input type="hidden" name="f" value="menu_filenames" />
         <div class="mb-2">' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', 'Upload menu PDF(s)...') . '</div>
         <button type="button" class="btn btn-outline-secondary btn-save-menu-pdfs">Save menu PDFs</button>
-        <button type="button" class="btn btn-primary btn-po-menu-sync ml-2" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-magic mr-1"></i> Sync PO with menu (AI)</button>
+        <button type="button" class="btn btn-primary btn-po-menu-extract ml-2" data-po-id="' . (int)$_po_id . '"><i class="fa fa-magic mr-1"></i> Extract Menu &amp; Match Products (AI)</button>
       </form>
-      <div id="po-menu-sync-status" class="alert alert-info mt-2" style="display:none;"><i class="fa fa-spinner fa-spin mr-1"></i><span id="po-menu-sync-status-text"></span></div>
-      <p class="text-muted small mt-2 mb-0">Sync runs in the background (CLI) with parallel Gemini batches of 100 so it does not time out. The page polls for the result; use &quot;Reload to see changes&quot; to load the last result. See <a href="doc/po-menu-sync-504-timeout.md" target="_blank" rel="noopener">doc/po-menu-sync-504-timeout.md</a> for server setup.</p>
       <div id="po-menu-last-sync" class="mt-3" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- PO Menu Match Modal -->
+  <div class="modal fade" id="po-menu-match-modal" tabindex="-1" role="dialog" aria-labelledby="po-menu-match-modal-title">
+    <div class="modal-dialog modal-xl" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="po-menu-match-modal-title"><i class="fa fa-list-alt mr-2"></i>Review Menu Matches</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span>&times;</span></button>
+        </div>
+        <div class="modal-body" id="po-menu-match-body" style="max-height:70vh;overflow-y:auto;">
+          <p class="text-muted">Loading…</p>
+        </div>
+        <div class="modal-footer">
+          <div id="po-menu-apply-status" class="mr-auto small text-muted"></div>
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-success" id="btn-po-menu-apply"><i class="fa fa-check mr-1"></i>Add Selected to PO</button>
+        </div>
+      </div>
     </div>
   </div>';
 }
