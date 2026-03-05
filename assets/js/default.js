@@ -1042,9 +1042,14 @@ function initPushDailyDiscountReportQbo() {
     var f = $(this).prop('checked') ? 'xlsx' : 'pdf';
     $(this).closest('.dd-report-brand-actions, .dd-report-row-actions').data('format', f);
     var $brandActions = $(this).closest('.dd-report-brand-actions');
-    if ($brandActions.length && $brandActions.data('daily-discount-report-brand-id')) {
+    var brandRowId = $brandActions.length && ($brandActions.attr('data-daily-discount-report-brand-id') || $brandActions.data('dailyDiscountReportBrandId'));
+    if (brandRowId) {
       var excelReport = $(this).prop('checked') ? 1 : 0;
-      $.post('/ajax/daily-discount-report-set-format.php', { daily_discount_report_brand_id: $brandActions.data('daily-discount-report-brand-id'), excel_report: excelReport });
+      $.post('/ajax/daily-discount-report-set-format.php', { daily_discount_report_brand_id: brandRowId, excel_report: excelReport }, function(res) {
+        if (res && res.success === false && typeof showStatus === 'function') showStatus('status', res.response || 'Save failed', 'error', true);
+      }, 'json').fail(function() {
+        if (typeof showStatus === 'function') showStatus('status', 'Could not save format preference.', 'error', true);
+      });
     }
   });
   $(document).off('click', '.btn-download-dd-report-brand').on('click', '.btn-download-dd-report-brand', function(e) {

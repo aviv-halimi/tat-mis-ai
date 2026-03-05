@@ -7,8 +7,10 @@
 require_once(__DIR__ . '/../_config.php');
 header('Content-Type: application/json');
 
-$daily_discount_report_brand_id = getVarInt('daily_discount_report_brand_id', 0, 0, 999999);
-$excel_report = getVarInt('excel_report', -1, 0, 1);
+$daily_discount_report_brand_id = isset($_POST['daily_discount_report_brand_id']) ? (int)$_POST['daily_discount_report_brand_id'] : 0;
+$excel_report = isset($_POST['excel_report']) ? (int)$_POST['excel_report'] : -1;
+if ($daily_discount_report_brand_id < 1) $daily_discount_report_brand_id = 0;
+if ($excel_report !== 0 && $excel_report !== 1) $excel_report = -1;
 
 if (!$daily_discount_report_brand_id) {
     echo json_encode(array('success' => false, 'response' => 'Missing report brand.'));
