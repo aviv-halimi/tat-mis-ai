@@ -157,12 +157,17 @@ $(document).ready(function(e) {
   });
 
   // ---- Test button: parallel Gemini batches with verbose log ----
+  function _testStatusError(btn, msg) {
+    btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini (verbose log)\');
+    $("#po-menu-test-status").removeClass("alert-info").addClass("alert-danger");
+    $("#po-menu-test-status-text").html(\'<strong>Error:</strong> \' + _esc(msg));
+  }
   $(document).on("click", ".btn-po-menu-test", function() {
     var btn = $(this);
     var poId = btn.data("po-id");
     if (!poId) return;
     btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Starting test…\');
-    $("#po-menu-test-status").show();
+    $("#po-menu-test-status").removeClass("alert-danger").addClass("alert-info").show();
     $("#po-menu-test-status-text").text("Spawning CLI background process…");
     $.ajax({
       url: "/ajax/po-menu-test",
@@ -170,35 +175,37 @@ $(document).ready(function(e) {
       data: { po_id: poId, async: 1, _r: Math.random() },
       dataType: "json"
     }).done(function(res) {
+      console.log("[po-menu-test] spawn response:", res);
       if (!res || !res.success) {
-        btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini (verbose log)\');
-        $("#po-menu-test-status").hide();
-        showStatus("status", "Test failed to start: " + (res && res.error ? res.error : "unknown error"), "error", true);
+        _testStatusError(btn, (res && res.error) ? res.error : "Unexpected response — check browser console");
         return;
       }
-      $("#po-menu-test-status-text").text("Running parallel Gemini batches in background. Polling for result…");
+      $("#po-menu-test-status-text").html(\'<i class="fa fa-spinner fa-spin mr-1"></i> Running parallel Gemini batches in background. Polling every 5s for result…\');
       var testStart = new Date();
-      var maxWait = 10 * 60 * 1000; // 10 min max poll
+      var maxWait = 10 * 60 * 1000;
       var pollTimer = setInterval(function() {
+        if (new Date() - testStart > maxWait) {
+          clearInterval(pollTimer);
+          _testStatusError(btn, "Timed out waiting for result. The CLI may still be running — try clicking again in a minute.");
+          return;
+        }
         $.getJSON("/ajax/po-menu-test-result.php?po_id=" + poId + "&_r=" + Math.random(), function(r) {
+          console.log("[po-menu-test] poll:", r && r.data && r.data.status);
           if (r && r.found && r.data && r.data.status === "completed") {
             clearInterval(pollTimer);
             btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini (verbose log)\');
             $("#po-menu-test-status").hide();
             _renderTestModal(r.data);
             $("#po-menu-test-modal").modal("show");
+          } else if (r && r.found && r.data && r.data.status === "failed") {
+            clearInterval(pollTimer);
+            _testStatusError(btn, "CLI process failed: " + (r.data.error || "unknown error"));
           }
-        });
-        if (new Date() - testStart > maxWait) {
-          clearInterval(pollTimer);
-          btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini (verbose log)\');
-          $("#po-menu-test-status-text").text("Test is taking too long — result file may not be ready yet.");
-        }
+        }).fail(function() { console.warn("[po-menu-test] poll request failed"); });
       }, 5000);
     }).fail(function(xhr, status, err) {
-      btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini (verbose log)\');
-      $("#po-menu-test-status").hide();
-      showStatus("status", "Test spawn failed: " + (err || status), "error", true);
+      console.error("[po-menu-test] AJAX fail:", status, err, xhr.responseText);
+      _testStatusError(btn, "Request failed (" + (err || status) + "). Raw: " + xhr.responseText.substring(0, 200));
     });
   });
 
@@ -267,6 +274,111 @@ $(document).ready(function(e) {
       _esc(typeof content === "string" ? content : JSON.stringify(content, null, 2)) +
       \'</pre></div>\';
   }
+
+  // ---- Dry Run: build payloads, show without calling Gemini ----
+  $(document).on("click", ".btn-po-menu-dry-run", function() {
+    var btn = $(this);
+    var poId = btn.data("po-id");
+    if (!poId) return;
+    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Building payloads…\');
+    $.ajax({
+      url: "/ajax/po-menu-test",
+      type: "POST",
+      data: { po_id: poId, dry_run: 1, _r: Math.random() },
+      dataType: "json",
+      timeout: 60000
+    }).done(function(res) {
+      btn.prop("disabled", false).html(\'<i class="fa fa-eye mr-1"></i>Dry Run (show prompts only)\');
+      console.log("[dry-run] response:", res);
+      if (!res || !res.success) {
+        _testStatusError(btn, (res && res.error) ? res.error : "Dry run failed — check console");
+        $("#po-menu-test-status").show();
+        return;
+      }
+      _renderDryRunModal(res);
+      $("#po-menu-test-modal").modal("show");
+    }).fail(function(xhr, status, err) {
+      btn.prop("disabled", false).html(\'<i class="fa fa-eye mr-1"></i>Dry Run (show prompts only)\');
+      console.error("[dry-run] fail:", status, err, xhr.responseText);
+      $("#po-menu-test-status").removeClass("alert-info").addClass("alert-danger").show();
+      $("#po-menu-test-status-text").html(\'<strong>Dry run failed:</strong> \' + _esc(err || status) + \' — \' + _esc(xhr.responseText.substring(0, 300)));
+    });
+  });
+
+  function _renderDryRunModal(res) {
+    var s = res.summary || {};
+    var batches = res.batches || [];
+    var html = \'<div class="alert alert-secondary mb-3">\';
+    html += \'<strong>Dry Run — NO requests sent to Gemini</strong><br>\';
+    html += "PO: <b>" + _esc(res.po_code || res.po_id) + "</b> &nbsp;|&nbsp; ";
+    html += "Products: <b>" + (s.total_products || 0) + "</b> &nbsp;|&nbsp; ";
+    html += "Batches: <b>" + (s.total_batches || 0) + "</b> (size " + (s.batch_size || 100) + ") &nbsp;|&nbsp; ";
+    html += "Total payload: <b>" + Math.round((s.total_payload_bytes || 0) / 1024) + " KB</b><br>";
+    html += "Menu text: <b>" + (s.menu_text_chars || 0).toLocaleString() + " chars</b> &nbsp;|&nbsp; ";
+    html += "Brands: <b>" + (s.brands_count || 0) + "</b> &nbsp;|&nbsp; ";
+    html += "Categories: <b>" + (s.categories_count || 0) + "</b>";
+    html += \'</div>\';
+    html += \'<div id="test-batch-accordion">\';
+    for (var i = 0; i < batches.length; i++) {
+      var b = batches[i];
+      var bId = "dry-batch-" + b.batch_index;
+      html += \'<div class="card mb-1">\';
+      html += \'<div class="card-header p-2" style="cursor:pointer" data-toggle="collapse" data-target="#\' + bId + \'">\';
+      html += \'<strong>Batch \' + (b.batch_index + 1) + "/" + batches.length + "</strong>";
+      html += " &nbsp; " + (b.product_count || 0) + " products";
+      html += " &nbsp; Payload: " + Math.round((b.payload_size || 0) / 1024) + " KB";
+      if (b.is_primary) { html += \' <span class="badge badge-info">primary (includes add_products schema)</span>\'; }
+      html += \'</div>\';
+      html += \'<div id="\' + bId + \'" class="collapse">\';
+      html += \'<div class="card-body p-2">\';
+      html += \'<p class="text-muted small mb-1"><strong>URL:</strong> \' + _esc((b.url || "").replace(/key=[^&]+/, "key=***")) + \'</p>\';
+      html += _testSection("System Instruction", b.system_instruction || "", bId + "-sys");
+      html += _testSection("Full Prompt (brands + categories + PO products + menu text)", b.prompt || "", bId + "-prompt");
+      html += _testSection("Brands Array (" + (b.brands_array || []).length + " items)", JSON.stringify(b.brands_array || [], null, 2), bId + "-brands");
+      html += _testSection("Categories Array (" + (b.categories_array || []).length + " items)", JSON.stringify(b.categories_array || [], null, 2), bId + "-cats");
+      html += _testSection("PO Products (" + (b.po_products_array || []).length + " items)", JSON.stringify(b.po_products_array || [], null, 2), bId + "-prods");
+      var menuPrev = (b.menu_text || "").substring(0, 3000) + (b.menu_text && b.menu_text.length > 3000 ? "\n...[" + b.menu_text.length + " total chars]" : "");
+      html += _testSection("Menu Text (" + (b.menu_text ? b.menu_text.length : 0) + " chars)", menuPrev, bId + "-menu");
+      html += _testSection("Schema", JSON.stringify(b.schema || {}, null, 2), bId + "-schema");
+      html += _testSection("Full Payload JSON (" + Math.round((b.payload_size || 0) / 1024) + " KB)", b.full_payload_json || "", bId + "-payload");
+      html += \'</div></div></div>\';
+    }
+    html += \'</div>\';
+    $("#po-menu-test-modal .modal-title").html(\'<i class="fa fa-eye mr-2"></i>Dry Run — Gemini Payloads (NOT sent)\');
+    $("#po-menu-test-body").html(html);
+  }
+
+  // ---- View last result (even if status=running/failed) ----
+  $(document).on("click", ".btn-po-menu-view-last", function() {
+    var btn = $(this);
+    var poId = btn.data("po-id");
+    if (!poId) return;
+    btn.prop("disabled", true);
+    $.getJSON("/ajax/po-menu-test-result.php?po_id=" + poId + "&_r=" + Math.random(), function(r) {
+      btn.prop("disabled", false);
+      if (!r || !r.found || !r.data) {
+        alert("No result file found for this PO. Run the test first.");
+        return;
+      }
+      var d = r.data;
+      if (d.status === "completed") {
+        _renderTestModal(d);
+      } else {
+        // Show whatever partial/raw data exists
+        $("#po-menu-test-modal .modal-title").html(\'<i class="fa fa-file-text-o mr-2"></i>Last Result File (status: \' + _esc(d.status || "?") + \')\');
+        $("#po-menu-test-body").html(
+          \'<div class="alert alert-warning">Status: <strong>\' + _esc(d.status || "unknown") + \'</strong>\' +
+          (d.error ? \' — \' + _esc(d.error) : \'\') +
+          (d.started_at ? \' &nbsp; Started: \' + _esc(d.started_at) : \'\') + \'</div>\' +
+          \'<pre class="bg-light p-2 small" style="max-height:70vh;overflow:auto;white-space:pre-wrap;">\' + _esc(JSON.stringify(d, null, 2)) + \'</pre>\'
+        );
+      }
+      $("#po-menu-test-modal").modal("show");
+    }).fail(function() {
+      btn.prop("disabled", false);
+      alert("Could not fetch result file.");
+    });
+  });
 });
 </script>';
 
@@ -698,7 +810,9 @@ if ($_po_id && $_po_status_id == 1) {
         <div class="mb-2">' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', 'Upload menu PDF(s)...') . '</div>
         <button type="button" class="btn btn-outline-secondary btn-save-menu-pdfs">Save menu PDFs</button>
         <button type="button" class="btn btn-primary btn-po-menu-extract ml-2" data-po-id="' . (int)$_po_id . '"><i class="fa fa-magic mr-1"></i> Extract Menu &amp; Match Products (AI)</button>
-        <button type="button" class="btn btn-outline-warning btn-po-menu-test ml-2" data-po-id="' . (int)$_po_id . '" title="Runs parallel Gemini batches (100 products/batch). Matching done by Gemini. No DB writes — diagnostic only."><i class="fa fa-flask mr-1"></i> Test: Parallel Gemini (verbose log)</button>
+        <button type="button" class="btn btn-outline-warning btn-po-menu-test ml-2" data-po-id="' . (int)$_po_id . '" title="Runs parallel Gemini batches (CLI background). No DB writes — diagnostic only."><i class="fa fa-flask mr-1"></i> Test: Parallel Gemini</button>
+        <button type="button" class="btn btn-outline-secondary btn-po-menu-dry-run ml-1" data-po-id="' . (int)$_po_id . '" title="Build all Gemini payloads but do NOT send them. Shows what would be sent."><i class="fa fa-eye mr-1"></i> Dry Run (show prompts only)</button>
+        <button type="button" class="btn btn-link btn-po-menu-view-last ml-1 small" data-po-id="' . (int)$_po_id . '" title="Show the last saved test result file (even if incomplete)."><i class="fa fa-file-text-o mr-1"></i> View last result</button>
       </form>
       <div id="po-menu-test-status" class="alert alert-info mt-2" style="display:none;"><i class="fa fa-spinner fa-spin mr-1"></i><span id="po-menu-test-status-text">Running parallel Gemini batches in background…</span></div>
       <div id="po-menu-last-sync" class="mt-3" style="display:none;"></div>

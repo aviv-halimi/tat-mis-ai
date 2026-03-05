@@ -58,8 +58,11 @@ if (empty($pdf_paths)) {
 $log_dir  = defined('BASE_PATH') ? BASE_PATH . 'log' : dirname(__FILE__) . '/../log';
 $result_file = $log_dir . '/po-menu-test-' . $po_id . '.json';
 
-// ---- HTTP: spawn CLI and return immediately ----
-if (!$is_cli && !empty($_POST['async'])) {
+// ---- HTTP dry-run: build payloads but do NOT call Gemini ----
+$is_dry_run = !$is_cli && !empty($_POST['dry_run']);
+
+// ---- HTTP async: spawn CLI and return immediately ----
+if (!$is_cli && !$is_dry_run && !empty($_POST['async'])) {
     if (!is_dir($log_dir)) { @mkdir($log_dir, 0755, true); }
     @file_put_contents($result_file, json_encode(['status' => 'running', 'started_at' => date('Y-m-d H:i:s')]), LOCK_EX);
     $php  = defined('INVOICE_VALIDATE_PHP_CLI') ? INVOICE_VALIDATE_PHP_CLI : 'php';
@@ -126,12 +129,81 @@ $apiKey = getenv('GEMINI_API_KEY') ?: (defined('GEMINI_API_KEY') ? GEMINI_API_KE
 $model  = (defined('GEMINI_PO_MENU_MODEL') && GEMINI_PO_MENU_MODEL !== '') ? GEMINI_PO_MENU_MODEL : 'gemini-2.0-flash';
 $url    = 'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent?key=' . urlencode($apiKey);
 
-$batch_size  = 100;
-$concurrency = 4;
-$timeout_s   = 90;
+$batch_size = 100;
+$timeout_s  = 120;
 
-$batches = array_chunk($po_products, $batch_size);
+$batches   = array_chunk($po_products, $batch_size);
 $n_batches = count($batches);
+$concurrency = $n_batches ?: 20; // run all batches fully in parallel
+
+// ---- DRY RUN: build payloads and return without calling Gemini ----
+if ($is_dry_run) {
+    $dry_batches = [];
+    $total_payload_bytes = 0;
+    foreach ($batches as $idx => $batch) {
+        $is_primary  = ($idx === 0);
+        $batch_json  = json_encode($batch, JSON_UNESCAPED_UNICODE);
+        $schema      = $is_primary ? $schema_primary : $schema_ids_only;
+
+        $prompt = "AVAILABLE BRANDS:\n" . json_encode($all_brands, JSON_UNESCAPED_UNICODE)
+            . "\n\nAVAILABLE CATEGORIES:\n" . json_encode($all_categories, JSON_UNESCAPED_UNICODE)
+            . "\n\nCATEGORY TRANSLATIONS:\n"
+            . "- \"PERSY BADDER\",\"PERSY ROSIN\",\"LIVE ROSIN\",\"THUMB PRINT\",\"SAUCE\" → \"Solventless Extracts\"\n"
+            . "- \"PERSY POD\",\"SOLVENTLESS PODS\",\"ALL IN ONE\",\"AIO\" → \"Vape Carts .5g\" or \"AIO\"\n"
+            . "- \"FLOWER\",\"EIGHTHS\",\"HALF OUNCE\",\"3.5G\",\"14G\" → \"Flowers\"\n"
+            . "- \"GUMMIS\",\"EDIBLES\",\"HASH ROSIN GUMMIS\" → \"Edibles\"\n"
+            . "- \"PREROLL\",\"JOINTS\",\"DOINKS\" → \"Pre-Rolls\"\n"
+            . "\nPO PRODUCTS BATCH " . ($idx + 1) . " of {$n_batches} (JSON):\n" . $batch_json
+            . "\n\nMENU TEXT:\n" . $menu_text;
+
+        $payload = [
+            'system_instruction' => ['parts' => [['text' => $system_instr]]],
+            'contents' => [['parts' => [['text' => $prompt]]]],
+            'generationConfig' => [
+                'temperature'      => 0.0,
+                'maxOutputTokens'  => $is_primary ? 8192 : 4096,
+                'responseMimeType' => 'application/json',
+                'responseSchema'   => $schema,
+            ],
+        ];
+        $payload_json = json_encode($payload);
+        $total_payload_bytes += strlen($payload_json);
+
+        $dry_batches[] = [
+            'batch_index'        => $idx,
+            'is_primary'         => $is_primary,
+            'product_count'      => count($batch),
+            'url'                => $url,
+            'payload_size'       => strlen($payload_json),
+            'system_instruction' => $system_instr,
+            'brands_array'       => $all_brands,
+            'categories_array'   => $all_categories,
+            'po_products_array'  => $batch,
+            'menu_text'          => $menu_text,
+            'schema'             => $schema,
+            'prompt'             => $prompt,
+            'full_payload_json'  => $payload_json,
+        ];
+    }
+    echo json_encode([
+        'success'   => true,
+        'dry_run'   => true,
+        'po_id'     => $po_id,
+        'po_code'   => $po_code,
+        'summary'   => [
+            'total_products'       => count($po_products),
+            'total_batches'        => $n_batches,
+            'batch_size'           => $batch_size,
+            'concurrency'          => $concurrency,
+            'total_payload_bytes'  => $total_payload_bytes,
+            'menu_text_chars'      => strlen($menu_text),
+            'brands_count'         => count($all_brands),
+            'categories_count'     => count($all_categories),
+        ],
+        'batches'   => $dry_batches,
+    ]);
+    exit;
+}
 
 $schema_primary = [
     'type' => 'OBJECT',
