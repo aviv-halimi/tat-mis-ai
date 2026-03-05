@@ -91,15 +91,48 @@ $(document).ready(function(e) {
         showStatus("status", (res && res.error) ? res.error : "Sync failed. See Last sync below.", "error", true);
       }
     }
+    var startTime = new Date();
+    var pollMs = 4000;
+    var maxPollMs = 5 * 60 * 1000;
+    var pollTimer = null;
+    function stopPolling() {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+    function pollResult() {
+      $.getJSON("/ajax/po-menu-sync-last-result.php?po_id=" + poId + "&_r=" + Math.random(), function(r) {
+        if (!r || !r.result) return;
+        var t = r.result.time;
+        if (t && (new Date(t).getTime() >= startTime.getTime() - 10000)) {
+          stopPolling();
+          stopStatus();
+          applyResult(r.result);
+        }
+      });
+    }
     $.ajax({
       url: "/ajax/po-menu-sync",
       type: "POST",
-      data: { po_id: poId, po_code: poCode || "", _r: Math.random() },
+      data: { po_id: poId, po_code: poCode || "", async: 1, _r: Math.random() },
       dataType: "json"
     }).done(function(res) {
-      stopStatus();
-      applyResult(res);
+      if (res && res.started) {
+        $statusText.text("Syncing in background (CLI). Waiting for result…");
+        pollTimer = setInterval(pollResult, pollMs);
+        pollResult();
+        setTimeout(function() {
+          if (pollTimer) {
+            stopPolling();
+            stopStatus();
+            $statusText.text("Sync may still be running. Click \"Reload to see changes\" below to check.");
+            $statusEl.removeClass("alert-info").addClass("alert-warning").show();
+          }
+        }, maxPollMs);
+      } else {
+        stopStatus();
+        applyResult(res);
+      }
     }).fail(function(xhr, status, err) {
+      stopPolling();
       stopStatus();
       var key = "po_menu_sync_" + (poId || poCode);
       var is504 = (xhr && xhr.status === 504) || (xhr && xhr.responseText && xhr.responseText.indexOf(\'504\') !== -1);
@@ -568,7 +601,7 @@ if ($_po_id && $_po_status_id == 1) {
         <button type="button" class="btn btn-primary btn-po-menu-sync ml-2" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-magic mr-1"></i> Sync PO with menu (AI)</button>
       </form>
       <div id="po-menu-sync-status" class="alert alert-info mt-2" style="display:none;"><i class="fa fa-spinner fa-spin mr-1"></i><span id="po-menu-sync-status-text"></span></div>
-      <p class="text-muted small mt-2 mb-0">Sync runs in the request; it may take 1–2 minutes for large POs. If you get a 504 timeout, increase Nginx/PHP timeouts; see <a href="doc/po-menu-sync-504-timeout.md" target="_blank" rel="noopener">doc/po-menu-sync-504-timeout.md</a>.</p>
+      <p class="text-muted small mt-2 mb-0">Sync runs in the background (CLI) with parallel Gemini batches of 100 so it does not time out. The page polls for the result; use &quot;Reload to see changes&quot; to load the last result. See <a href="doc/po-menu-sync-504-timeout.md" target="_blank" rel="noopener">doc/po-menu-sync-504-timeout.md</a> for server setup.</p>
       <div id="po-menu-last-sync" class="mt-3" style="display:none;"></div>
     </div>
   </div>';
