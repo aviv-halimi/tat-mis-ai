@@ -1,115 +1,198 @@
 <?php
 /**
- * PO vs Brand Menu matching - NUCLEAR SPEED EDITION
- * Parallel execution + Pruned Schema (No explanations, just IDs)
+ * PO vs Brand Menu matching via Gemini.
+ * Single request or sequential batches only (no parallel) to avoid rate limits and indefinite hangs.
  */
-
-set_time_limit(0); 
+set_time_limit(0);
 
 function matchPoToMenuGemini(array $pdf_file_paths, array $po_products, &$debug_log = null, array $po_brands = array(), array $po_categories = array())
 {
     $debug_log = $debug_log ?? [];
     $apiKey = getenv('GEMINI_API_KEY') ?: (defined('GEMINI_API_KEY') ? GEMINI_API_KEY : null);
-    if (!$apiKey) return null;
-
-    // 1. FAST TEXT EXTRACTION (Crucial: sending raw PDFs to 5 threads will 504)
-    $menu_text = "";
-    foreach ($pdf_file_paths as $path) {
-        if (!file_exists($path)) continue;
-        $menu_text .= @shell_exec("pdftotext -layout -enc UTF-8 " . escapeshellarg($path) . " - 2>/dev/null") . "\n\n";
+    if (!$apiKey) {
+        return null;
     }
 
-    $brand_names = implode('" or "', array_unique(array_filter(array_column($po_brands, 'brand_name')))) ?: '710 Labs';
-    $batches = array_chunk($po_products, 100); 
+    // 1. Extract menu text once (no raw PDFs to avoid slow/oversized requests)
+    $menu_text = '';
+    foreach ($pdf_file_paths as $path) {
+        if (!file_exists($path)) {
+            continue;
+        }
+        $out = @shell_exec('pdftotext -layout -enc UTF-8 ' . escapeshellarg($path) . ' - 2>/dev/null');
+        if ($out) {
+            $menu_text .= "--- MENU ---\n" . trim($out) . "\n\n";
+        }
+    }
+    if ($menu_text === '') {
+        $debug_log[] = '[SYNC] No menu text extracted from PDFs.';
+        return null;
+    }
+
+    $brand_names = implode('" or "', array_unique(array_filter(array_column($po_brands, 'brand_name')))) ?: 'brand name';
+    $model = (defined('GEMINI_PO_MENU_MODEL') && GEMINI_PO_MENU_MODEL !== '') ? GEMINI_PO_MENU_MODEL : 'gemini-2.0-flash';
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent?key=' . urlencode($apiKey);
+
+    // 2. One batch per chunk; run sequentially to avoid rate limits
+    $batch_size = 400;
+    $batches = array_chunk($po_products, $batch_size);
     $total_batches = count($batches);
-    
-    $mh = curl_multi_init();
-    $requests = [];
+    $all_found_ids = [];
+    $all_add_products = [];
 
-    foreach ($batches as $index => $batch) {
-        $batch_json = json_encode($batch);
-        $is_primary = ($index === 0);
-
-        // NUCLEAR PRUNING: We only ask for the IDs. No logs, no explanations.
-        $schema = [
-            'type' => 'OBJECT',
-            'properties' => [
-                'found_po_product_ids' => ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']]
-            ],
-            'required' => ['found_po_product_ids']
-        ];
-        
-        // Only the first thread handles the "Add New" logic to save time on others
-        if ($is_primary) {
-            $schema['properties']['add_products'] = [
+    $schema = [
+        'type' => 'OBJECT',
+        'properties' => [
+            'found_po_product_ids' => ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']],
+            'add_products' => [
                 'type' => 'ARRAY',
                 'items' => [
                     'type' => 'OBJECT',
                     'properties' => [
                         'name' => ['type' => 'STRING'],
-                        'price' => ['type' => 'NUMBER']
+                        'price' => ['type' => 'NUMBER'],
+                        'brand_id' => ['type' => 'INTEGER', 'nullable' => true],
+                        'category_id' => ['type' => 'INTEGER', 'nullable' => true],
                     ],
-                    'required' => ['name', 'price']
-                ]
-            ];
-            $schema['required'][] = 'add_products';
-        }
+                    'required' => ['name', 'price'],
+                ],
+            ],
+        ],
+        'required' => ['found_po_product_ids', 'add_products'],
+    ];
 
-        $payload = json_encode([
-            'contents' => [['parts' => [['text' => $menu_text], ['text' => "Match Batch: $batch_json"]]]],
+    foreach ($batches as $index => $batch) {
+        $batch_num = $index + 1;
+        $debug_log[] = "[SYNC] Gemini batch {$batch_num}/{$total_batches} (" . count($batch) . " products).";
+        $batch_json = json_encode($batch);
+
+        $prompt = "Match PO lines to the menu. Ignore \"{$brand_names}\" prefix. "
+            . "Return found_po_product_ids for each PO line that exists on the menu (same strain + category). "
+            . "Return add_products for menu items not on the PO (name, price, brand_id, category_id when possible). "
+            . "PO batch (JSON): {$batch_json}";
+
+        $payload = [
+            'contents' => [
+                ['parts' => [
+                    ['text' => $menu_text],
+                    ['text' => $prompt],
+                ]],
+            ],
             'generationConfig' => [
                 'temperature' => 0.0,
+                'maxOutputTokens' => 8192,
                 'responseMimeType' => 'application/json',
-                'responseSchema' => $schema
-            ]
-        ]);
+                'responseSchema' => $schema,
+            ],
+        ];
 
-        $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey");
+        $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_POSTFIELDS => json_encode($payload),
             CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_TIMEOUT => 45 // Tight timeout for speed
+            CURLOPT_TIMEOUT => 180,
         ]);
 
-        curl_multi_add_handle($mh, $ch);
-        $requests[$index] = $ch;
-    }
-
-    // 2. EXECUTE ALL IN PARALLEL
-    $active = null;
-    do {
-        $mrc = curl_multi_exec($mh, $active);
-    } while ($active > 0);
-
-    // 3. MERGE RESULTS
-    $all_found_ids = [];
-    $all_add_products = [];
-
-    foreach ($requests as $index => $ch) {
-        $raw_response = curl_multi_getcontent($ch);
-        $res_array = json_decode($raw_response, true);
-        $clean_json = json_decode($res_array['candidates'][0]['content']['parts'][0]['text'] ?? '{}', true);
-
-        if (!empty($clean_json['found_po_product_ids'])) {
-            $all_found_ids = array_merge($all_found_ids, $clean_json['found_po_product_ids']);
-        }
-        if ($index === 0 && !empty($clean_json['add_products'])) {
-            $all_add_products = $clean_json['add_products'];
-        }
-        
-        curl_multi_remove_handle($mh, $ch);
+        $raw = curl_exec($ch);
+        $err = curl_error($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
-    }
-    curl_multi_close($mh);
 
-    // 4. FINAL DIFF
-    $original_ids = array_column($po_products, 'po_product_id');
-    $disable_ids = array_values(array_diff($original_ids, $all_found_ids));
+        if ($err || $raw === false) {
+            $debug_log[] = "[SYNC] Batch {$batch_num} cURL error: " . ($err ?: 'empty response');
+            continue;
+        }
+        if ($code !== 200) {
+            $debug_log[] = "[SYNC] Batch {$batch_num} HTTP {$code}: " . substr($raw, 0, 500);
+            continue;
+        }
+
+        $res = json_decode($raw, true);
+        $text = $res['candidates'][0]['content']['parts'][0]['text'] ?? '';
+        if ($text === '') {
+            $debug_log[] = "[SYNC] Batch {$batch_num} empty response.";
+            continue;
+        }
+
+        $data = json_decode($text, true);
+        if (!is_array($data)) {
+            $data = _gemini_parse_json_fallback($text);
+        }
+        if (!is_array($data)) {
+            $debug_log[] = "[SYNC] Batch {$batch_num} invalid JSON.";
+            continue;
+        }
+
+        if (!empty($data['found_po_product_ids']) && is_array($data['found_po_product_ids'])) {
+            foreach ($data['found_po_product_ids'] as $id) {
+                $id = (int) $id;
+                if ($id > 0) {
+                    $all_found_ids[] = $id;
+                }
+            }
+        }
+        // Only take add_products from first batch to avoid duplicates
+        if ($index === 0 && !empty($data['add_products']) && is_array($data['add_products'])) {
+            foreach ($data['add_products'] as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $name = isset($item['name']) ? trim((string) $item['name']) : '';
+                if ($name === '') {
+                    continue;
+                }
+                $row = [
+                    'name' => $name,
+                    'price' => isset($item['price']) && is_numeric($item['price']) ? (float) $item['price'] : 0,
+                ];
+                if (isset($item['brand_id']) && (is_int($item['brand_id']) || (is_string($item['brand_id']) && is_numeric($item['brand_id'])))) {
+                    $row['brand_id'] = (int) $item['brand_id'];
+                }
+                if (isset($item['category_id']) && (is_int($item['category_id']) || (is_string($item['category_id']) && is_numeric($item['category_id'])))) {
+                    $row['category_id'] = (int) $item['category_id'];
+                }
+                $all_add_products[] = $row;
+            }
+        }
+    }
+
+    $all_ids = array_column($po_products, 'po_product_id');
+    $disable_ids = array_values(array_diff($all_ids, $all_found_ids));
 
     return [
         'disable_po_product_ids' => $disable_ids,
-        'add_products' => $all_add_products
+        'add_products' => $all_add_products,
     ];
+}
+
+function _gemini_parse_json_fallback($text)
+{
+    $text = preg_replace('/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/s', '$1', trim($text));
+    $text = preg_replace('/```\s*json\s*|\s*```/i', '', $text);
+    $decoded = json_decode($text, true);
+    if (is_array($decoded)) {
+        return $decoded;
+    }
+    if (preg_match('/"found_po_product_ids"\s*:\s*\[([\d,\s]*)/s', $text, $m)) {
+        $ids = [];
+        if (preg_match_all('/\d+/', $m[1], $mm)) {
+            foreach ($mm[0] as $id) {
+                $id = (int) $id;
+                if ($id > 0) {
+                    $ids[] = $id;
+                }
+            }
+        }
+        $decoded = ['found_po_product_ids' => $ids, 'add_products' => []];
+        if (preg_match('/"add_products"\s*:\s*(\[[\s\S]*?\])\s*[,}]/s', $text, $addM)) {
+            $arr = json_decode($addM[1], true);
+            if (is_array($arr)) {
+                $decoded['add_products'] = $arr;
+            }
+        }
+        return $decoded;
+    }
+    return null;
 }
