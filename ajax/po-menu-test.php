@@ -101,15 +101,22 @@ foreach (getRs(
     ];
 }
 
-// ALL brands + categories (not just PO's) so Gemini can map new products
-$all_brands = [];
-foreach (getRs("SELECT brand_id, name FROM {$db}.brand WHERE is_active = 1 ORDER BY name") as $r) {
-    $all_brands[] = ['brand_id' => (int) $r['brand_id'], 'name' => $r['name']];
+// Only the brands and categories present on this PO (keeps Gemini prompt small)
+$seen_brand_ids = $seen_cat_ids = [];
+$all_brands = $all_categories = [];
+foreach ($po_products as $p) {
+    if ($p['brand_id'] && !isset($seen_brand_ids[$p['brand_id']])) {
+        $seen_brand_ids[$p['brand_id']] = true;
+        $all_brands[] = ['brand_id' => $p['brand_id'], 'name' => $p['brand_name']];
+    }
+    if ($p['category_id'] && !isset($seen_cat_ids[$p['category_id']])) {
+        $seen_cat_ids[$p['category_id']] = true;
+        $all_categories[] = ['category_id' => $p['category_id'], 'name' => $p['category_name']];
+    }
 }
-$all_categories = [];
-foreach (getRs("SELECT category_id, name FROM {$db}.category WHERE is_active = 1 ORDER BY name") as $r) {
-    $all_categories[] = ['category_id' => (int) $r['category_id'], 'name' => $r['name']];
-}
+// Sort for readability
+usort($all_brands,     fn($a, $b) => strcmp($a['name'],     $b['name']));
+usort($all_categories, fn($a, $b) => strcmp($a['name'], $b['name']));
 
 // Extract menu text from PDFs once; send as text in every batch prompt
 $menu_text = '';
@@ -136,6 +143,48 @@ $batches   = array_chunk($po_products, $batch_size);
 $n_batches = count($batches);
 $concurrency = $n_batches ?: 20; // run all batches fully in parallel
 
+$schema_primary = [
+    'type' => 'OBJECT',
+    'properties' => [
+        'found_po_product_ids' => ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']],
+        'add_products' => [
+            'type' => 'ARRAY',
+            'items' => [
+                'type' => 'OBJECT',
+                'properties' => [
+                    'name'        => ['type' => 'STRING'],
+                    'price'       => ['type' => 'NUMBER'],
+                    'brand_id'    => ['type' => 'INTEGER', 'nullable' => true],
+                    'category_id' => ['type' => 'INTEGER', 'nullable' => true],
+                ],
+                'required' => ['name', 'price'],
+            ],
+        ],
+    ],
+    'required' => ['found_po_product_ids'],
+];
+$schema_ids_only = [
+    'type' => 'OBJECT',
+    'properties' => [
+        'found_po_product_ids' => ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']],
+    ],
+    'required' => ['found_po_product_ids'],
+];
+
+$system_instr = <<<SYS
+You are a strict PO-to-menu reconciler. Your job:
+1. Read the vendor menu text carefully.
+2. For each PO product: decide if an equivalent item appears on the menu.
+   - Match by strain name + product type (ignore brand prefix like "710 Labs", ignore weight).
+   - A PO product is FOUND if both strain name AND category/product-type match a menu item.
+   - If in doubt, do NOT include the ID (conservative – keep items on PO).
+3. Return found_po_product_ids: the list of po_product_id values that ARE on the menu.
+4. (Primary batch only) Return add_products: menu items NOT represented in the PO batch.
+SYS;
+
+$brands_json     = json_encode($all_brands,     JSON_UNESCAPED_UNICODE);
+$categories_json = json_encode($all_categories, JSON_UNESCAPED_UNICODE);
+
 // ---- DRY RUN: build payloads and return without calling Gemini ----
 if ($is_dry_run) {
     $dry_batches = [];
@@ -145,8 +194,8 @@ if ($is_dry_run) {
         $batch_json  = json_encode($batch, JSON_UNESCAPED_UNICODE);
         $schema      = $is_primary ? $schema_primary : $schema_ids_only;
 
-        $prompt = "AVAILABLE BRANDS:\n" . json_encode($all_brands, JSON_UNESCAPED_UNICODE)
-            . "\n\nAVAILABLE CATEGORIES:\n" . json_encode($all_categories, JSON_UNESCAPED_UNICODE)
+        $prompt = "AVAILABLE BRANDS:\n" . $brands_json
+            . "\n\nAVAILABLE CATEGORIES:\n" . $categories_json
             . "\n\nCATEGORY TRANSLATIONS:\n"
             . "- \"PERSY BADDER\",\"PERSY ROSIN\",\"LIVE ROSIN\",\"THUMB PRINT\",\"SAUCE\" → \"Solventless Extracts\"\n"
             . "- \"PERSY POD\",\"SOLVENTLESS PODS\",\"ALL IN ONE\",\"AIO\" → \"Vape Carts .5g\" or \"AIO\"\n"
@@ -204,48 +253,6 @@ if ($is_dry_run) {
     ]);
     exit;
 }
-
-$schema_primary = [
-    'type' => 'OBJECT',
-    'properties' => [
-        'found_po_product_ids' => ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']],
-        'add_products' => [
-            'type' => 'ARRAY',
-            'items' => [
-                'type' => 'OBJECT',
-                'properties' => [
-                    'name'        => ['type' => 'STRING'],
-                    'price'       => ['type' => 'NUMBER'],
-                    'brand_id'    => ['type' => 'INTEGER', 'nullable' => true],
-                    'category_id' => ['type' => 'INTEGER', 'nullable' => true],
-                ],
-                'required' => ['name', 'price'],
-            ],
-        ],
-    ],
-    'required' => ['found_po_product_ids'],
-];
-$schema_ids_only = [
-    'type' => 'OBJECT',
-    'properties' => [
-        'found_po_product_ids' => ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']],
-    ],
-    'required' => ['found_po_product_ids'],
-];
-
-$system_instr = <<<SYS
-You are a strict PO-to-menu reconciler. Your job:
-1. Read the vendor menu text carefully.
-2. For each PO product: decide if an equivalent item appears on the menu.
-   - Match by strain name + product type (ignore brand prefix like "710 Labs", ignore weight).
-   - A PO product is FOUND if both strain name AND category/product-type match a menu item.
-   - If in doubt, do NOT include the ID (conservative – keep items on PO).
-3. Return found_po_product_ids: the list of po_product_id values that ARE on the menu.
-4. (Primary batch only) Return add_products: menu items NOT represented in the PO batch.
-SYS;
-
-$brands_json     = json_encode($all_brands,     JSON_UNESCAPED_UNICODE);
-$categories_json = json_encode($all_categories, JSON_UNESCAPED_UNICODE);
 
 $batch_results = [];
 $overall_start = microtime(true);
