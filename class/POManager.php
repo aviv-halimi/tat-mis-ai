@@ -682,6 +682,7 @@ class POManager extends SessionManager {
                   }
                 }
                 else {
+                  /*
                   $_ds = $this->GetTableDisplaySettings('po');
                   $_category_id = (isset($_ds['category_id']))?$_ds['category_id']:null;
                   $_brand_id = (isset($_ds['brand_id']))?$_ds['brand_id']:null;
@@ -690,6 +691,7 @@ class POManager extends SessionManager {
                   $_sort_by = (isset($_ds['sort_by']))?$_ds['sort_by']:null;
                   $rs = $this->GetSavedPOProducts($po_id, $_brand_id, $_category_id, $_date_last_purchased, $_disaggregate_ids, $_sort_by);
                   $tbody = $this->ProductRows($rs, $_disaggregate_ids);
+                  */
                 }
               }
               else {
