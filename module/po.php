@@ -33,167 +33,49 @@ $(document).ready(function(e) {
       showStatus("status", "Request failed: " + (err || status), "error", true);
     });
   });
-  $(".btn-save-menu-pdfs").on("click", function(e) {
-    var $f = $("#f_po-menu-data");
-    if (!$f.length) return;
-    showStatus("status", "Saving menu PDFs...", "info");
-    postAjax("po-data", $f.serialize(), "status", function(data) {
-      if (data && data.success) showStatus("status", data.response || "Saved.", "ok", true);
-      else showStatus("status", (data && data.response) ? data.response : "Save failed.", "error", true);
-    });
-  });
-  // ---- PO Menu Sync (new flow: extract → modal → apply) ----
   function _esc(s) {
     return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
+
+  // ---- Extract Menu (AI): save PDFs → Gemini extract → PHP match → apply → update display settings ----
   $(document).on("click", ".btn-po-menu-extract", function(e) {
     var btn = $(this);
     var poId = btn.data("po-id");
     if (!poId) return;
-    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Extracting menu…\');
-    showStatus("status", "Extracting menu items via AI. This may take 30–60 seconds…", "info");
-    $.ajax({
-      url: "/ajax/po-menu-extract",
-      type: "POST",
-      data: { po_id: poId, _r: Math.random() },
-      dataType: "json",
-      timeout: 180000
-    }).done(function(res) {
-      btn.prop("disabled", false).html(\'<i class="fa fa-magic mr-1"></i>Extract Menu &amp; Match Products (AI)\');
-      if (!res || !res.success) {
-        showStatus("status", (res && res.error) ? res.error : "Extraction failed.", "error", true);
-        if (res && res.debug_log && res.debug_log.length) {
-          $("#po-menu-last-sync").html(\'<div class="mt-2"><a href="#" class="btn btn-sm btn-default btn-toggle-sync-log">Show log</a><pre id="po-menu-sync-log-pre" class="bg-light p-2 mt-2 small" style="display:none;max-height:300px;overflow:auto;">\' + _esc(res.debug_log.join("\\n")) + \'</pre></div>\').show();
-        }
-        return;
-      }
-      showStatus("status", "Extraction complete. Review and confirm matches below.", "ok", true);
-      _populateMatchModal(res, poId);
-      $("#po-menu-match-modal").modal("show");
-      // Show debug log toggle below panel
-      if (res.debug_log && res.debug_log.length) {
-        $("#po-menu-last-sync").html(\'<div class="mt-2"><a href="#" class="btn btn-sm btn-default btn-toggle-sync-log">Show extraction log</a><pre id="po-menu-sync-log-pre" class="bg-light p-2 mt-2 small" style="display:none;max-height:300px;overflow:auto;">\' + _esc(res.debug_log.join("\\n")) + \'</pre></div>\').show();
-        $(document).off("click",".btn-toggle-sync-log").on("click",".btn-toggle-sync-log",function(e){ e.preventDefault(); $("#po-menu-sync-log-pre").toggle(); $(this).text($("#po-menu-sync-log-pre").is(":visible")?"Hide log":"Show extraction log"); });
-      }
-    }).fail(function(xhr, status, err) {
-      btn.prop("disabled", false).html(\'<i class="fa fa-magic mr-1"></i>Extract Menu &amp; Match Products (AI)\');
-      showStatus("status", "Request failed: " + (err || status), "error", true);
-    });
-  });
-
-  function _populateMatchModal(data, poId) {
-    var matches = data.matches || [];
-    var unmatched = data.unmatched || [];
-    var html = "";
-    if (matches.length) {
-      html += \'<h6 class="mb-1">Matched Products (\' + matches.length + \') <small class="text-muted font-weight-normal">Uncheck any incorrect matches</small></h6>\';
-      html += \'<div class="table-responsive mb-3"><table class="table table-sm table-bordered table-hover mb-0"><thead class="thead-light"><tr><th style="width:36px"><input type="checkbox" id="chk-all-match" checked title="Toggle all"></th><th>Our Product</th><th>Menu Item</th><th>Price</th><th>Category</th><th style="width:50px">Match</th></tr></thead><tbody>\';
-      for (var i = 0; i < matches.length; i++) {
-        var m = matches[i];
-        html += \'<tr><td><input type="checkbox" class="match-cb" checked data-idx="\' + i + \'"></td>\';
-        html += \'<td><small>\' + _esc(m.product_name) + \'</small></td>\';
-        html += \'<td><small>\' + _esc(m.menu_name) + \'</small></td>\';
-        html += \'<td><small>$\' + parseFloat(m.menu_price || 0).toFixed(2) + \'</small></td>\';
-        html += \'<td><small>\' + _esc(m.category_name) + \'</small></td>\';
-        html += \'<td><small class="text-muted">\' + (m.match_score || "?") + \'%</small></td></tr>\';
-      }
-      html += \'</tbody></table></div>\';
-    } else {
-      html += \'<p class="text-muted">No existing catalogue products matched. All items will be added as custom.</p>\';
-    }
-    if (unmatched.length) {
-      html += \'<h6 class="mb-1">New Items – will be added as custom products (\' + unmatched.length + \') <small class="text-muted font-weight-normal">Uncheck to skip</small></h6>\';
-      html += \'<div class="table-responsive"><table class="table table-sm table-bordered table-hover mb-0"><thead class="thead-light"><tr><th style="width:36px"><input type="checkbox" id="chk-all-custom" checked title="Toggle all"></th><th>Menu Item</th><th>Price</th><th>Brand</th><th>Category</th></tr></thead><tbody>\';
-      for (var j = 0; j < unmatched.length; j++) {
-        var u = unmatched[j];
-        html += \'<tr><td><input type="checkbox" class="custom-cb" checked data-idx="\' + j + \'"></td>\';
-        html += \'<td><small>\' + _esc(u.menu_name) + \'</small></td>\';
-        html += \'<td><small>$\' + parseFloat(u.menu_price || 0).toFixed(2) + \'</small></td>\';
-        html += \'<td><small>\' + _esc(u.brand_name) + \'</small></td>\';
-        html += \'<td><small>\' + _esc(u.category_name) + \'</small></td></tr>\';
-      }
-      html += \'</tbody></table></div>\';
-    }
-    if (!matches.length && !unmatched.length) {
-      html = \'<p class="text-muted">No products found on the menu.</p>\';
-    }
-    $("#po-menu-match-body").html(html);
-    $("#po-menu-match-modal").data("po-id", poId).data("match-data", data);
-    // Toggle-all checkboxes
-    $(document).off("change","#chk-all-match").on("change","#chk-all-match",function(){ $(".match-cb").prop("checked", $(this).is(":checked")); });
-    $(document).off("change","#chk-all-custom").on("change","#chk-all-custom",function(){ $(".custom-cb").prop("checked", $(this).is(":checked")); });
-  }
-
-  $(document).on("click", "#btn-po-menu-apply", function() {
-    var modal = $("#po-menu-match-modal");
-    var poId = modal.data("po-id");
-    var data = modal.data("match-data");
-    if (!poId || !data) return;
-    var confirmed = [];
-    var custom_items = [];
-    $(".match-cb:checked").each(function() { confirmed.push(data.matches[$(this).data("idx")]); });
-    $(".custom-cb:checked").each(function() { custom_items.push(data.unmatched[$(this).data("idx")]); });
-    var btn = $(this);
-    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Adding…\');
-    $("#po-menu-apply-status").text("Adding " + (confirmed.length + custom_items.length) + " product(s) to PO…");
-    $.ajax({
-      url: "/ajax/po-menu-apply",
-      type: "POST",
-      data: { po_id: poId, confirmed: JSON.stringify(confirmed), custom_items: JSON.stringify(custom_items) },
-      dataType: "json"
-    }).done(function(res) {
-      btn.prop("disabled", false).html(\'<i class="fa fa-check mr-1"></i>Add Selected to PO\');
-      if (res && res.success) {
-        modal.modal("hide");
-        showStatus("status", res.message || "Done.", "ok", true);
-        setTimeout(function() { location.reload(); }, 1200);
-      } else {
-        $("#po-menu-apply-status").html(\'<span class="text-danger">\' + _esc(res && res.error ? res.error : "Apply failed") + \'</span>\');
-      }
-    }).fail(function(xhr, status, err) {
-      btn.prop("disabled", false).html(\'<i class="fa fa-check mr-1"></i>Add Selected to PO\');
-      $("#po-menu-apply-status").html(\'<span class="text-danger">Request failed: \' + _esc(err || status) + \'</span>\');
-    });
-  });
-
-  // ---- Test button: all batches in parallel via browser (dry-run → N simultaneous single_batch) ----
-  function _testStatusError(btn, msg) {
-    btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Run Gemini\');
-    $("#po-menu-test-status").removeClass("alert-info").addClass("alert-danger").show();
-    $("#po-menu-test-status-text").html(\'<strong>Error:</strong> \' + _esc(msg));
-  }
-
-  $(document).on("click", ".btn-po-menu-test", function() {
-    var btn = $(this);
-    var poId = btn.data("po-id");
-    if (!poId) return;
-    var startTime = new Date();
-    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Sending to Gemini…\');
-    $("#po-menu-test-status").removeClass("alert-danger").addClass("alert-info").show();
-    $("#po-menu-test-status-text").text("Sending all PO products to Gemini in one request…");
-
-    $.ajax({
-      url: "/ajax/po-menu-test",
-      type: "POST",
-      data: { po_id: poId, run: 1, _r: Math.random() },
-      dataType: "json",
-      timeout: 200000
-    }).done(function(res) {
-      btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Run Gemini\');
-      $("#po-menu-test-status").hide();
-      if (!res || !res.success) {
-        _testStatusError(btn, (res && res.error) ? res.error : "Request failed — check console");
-        console.error("[test] response:", res);
-        return;
-      }
-      _renderTestModal(res, poId);
-      $("#po-menu-test-modal .modal-title").html(\'<i class="fa fa-flask mr-2"></i>Gemini Test — Verbose Result\');
-      $("#po-menu-test-modal").modal("show");
-    }).fail(function(xhr, status, err) {
-      console.error("[test] fail:", status, err, xhr.responseText ? xhr.responseText.substring(0, 500) : "");
-      _testStatusError(btn, "Request failed: " + _esc(err || status) + " — " + _esc((xhr.responseText || "").substring(0, 200)));
-      $("#po-menu-test-status").show();
-    });
+    var $status     = $("#po-menu-status");
+    var $statusText = $("#po-menu-status-text");
+    var resetBtn = function() { btn.prop("disabled", false).html(\'<i class="fa fa-magic mr-1"></i> Extract Menu (AI)\'); };
+    var showErr  = function(msg) { resetBtn(); $status.removeClass("alert-info alert-success").addClass("alert-danger").show(); $statusText.html(msg); };
+    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Saving PDFs…\');
+    $status.removeClass("alert-danger alert-success").addClass("alert-info").show();
+    $statusText.text("Sending menu PDF to Gemini AI — this may take 30–60 seconds…");
+    // Save PDFs to DB first (ensures menu_filenames is current), then extract
+    $.ajax({ url: "/ajax/po-data", type: "POST", data: $("#f_po-menu-data").serialize(), dataType: "json" })
+      .always(function() {
+        btn.html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Extracting menu…\');
+        $.ajax({
+          url: "/ajax/po-menu-test", type: "POST",
+          data: { po_id: poId, run: 1, _r: Math.random() },
+          dataType: "json", timeout: 200000
+        }).done(function(res) {
+          if (!res || !res.success) { showErr("Extraction failed: " + _esc((res && res.error) || "Unknown error")); return; }
+          var disableIds = res.parsed_disable_ids || [];
+          var addProds   = res.parsed_add_products || [];
+          btn.html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Applying changes…\');
+          $statusText.text("Applying: disabling " + disableIds.length + " and adding " + addProds.length + " product(s)…");
+          $.ajax({
+            url: "/ajax/po-menu-gemini-apply", type: "POST",
+            data: { po_id: poId, disable_ids: JSON.stringify(disableIds), add_products: JSON.stringify(addProds), _r: Math.random() },
+            dataType: "json", timeout: 60000
+          }).done(function(applyRes) {
+            if (!applyRes || !applyRes.success) { showErr("Apply failed: " + _esc((applyRes && applyRes.error) || "Unknown error")); return; }
+            $.post("/ajax/table-display", { module_code: "po", po_id: poId, merge_custom: 1, _r: Math.random() });
+            $status.removeClass("alert-info alert-danger").addClass("alert-success");
+            $statusText.text(_esc(applyRes.message || "Done.") + " Reloading…");
+            setTimeout(function() { location.reload(); }, 2500);
+          }).fail(function(xhr, s, err) { showErr("Apply request failed: " + _esc(err || s)); });
+        }).fail(function(xhr, s, err) { showErr("Extraction request failed: " + _esc(err || s)); });
+      });
   });
 
   function _renderTestModal(data, pagePoId) {
@@ -217,21 +99,6 @@ $(document).ready(function(e) {
       html += \'<div class="text-danger">Gemini error: HTTP \' + data.phase1_http + (data.phase1_curl_error ? \', cURL: \' + _esc(data.phase1_curl_error) : \'\') + \'</div>\';
     }
     html += \'</div>\';
-    var resolvedPoId = (pagePoId && parseInt(pagePoId, 10) > 0) ? parseInt(pagePoId, 10) : (data.po_id || 0);
-    if (ok && resolvedPoId) {
-      window._geminiApplyData = {
-        po_id:        resolvedPoId,
-        disable_ids:  data.parsed_disable_ids  || [],
-        add_products: data.parsed_add_products || []
-      };
-      var dLen = window._geminiApplyData.disable_ids.length;
-      var aLen = window._geminiApplyData.add_products.length;
-      html += \'<div class="mb-3" id="gemini-apply-wrap">\';
-      html += \'<button type="button" class="btn btn-danger btn-gemini-apply">\';
-      html += \'<i class="fa fa-check-circle mr-1"></i>Apply to PO (\' + dLen + \' disable, \' + aLen + \' add)</button>\';
-      html += \' <span id="gemini-apply-status" class="text-muted small ml-2"></span>\';
-      html += \'</div>\';
-    }
     html += _testSection("Extracted Menu Items (" + (data.phase1_menu_items || []).length + ")", JSON.stringify(data.phase1_menu_items || [], null, 2), "res-menu-items");
     html += _testSection("PHP Matched Pairs (" + (data.php_matched_pairs || []).length + ")", JSON.stringify(data.php_matched_pairs || [], null, 2), "res-matched");
     html += _testSection("PHP Unmatched — will add as new (" + (data.php_unmatched_items || []).length + ")", JSON.stringify(data.php_unmatched_items || [], null, 2), "res-unmatched");
@@ -253,154 +120,7 @@ $(document).ready(function(e) {
       \'</pre></div>\';
   }
 
-  // ---- Dry Run: build payloads, show without calling Gemini ----
-  $(document).on("click", ".btn-po-menu-dry-run", function() {
-    var btn = $(this);
-    var poId = btn.data("po-id");
-    if (!poId) return;
-    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Building payloads…\');
-    $.ajax({
-      url: "/ajax/po-menu-test",
-      type: "POST",
-      data: { po_id: poId, dry_run: 1, _r: Math.random() },
-      dataType: "json",
-      timeout: 60000
-    }).done(function(res) {
-      btn.prop("disabled", false).html(\'<i class="fa fa-eye mr-1"></i>Dry Run (show prompt)\');
-      console.log("[dry-run] response:", res);
-      if (!res || !res.success) {
-        _testStatusError(btn, (res && res.error) ? res.error : "Dry run failed — check console");
-        $("#po-menu-test-status").show();
-        return;
-      }
-      _renderDryRunModal(res);
-      $("#po-menu-test-modal").modal("show");
-    }).fail(function(xhr, status, err) {
-      btn.prop("disabled", false).html(\'<i class="fa fa-eye mr-1"></i>Dry Run (show prompt)\');
-      console.error("[dry-run] fail:", status, err, xhr.responseText);
-      $("#po-menu-test-status").removeClass("alert-info").addClass("alert-danger").show();
-      $("#po-menu-test-status-text").html(\'<strong>Dry run failed:</strong> \' + _esc(err || status) + \' — \' + _esc(xhr.responseText.substring(0, 300)));
-    });
-  });
-
-  function _renderDryRunModal(res) {
-    var s = res.summary || {};
-    var html = \'<div class="alert alert-secondary mb-3">\';
-    html += \'<strong>Dry Run — NOT sent to Gemini</strong><br>\';
-    html += "PO: <b>" + _esc(res.po_code || res.po_id) + "</b> &nbsp;|&nbsp; ";
-    html += "Products: <b>" + (s.total_products || 0) + "</b> &nbsp;|&nbsp; ";
-    html += "Payload: <b>" + (s.payload_kb || "?") + " KB</b> &nbsp;|&nbsp; ";
-    html += "Menu text: <b>" + (s.menu_text_chars || 0).toLocaleString() + " chars</b><br>";
-    html += "Brands: <b>" + (s.brands_count || 0) + "</b> &nbsp;|&nbsp; ";
-    html += "Categories: <b>" + (s.categories_count || 0) + "</b>";
-    html += \'</div>\';
-    html += \'<div class="mb-3"><button type="button" class="btn btn-warning btn-dry-run-send" data-po-id="\' + res.po_id + \'"><i class="fa fa-send mr-1"></i> Send to Gemini now</button> <span id="dry-run-send-status" class="text-muted small ml-2"></span></div>\';
-    html += \'<div id="dry-run-result"></div>\';
-    html += _testSection("System Instruction", res.system_instruction || "", "dry-sys");
-    html += _testSection("Full Prompt (" + Math.round((res.prompt||"").length / 1024) + " KB)", res.prompt || "", "dry-prompt");
-    html += _testSection("Brands Array (" + (res.brands_array || []).length + " items)", JSON.stringify(res.brands_array || [], null, 2), "dry-brands");
-    html += _testSection("Categories Array (" + (res.categories_array || []).length + " items)", JSON.stringify(res.categories_array || [], null, 2), "dry-cats");
-    html += _testSection("PO Products (" + (res.po_products_array || []).length + " items)", JSON.stringify(res.po_products_array || [], null, 2), "dry-prods");
-    var menuPrev = (res.menu_text || "").substring(0, 3000) + (res.menu_text && res.menu_text.length > 3000 ? "\n...[" + res.menu_text.length + " total chars]" : "");
-    html += _testSection("Menu Text (" + (res.menu_text ? res.menu_text.length : 0) + " chars)", menuPrev, "dry-menu");
-    html += _testSection("Schema", JSON.stringify(res.schema || {}, null, 2), "dry-schema");
-    html += _testSection("Full Payload JSON (" + (s.payload_kb || "?") + " KB)", res.full_payload_json || "", "dry-payload");
-    html += _testSection("URL", (res.url || "").replace(/key=[^&]+/, "key=***"), "dry-url");
-    $("#po-menu-test-modal .modal-title").html(\'<i class="fa fa-eye mr-2"></i>Dry Run — Gemini Payload (NOT sent)\');
-    $("#po-menu-test-body").html(html);
-  }
-
-  // ---- Send from dry-run modal ----
-  $(document).on("click", ".btn-dry-run-send", function() {
-    var btn = $(this);
-    var poId = btn.data("po-id");
-    if (!poId) return;
-    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Sending…\');
-    $("#dry-run-send-status").text("Waiting for Gemini… (up to 180s)");
-    $("#dry-run-result").html("");
-    $.ajax({
-      url: "/ajax/po-menu-test",
-      type: "POST",
-      data: { po_id: poId, run: 1, _r: Math.random() },
-      dataType: "json",
-      timeout: 200000
-    }).done(function(res) {
-      btn.prop("disabled", false).html(\'<i class="fa fa-send mr-1"></i> Send to Gemini now\');
-      $("#dry-run-send-status").text("");
-      if (!res || !res.success) {
-        $("#dry-run-result").html(\'<div class="alert alert-danger">\' + _esc((res && res.error) ? res.error : "Request failed") + \'</div>\');
-        return;
-      }
-      var p1ok = (res.phase1_http === 200 && !res.phase1_curl_error);
-      var p2ok = (res.phase2_http === 200 && !res.phase2_curl_error && !res.phase2_parse_error);
-      var ok   = p1ok && p2ok;
-      var s2   = res.summary || {};
-      var rhtml = \'<div class="card border-\' + (ok ? "success" : "danger") + \' mb-3"><div class="card-body p-2">\';
-      rhtml += \'<div class="mb-1"><strong>Two-Phase Result</strong>\';
-      rhtml += \' &nbsp; Total: \' + (s2.total_duration_s || "?") + \'s</div>\';
-      rhtml += \'<div>Phase 1: HTTP \' + res.phase1_http + \', \' + (s2.phase1_elapsed_s||"?") + \'s, \' + (s2.menu_items_extracted||0) + \' menu items, finish: \' + _esc(res.phase1_finish_reason||"?") + \'</div>\';
-      rhtml += \'<div>Phase 2: HTTP \' + res.phase2_http + \', \' + (s2.phase2_elapsed_s||"?") + \'s, \' + (s2.matched_pairs||0) + \' pairs, finish: \' + _esc(res.phase2_finish_reason||"?") + \'</div>\';
-      if (!p1ok) rhtml += \'<div class="text-danger">Phase 1 error: \' + _esc(res.phase1_curl_error||"") + \'</div>\';
-      if (!p2ok) rhtml += \'<div class="text-danger">Phase 2 error: \' + _esc(res.phase2_curl_error||res.phase2_parse_error||"") + \'</div>\';
-      rhtml += \'<div>not-on-menu: <b>\' + (s2.total_disable_ids||0) + \'</b> &nbsp;|&nbsp; add_products: <b>\' + (s2.total_add_products||0) + \'</b></div>\';
-      rhtml += _testSection("Phase 1 — Menu Items (" + (res.phase1_menu_items||[]).length + ")", JSON.stringify(res.phase1_menu_items||[], null, 2), "dsend-menu");
-      rhtml += _testSection("Phase 1 — Raw Response", res.phase1_raw_response || "(empty)", "dsend-p1-raw");
-      rhtml += _testSection("Phase 2 — Matched Pairs (" + (res.phase2_matched_pairs||[]).length + ")", JSON.stringify(res.phase2_matched_pairs||[], null, 2), "dsend-pairs");
-      rhtml += _testSection("Phase 2 — Raw Response", res.phase2_raw_response || "(empty)", "dsend-p2-raw");
-      rhtml += _testSection("Parsed: not-on-menu IDs (" + (res.parsed_disable_ids||[]).length + ")", JSON.stringify(res.parsed_disable_ids||[], null, 2), "dsend-disable");
-      rhtml += _testSection("Parsed: add_products (" + (res.parsed_add_products||[]).length + ")", JSON.stringify(res.parsed_add_products||[], null, 2), "dsend-add");
-      rhtml += \'</div></div>\';
-      $("#dry-run-result").html(rhtml);
-    }).fail(function(xhr, status, err) {
-      btn.prop("disabled", false).html(\'<i class="fa fa-send mr-1"></i> Send to Gemini now\');
-      $("#dry-run-send-status").text("");
-      $("#dry-run-result").html(\'<div class="alert alert-danger">Request failed: \' + _esc(err || status) + \'</div>\');
-    });
-  });
-
-  // ---- Apply Gemini result to PO ----
-  $(document).on("click", ".btn-gemini-apply", function() {
-    var btn = $(this);
-    var d = window._geminiApplyData || {};
-    var poId       = d.po_id;
-    var disableIds = d.disable_ids  || [];
-    var addProds   = d.add_products || [];
-    console.log("[apply] po_id=" + poId + " disable=" + disableIds.length + " add=" + addProds.length);
-    if (!poId) {
-      alert("Error: po_id is missing. Re-run the Gemini test and try again.");
-      return;
-    }
-    if (!confirm("Apply Gemini results to PO?\n\n• Disable " + disableIds.length + " product(s) not on menu\n• Add " + addProds.length + " new product(s) from menu\n\nThis will modify the PO immediately.")) return;
-    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Applying…\');
-    $("#gemini-apply-status").text("Saving changes…");
-    $.ajax({
-      url: "/ajax/po-menu-gemini-apply",
-      type: "POST",
-      data: { po_id: poId, disable_ids: JSON.stringify(disableIds), add_products: JSON.stringify(addProds), _r: Math.random() },
-      timeout: 60000
-    }).done(function(raw) {
-      console.log("[apply] raw response:", raw);
-      var res;
-      try { res = (typeof raw === "object") ? raw : JSON.parse(raw); } catch(e) { res = null; }
-      if (res && res.success) {
-        btn.removeClass("btn-danger").addClass("btn-success").html(\'<i class="fa fa-check mr-1"></i>Applied!\');
-        $("#gemini-apply-status").html(\'<span class="text-success">\' + _esc(res.message) + \'</span>\');
-        setTimeout(function() { location.reload(); }, 2500);
-      } else {
-        var errMsg = (res && res.error) ? res.error : (typeof raw === "string" ? raw.substring(0, 300) : "Unknown error");
-        console.error("[apply] server error:", errMsg);
-        btn.prop("disabled", false).html(\'<i class="fa fa-check-circle mr-1"></i>Apply to PO\');
-        $("#gemini-apply-status").html(\'<span class="text-danger"><strong>Error:</strong> \' + _esc(errMsg) + \'</span>\');
-      }
-    }).fail(function(xhr, status, err) {
-      var body = xhr.responseText ? xhr.responseText.substring(0, 500) : "";
-      console.error("[apply] request failed:", status, err, body);
-      btn.prop("disabled", false).html(\'<i class="fa fa-check-circle mr-1"></i>Apply to PO\');
-      $("#gemini-apply-status").html(\'<span class="text-danger"><strong>Request failed (\' + _esc(status) + \'):</strong> \' + _esc(err || "") + \' — \' + _esc(body) + \'</span>\');
-    });
-  });
-
-  // ---- View last result (even if status=running/failed) ----
+  // ---- View last result ----
   $(document).on("click", ".btn-po-menu-view-last", function() {
     var btn = $(this);
     var poId = btn.data("po-id");
@@ -415,6 +135,9 @@ $(document).ready(function(e) {
       var d = r.data;
       if (d.status === "completed") {
         _renderTestModal(d, poId);
+        $("#po-menu-test-modal .modal-title").html(\'<i class="fa fa-file-text-o mr-2"></i>Last Extract Result\');
+        $("#po-menu-test-modal").modal("show");
+        return;
       } else {
         // Show whatever partial/raw data exists
         $("#po-menu-test-modal .modal-title").html(\'<i class="fa fa-file-text-o mr-2"></i>Last Result File (status: \' + _esc(d.status || "?") + \')\');
@@ -864,50 +587,32 @@ foreach($rf as $f) {
 if ($_po_id && $_po_status_id == 1) {
   echo '
   <div class="panel panel-default mt-3" id="po-brand-menu-panel">
-    <div class="panel-heading"><h4 class="panel-title"><i class="fa fa-list-alt mr-1"></i> Brand menu – add menu items to PO (AI)</h4></div>
-    <div class="panel-body">
-      <p class="text-muted mb-3">Upload the brand\'s current menu PDF(s), then click <strong>Extract Menu &amp; Match Products</strong>. Gemini will parse the menu and match items to products in your catalogue. Review matches in the modal, then add them to the PO.</p>
+    <div class="panel-heading">
+      <div class="panel-heading-btn">
+        <a href="javascript:;" class="btn btn-xs btn-icon btn-circle btn-warning" data-click="panel-collapse"><i class="fa fa-minus"></i></a>
+      </div>
+      <h4 class="panel-title"><i class="fa fa-upload mr-1"></i> Upload Brand Menu</h4>
+    </div>
+    <div class="panel-body" style="display:none;">
       <form id="f_po-menu-data" class="po-data" action="" method="post">
         <input type="hidden" name="c" value="' . htmlspecialchars($po_code) . '" />
         <input type="hidden" name="f" value="menu_filenames" />
         <div class="mb-2">' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', 'Upload menu PDF(s)...') . '</div>
-        <button type="button" class="btn btn-outline-secondary btn-save-menu-pdfs">Save menu PDFs</button>
-        <button type="button" class="btn btn-primary btn-po-menu-extract ml-2" data-po-id="' . (int)$_po_id . '"><i class="fa fa-magic mr-1"></i> Extract Menu &amp; Match Products (AI)</button>
-        <button type="button" class="btn btn-outline-warning btn-po-menu-test ml-2" data-po-id="' . (int)$_po_id . '" title="Send all PO products to Gemini in one request. No DB writes — diagnostic only."><i class="fa fa-flask mr-1"></i> Test: Run Gemini</button>
-        <button type="button" class="btn btn-outline-secondary btn-po-menu-dry-run ml-1" data-po-id="' . (int)$_po_id . '" title="Build Gemini payload but do NOT send it. Shows what would be sent."><i class="fa fa-eye mr-1"></i> Dry Run (show prompt)</button>
-        <button type="button" class="btn btn-link btn-po-menu-view-last ml-1 small" data-po-id="' . (int)$_po_id . '" title="Show the last saved test result file (even if incomplete)."><i class="fa fa-file-text-o mr-1"></i> View last result</button>
+        <div class="d-flex align-items-center mt-2">
+          <button type="button" class="btn btn-primary btn-po-menu-extract" data-po-id="' . (int)$_po_id . '"><i class="fa fa-magic mr-1"></i> Extract Menu (AI)</button>
+          <button type="button" class="btn btn-link btn-po-menu-view-last ml-2" data-po-id="' . (int)$_po_id . '" title="Show the last saved result." style="font-size:0.75rem;"><i class="fa fa-file-text-o mr-1"></i> View last result</button>
+        </div>
       </form>
-      <div id="po-menu-test-status" class="alert alert-info mt-2" style="display:none;"><i class="fa fa-spinner fa-spin mr-1"></i><span id="po-menu-test-status-text">Running parallel Gemini batches in background…</span></div>
-      <div id="po-menu-last-sync" class="mt-3" style="display:none;"></div>
+      <div id="po-menu-status" class="alert mt-2" style="display:none;"><span id="po-menu-status-text"></span></div>
     </div>
   </div>
 
-  <!-- PO Menu Match Modal -->
-  <div class="modal fade" id="po-menu-match-modal" tabindex="-1" role="dialog" aria-labelledby="po-menu-match-modal-title">
-    <div class="modal-dialog modal-xl" role="document">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="po-menu-match-modal-title"><i class="fa fa-list-alt mr-2"></i>Review Menu Matches</h5>
-          <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span>&times;</span></button>
-        </div>
-        <div class="modal-body" id="po-menu-match-body" style="max-height:70vh;overflow-y:auto;">
-          <p class="text-muted">Loading…</p>
-        </div>
-        <div class="modal-footer">
-          <div id="po-menu-apply-status" class="mr-auto small text-muted"></div>
-          <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-          <button type="button" class="btn btn-success" id="btn-po-menu-apply"><i class="fa fa-check mr-1"></i>Add Selected to PO</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- PO Menu Test Results Modal -->
+  <!-- PO Menu Last Result Modal -->
   <div class="modal fade" id="po-menu-test-modal" tabindex="-1" role="dialog" aria-labelledby="po-menu-test-modal-title">
     <div class="modal-dialog modal-xl" role="document" style="max-width:95vw;">
       <div class="modal-content">
-        <div class="modal-header bg-warning">
-          <h5 class="modal-title" id="po-menu-test-modal-title"><i class="fa fa-flask mr-2"></i>Gemini Test — Verbose Log</h5>
+        <div class="modal-header">
+          <h5 class="modal-title" id="po-menu-test-modal-title"><i class="fa fa-file-text-o mr-2"></i>Last Extract Result</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span>&times;</span></button>
         </div>
         <div class="modal-body" id="po-menu-test-body" style="max-height:80vh;overflow-y:auto;font-size:12px;">
