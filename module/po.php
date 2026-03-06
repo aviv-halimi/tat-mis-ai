@@ -158,7 +158,7 @@ $(document).ready(function(e) {
 
   // ---- Test button: all batches in parallel via browser (dry-run → N simultaneous single_batch) ----
   function _testStatusError(btn, msg) {
-    btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini\');
+    btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Run Gemini\');
     $("#po-menu-test-status").removeClass("alert-info").addClass("alert-danger").show();
     $("#po-menu-test-status-text").html(\'<strong>Error:</strong> \' + _esc(msg));
   }
@@ -167,190 +167,69 @@ $(document).ready(function(e) {
     var btn = $(this);
     var poId = btn.data("po-id");
     if (!poId) return;
-    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Building batches…\');
+    var startTime = new Date();
+    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Sending to Gemini…\');
     $("#po-menu-test-status").removeClass("alert-danger").addClass("alert-info").show();
-    $("#po-menu-test-status-text").text("Step 1/2: Building batch structure…");
+    $("#po-menu-test-status-text").text("Sending all PO products to Gemini in one request…");
 
-    // Step 1: dry run — fast, gets batch count + structure without calling Gemini
     $.ajax({
       url: "/ajax/po-menu-test",
       type: "POST",
-      data: { po_id: poId, dry_run: 1, _r: Math.random() },
+      data: { po_id: poId, run: 1, _r: Math.random() },
       dataType: "json",
-      timeout: 60000
-    }).done(function(dry) {
-      if (!dry || !dry.success) {
-        _testStatusError(btn, (dry && dry.error) ? dry.error : "Failed to build batches");
+      timeout: 200000
+    }).done(function(res) {
+      btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Run Gemini\');
+      $("#po-menu-test-status").hide();
+      if (!res || !res.success) {
+        _testStatusError(btn, (res && res.error) ? res.error : "Request failed — check console");
+        console.error("[test] response:", res);
         return;
       }
-      var total = dry.batches.length;
-      var done = 0;
-      var batchResults = new Array(total);
-      var startAll = new Date();
-      btn.html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Sending \' + total + \' batches…\');
-      $("#po-menu-test-status-text").html(\'Step 2/2: Sending all \' + total + \' batches to Gemini simultaneously… <span id="test-par-prog">0/\' + total + \'</span>\');
-
-      // Step 2: fire all batches at once from the browser
-      for (var bi = 0; bi < total; bi++) {
-        (function(batchIdx) {
-          $.ajax({
-            url: "/ajax/po-menu-test",
-            type: "POST",
-            data: { po_id: poId, single_batch: 1, batch_index: batchIdx, _r: Math.random() },
-            dataType: "json",
-            timeout: 150000
-          }).done(function(res) {
-            batchResults[batchIdx] = res;
-          }).fail(function(xhr, status, err) {
-            batchResults[batchIdx] = { success: false, batch_index: batchIdx, error: err || status };
-          }).always(function() {
-            done++;
-            var elapsed = ((new Date() - startAll) / 1000).toFixed(1);
-            $("#test-par-prog").text(done + "/" + total + " (" + elapsed + "s)");
-            if (done >= total) { _finishParallelTest(btn, dry, batchResults, startAll); }
-          });
-        })(bi);
-      }
+      _renderTestModal(res);
+      $("#po-menu-test-modal .modal-title").html(\'<i class="fa fa-flask mr-2"></i>Gemini Test — Verbose Result\');
+      $("#po-menu-test-modal").modal("show");
     }).fail(function(xhr, status, err) {
-      _testStatusError(btn, "Batch setup failed: " + (err || status));
+      console.error("[test] fail:", status, err, xhr.responseText ? xhr.responseText.substring(0, 500) : "");
+      _testStatusError(btn, "Request failed: " + _esc(err || status) + " — " + _esc((xhr.responseText || "").substring(0, 200)));
+      $("#po-menu-test-status").show();
     });
   });
 
-  function _finishParallelTest(btn, dry, batchResults, startAll) {
-    var elapsed = ((new Date() - startAll) / 1000).toFixed(1);
-    btn.prop("disabled", false).html(\'<i class="fa fa-flask mr-1"></i>Test: Parallel Gemini\');
-    $("#po-menu-test-status").hide();
-    var s = dry.summary || {};
-    var allFound = [], allDisable = [], allAdd = [], seenAdd = {};
-    batchResults.forEach(function(r) {
-      if (r && r.success) {
-        allFound   = allFound.concat(r.parsed_found_ids   || []);
-        allDisable = allDisable.concat(r.parsed_disable_ids || []);
-        (r.parsed_add_products || []).forEach(function(p) {
-          var k = (p.name || "").toLowerCase().trim();
-          if (k && !seenAdd[k]) { seenAdd[k] = true; allAdd.push(p); }
-        });
-      }
-    });
-    // Build structure compatible with _renderTestModal
-    var consolidated = {
-      status: "completed",
-      po_id: dry.po_id,
-      po_code: dry.po_code,
-      summary: {
-        total_products:    s.total_products,
-        total_batches:     batchResults.length,
-        batch_size:        s.batch_size,
-        concurrency:       batchResults.length,
-        total_time_s:      parseFloat(elapsed),
-        total_found_ids:   allFound.length,
-        total_disable_ids: allDisable.length,
-        total_add_products: allAdd.length,
-      },
-      batches: batchResults.map(function(r, idx) {
-        var d = dry.batches[idx] || {};
-        var base = {
-          batch_index:       idx,
-          is_primary:        (idx === 0),
-          product_count:     d.product_count || 0,
-          duration_s:        0,
-          http_status:       0,
-          curl_error:        null,
-          payload_size:      d.payload_size || 0,
-          finish_reason:     null,
-          response_size:     0,
-          raw_response:      "",
-          system_instruction: d.system_instruction || "",
-          brands_array:      d.brands_array || [],
-          categories_array:  d.categories_array || [],
-          po_products_array: d.po_products_array || [],
-          menu_text:         d.menu_text || "",
-          schema:            d.schema || {},
-          parsed_found_ids:  [],
-          parsed_disable_ids:[],
-          parsed_add_products:[],
-          parse_error:       null,
-        };
-        if (!r || !r.success) {
-          base.curl_error = (r && r.error) ? r.error : "Request failed";
-          return base;
-        }
-        return $.extend(base, {
-          duration_s:         r.duration_s,
-          http_status:        r.http_status,
-          curl_error:         r.curl_error,
-          finish_reason:      r.finish_reason,
-          response_size:      r.response_size,
-          raw_response:       r.raw_response,
-          po_products_array:  r.po_products_sent || d.po_products_array || [],
-          schema:             r.schema || d.schema || {},
-          parsed_found_ids:   r.parsed_found_ids   || [],
-          parsed_disable_ids: r.parsed_disable_ids || [],
-          parsed_add_products:r.parsed_add_products || [],
-          parse_error:        r.parse_error,
-        });
-      })
-    };
-    _renderTestModal(consolidated);
-    $("#po-menu-test-modal").modal("show");
-  }
-
   function _renderTestModal(data) {
     var s = data.summary || {};
-    var batches = data.batches || [];
-    // Sort batches by index
-    batches.sort(function(a, b) { return a.batch_index - b.batch_index; });
+    var ok = (data.http_status === 200 && !data.curl_error && !data.parse_error);
     var html = "";
-    // Summary
-    html += \'<div class="alert alert-secondary mb-3"><strong>Summary</strong><br>\';
+    // Summary bar
+    html += \'<div class="alert alert-\' + (ok ? "secondary" : "danger") + \' mb-3">\';
+    html += \'<strong>Result</strong><br>\';
     html += "PO: <b>" + _esc(data.po_code || data.po_id) + "</b> &nbsp;|&nbsp; ";
     html += "Products: <b>" + (s.total_products || 0) + "</b> &nbsp;|&nbsp; ";
-    html += "Batches: <b>" + (s.total_batches || 0) + "</b> (size " + (s.batch_size || 100) + ", concurrency " + (s.concurrency || 4) + ") &nbsp;|&nbsp; ";
-    html += "Total time: <b>" + (s.total_time_s || "?") + "s</b><br>";
-    html += "Found on menu: <b>" + (s.total_found_ids || 0) + "</b> &nbsp;|&nbsp; ";
-    html += "Disable (not on menu): <b>" + (s.total_disable_ids || 0) + "</b> &nbsp;|&nbsp; ";
-    html += "Add (new): <b>" + (s.total_add_products || 0) + "</b>";
-    html += \'</div>\';
-    // Per-batch accordion
-    html += \'<div id="test-batch-accordion">\';
-    for (var i = 0; i < batches.length; i++) {
-      var b = batches[i];
-      var ok = (b.http_status === 200 && !b.curl_error && !b.parse_error);
-      var badge = ok ? \'<span class="badge badge-success">OK</span>\' : \'<span class="badge badge-danger">ERR</span>\';
-      var bId = "test-batch-" + b.batch_index;
-      html += \'<div class="card mb-1">\';
-      html += \'<div class="card-header p-2" style="cursor:pointer" data-toggle="collapse" data-target="#\' + bId + \'">\';
-      html += badge + " <strong>Batch " + (b.batch_index + 1) + "/" + batches.length + "</strong>";
-      html += " &nbsp; " + (b.product_count || 0) + " products";
-      html += " &nbsp; HTTP " + (b.http_status || "?");
-      html += " &nbsp; <b>" + (b.duration_s || "?") + "s</b>";
-      html += " &nbsp; finishReason: " + _esc(b.finish_reason || "?");
-      html += " &nbsp; found=" + (b.parsed_found_ids || []).length;
-      html += " / disable=" + (b.parsed_disable_ids || []).length;
-      if (b.is_primary) { html += \' <span class="badge badge-info">primary (add_products)</span>\'; }
-      html += \'</div>\'; // card-header
-      html += \'<div id="\' + bId + \'" class="collapse">\';
-      html += \'<div class="card-body p-2">\';
-      // Error banner
-      if (b.curl_error) { html += \'<div class="alert alert-danger p-1 mb-2">cURL error: \' + _esc(b.curl_error) + \'</div>\'; }
-      if (b.parse_error) { html += \'<div class="alert alert-warning p-1 mb-2">Parse error: \' + _esc(b.parse_error) + \'</div>\'; }
-      // Sections
-      html += _testSection("System Instruction", b.system_instruction || "", bId + "-sys");
-      html += _testSection("Brands Array (" + (b.brands_array || []).length + " items)", JSON.stringify(b.brands_array || [], null, 2), bId + "-brands");
-      html += _testSection("Categories Array (" + (b.categories_array || []).length + " items)", JSON.stringify(b.categories_array || [], null, 2), bId + "-cats");
-      html += _testSection("PO Products Sent (" + (b.po_products_array || []).length + " items)", JSON.stringify(b.po_products_array || [], null, 2), bId + "-prods");
-      var menuPreview = (b.menu_text || "").substring(0, 3000) + (b.menu_text && b.menu_text.length > 3000 ? "\n... [truncated, " + b.menu_text.length + " total chars]" : "");
-      html += _testSection("Menu Text (" + (b.menu_text ? b.menu_text.length : 0) + " chars)", menuPreview, bId + "-menu");
-      html += _testSection("Schema Used", JSON.stringify(b.schema || {}, null, 2), bId + "-schema");
-      html += _testSection("Raw Gemini Response (" + (b.response_size || 0) + " bytes)", b.raw_response || "(empty)", bId + "-raw");
-      html += _testSection("Parsed: found_po_product_ids (" + (b.parsed_found_ids || []).length + ")", JSON.stringify(b.parsed_found_ids || [], null, 2), bId + "-found");
-      html += _testSection("Parsed: disable_po_product_ids (" + (b.parsed_disable_ids || []).length + ")", JSON.stringify(b.parsed_disable_ids || [], null, 2), bId + "-disable");
-      if (b.is_primary) {
-        html += _testSection("Parsed: add_products (" + (b.parsed_add_products || []).length + ")", JSON.stringify(b.parsed_add_products || [], null, 2), bId + "-add");
-      }
-      html += \'</div></div></div>\'; // card-body, collapse, card
+    html += "Time: <b>" + (s.duration_s || "?") + "s</b> &nbsp;|&nbsp; ";
+    html += "Payload: <b>" + (s.payload_kb || "?") + " KB</b><br>";
+    if (ok) {
+      html += "Found on menu: <b>" + (s.total_found_ids || 0) + "</b> &nbsp;|&nbsp; ";
+      html += "Not on menu: <b>" + (s.total_disable_ids || 0) + "</b> &nbsp;|&nbsp; ";
+      html += "New (add): <b>" + (s.total_add_products || 0) + "</b> &nbsp;|&nbsp; ";
+      html += "finishReason: <b>" + _esc(data.finish_reason || "?") + "</b>";
+    } else {
+      if (data.curl_error) html += \'<div class="text-danger">cURL error: \' + _esc(data.curl_error) + \'</div>\';
+      if (data.parse_error) html += \'<div class="text-warning">Parse error: \' + _esc(data.parse_error) + \'</div>\';
     }
-    html += \'</div>\'; // accordion
+    html += \'</div>\';
+    // Collapsible sections
+    html += _testSection("System Instruction", data.system_instruction || "", "res-sys");
+    html += _testSection("Brands Array (" + (data.brands_array || []).length + " items)", JSON.stringify(data.brands_array || [], null, 2), "res-brands");
+    html += _testSection("Categories Array (" + (data.categories_array || []).length + " items)", JSON.stringify(data.categories_array || [], null, 2), "res-cats");
+    html += _testSection("PO Products Sent (" + (data.po_products_sent || []).length + " items)", JSON.stringify(data.po_products_sent || [], null, 2), "res-prods");
+    var menuPrev = (data.menu_text || "").substring(0, 3000) + (data.menu_text && data.menu_text.length > 3000 ? "\n... [" + data.menu_text.length + " total chars]" : "");
+    html += _testSection("Menu Text (" + (data.menu_text ? data.menu_text.length : 0) + " chars)", menuPrev, "res-menu");
+    html += _testSection("Schema Used", JSON.stringify(data.schema || {}, null, 2), "res-schema");
+    html += _testSection("Full Prompt", data.prompt || "", "res-prompt");
+    html += _testSection("Raw Gemini Response (" + (data.response_size || 0) + " bytes)", data.raw_response || "(empty)", "res-raw");
+    html += _testSection("Parsed: found_po_product_ids (" + (data.parsed_found_ids || []).length + ")", JSON.stringify(data.parsed_found_ids || [], null, 2), "res-found");
+    html += _testSection("Parsed: not-on-menu IDs (" + (data.parsed_disable_ids || []).length + ")", JSON.stringify(data.parsed_disable_ids || [], null, 2), "res-disable");
+    html += _testSection("Parsed: add_products (" + (data.parsed_add_products || []).length + ")", JSON.stringify(data.parsed_add_products || [], null, 2), "res-add");
     $("#po-menu-test-body").html(html);
   }
 
@@ -393,144 +272,71 @@ $(document).ready(function(e) {
 
   function _renderDryRunModal(res) {
     var s = res.summary || {};
-    var batches = res.batches || [];
     var html = \'<div class="alert alert-secondary mb-3">\';
-    html += \'<strong>Dry Run — NO requests sent to Gemini</strong><br>\';
+    html += \'<strong>Dry Run — NOT sent to Gemini</strong><br>\';
     html += "PO: <b>" + _esc(res.po_code || res.po_id) + "</b> &nbsp;|&nbsp; ";
     html += "Products: <b>" + (s.total_products || 0) + "</b> &nbsp;|&nbsp; ";
-    html += "Batches: <b>" + (s.total_batches || 0) + "</b> (size " + (s.batch_size || 100) + ") &nbsp;|&nbsp; ";
-    html += "Total payload: <b>" + Math.round((s.total_payload_bytes || 0) / 1024) + " KB</b><br>";
-    html += "Menu text: <b>" + (s.menu_text_chars || 0).toLocaleString() + " chars</b> &nbsp;|&nbsp; ";
+    html += "Payload: <b>" + (s.payload_kb || "?") + " KB</b> &nbsp;|&nbsp; ";
+    html += "Menu text: <b>" + (s.menu_text_chars || 0).toLocaleString() + " chars</b><br>";
     html += "Brands: <b>" + (s.brands_count || 0) + "</b> &nbsp;|&nbsp; ";
     html += "Categories: <b>" + (s.categories_count || 0) + "</b>";
     html += \'</div>\';
-    html += \'<div class="mb-3"><button type="button" class="btn btn-warning btn-send-all-batches" data-po-id="\' + res.po_id + \'" data-total="\' + batches.length + \'"><i class="fa fa-send mr-1"></i> Send all \' + batches.length + \' batches simultaneously</button> <span id="send-all-status" class="text-muted small ml-2"></span></div>\';
-    html += \'<div id="test-batch-accordion">\';
-    for (var i = 0; i < batches.length; i++) {
-      var b = batches[i];
-      var bId = "dry-batch-" + b.batch_index;
-      html += \'<div class="card mb-1">\';
-      html += \'<div class="card-header p-2" style="cursor:pointer" data-toggle="collapse" data-target="#\' + bId + \'">\';
-      html += \'<strong>Batch \' + (b.batch_index + 1) + "/" + batches.length + "</strong>";
-      html += " &nbsp; " + (b.product_count || 0) + " products";
-      html += " &nbsp; Payload: " + Math.round((b.payload_size || 0) / 1024) + " KB";
-      if (b.is_primary) { html += \' <span class="badge badge-info">primary (includes add_products schema)</span>\'; }
-      html += \'</div>\';
-      html += \'<div id="\' + bId + \'" class="collapse">\';
-      html += \'<div class="card-body p-2">\';
-      html += \'<p class="text-muted small mb-1"><strong>URL:</strong> \' + _esc((b.url || "").replace(/key=[^&]+/, "key=***")) + \'</p>\';
-      html += \'<div class="mb-2"><button type="button" class="btn btn-sm btn-warning btn-send-single-batch" data-po-id="\' + res.po_id + \'" data-batch="\' + b.batch_index + \'"><i class="fa fa-send mr-1"></i>Send this batch to Gemini</button> <span class="send-batch-status-\' + b.batch_index + \' text-muted small ml-2"></span></div>\';
-      html += \'<div class="send-batch-result-\' + b.batch_index + \'"></div>\';
-      html += _testSection("System Instruction", b.system_instruction || "", bId + "-sys");
-      html += _testSection("Full Prompt (brands + categories + PO products + menu text)", b.prompt || "", bId + "-prompt");
-      html += _testSection("Brands Array (" + (b.brands_array || []).length + " items)", JSON.stringify(b.brands_array || [], null, 2), bId + "-brands");
-      html += _testSection("Categories Array (" + (b.categories_array || []).length + " items)", JSON.stringify(b.categories_array || [], null, 2), bId + "-cats");
-      html += _testSection("PO Products (" + (b.po_products_array || []).length + " items)", JSON.stringify(b.po_products_array || [], null, 2), bId + "-prods");
-      var menuPrev = (b.menu_text || "").substring(0, 3000) + (b.menu_text && b.menu_text.length > 3000 ? "\n...[" + b.menu_text.length + " total chars]" : "");
-      html += _testSection("Menu Text (" + (b.menu_text ? b.menu_text.length : 0) + " chars)", menuPrev, bId + "-menu");
-      html += _testSection("Schema", JSON.stringify(b.schema || {}, null, 2), bId + "-schema");
-      html += _testSection("Full Payload JSON (" + Math.round((b.payload_size || 0) / 1024) + " KB)", b.full_payload_json || "", bId + "-payload");
-      html += \'</div></div></div>\';
-    }
-    html += \'</div>\';
-    $("#po-menu-test-modal .modal-title").html(\'<i class="fa fa-eye mr-2"></i>Dry Run — Gemini Payloads (NOT sent)\');
+    html += \'<div class="mb-3"><button type="button" class="btn btn-warning btn-dry-run-send" data-po-id="\' + res.po_id + \'"><i class="fa fa-send mr-1"></i> Send to Gemini now</button> <span id="dry-run-send-status" class="text-muted small ml-2"></span></div>\';
+    html += \'<div id="dry-run-result"></div>\';
+    html += _testSection("System Instruction", res.system_instruction || "", "dry-sys");
+    html += _testSection("Full Prompt (" + Math.round((res.prompt||"").length / 1024) + " KB)", res.prompt || "", "dry-prompt");
+    html += _testSection("Brands Array (" + (res.brands_array || []).length + " items)", JSON.stringify(res.brands_array || [], null, 2), "dry-brands");
+    html += _testSection("Categories Array (" + (res.categories_array || []).length + " items)", JSON.stringify(res.categories_array || [], null, 2), "dry-cats");
+    html += _testSection("PO Products (" + (res.po_products_array || []).length + " items)", JSON.stringify(res.po_products_array || [], null, 2), "dry-prods");
+    var menuPrev = (res.menu_text || "").substring(0, 3000) + (res.menu_text && res.menu_text.length > 3000 ? "\n...[" + res.menu_text.length + " total chars]" : "");
+    html += _testSection("Menu Text (" + (res.menu_text ? res.menu_text.length : 0) + " chars)", menuPrev, "dry-menu");
+    html += _testSection("Schema", JSON.stringify(res.schema || {}, null, 2), "dry-schema");
+    html += _testSection("Full Payload JSON (" + (s.payload_kb || "?") + " KB)", res.full_payload_json || "", "dry-payload");
+    html += _testSection("URL", (res.url || "").replace(/key=[^&]+/, "key=***"), "dry-url");
+    $("#po-menu-test-modal .modal-title").html(\'<i class="fa fa-eye mr-2"></i>Dry Run — Gemini Payload (NOT sent)\');
     $("#po-menu-test-body").html(html);
-    window._dryRunPoId = res.po_id;
   }
 
-  // ---- Send ALL batches simultaneously from dry-run modal ----
-  $(document).on("click", ".btn-send-all-batches", function() {
+  // ---- Send from dry-run modal ----
+  $(document).on("click", ".btn-dry-run-send", function() {
     var btn = $(this);
     var poId = btn.data("po-id");
-    var total = btn.data("total");
-    if (!poId || !total) return;
-    btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Sending all \' + total + \' batches…\');
-    var done = 0;
-    var startAll = new Date();
-    $("#send-all-status").text("0 / " + total + " done…");
-    for (var bi = 0; bi < total; bi++) {
-      (function(batchIdx) {
-        $(".btn-send-single-batch[data-batch=\'" + batchIdx + "\']").prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Sending…\');
-        $(".send-batch-status-" + batchIdx).text("Waiting…");
-        // Expand the card so results are visible
-        $("#dry-batch-" + batchIdx).collapse("show");
-        $.ajax({
-          url: "/ajax/po-menu-test",
-          type: "POST",
-          data: { po_id: poId, single_batch: 1, batch_index: batchIdx, _r: Math.random() },
-          dataType: "json",
-          timeout: 150000
-        }).done(function(res) {
-          done++;
-          var elapsed = ((new Date() - startAll) / 1000).toFixed(1);
-          $("#send-all-status").text(done + " / " + total + " done (" + elapsed + "s elapsed)");
-          $(".btn-send-single-batch[data-batch=\'" + batchIdx + "\']").prop("disabled", false).html(\'<i class="fa fa-send mr-1"></i>Send this batch to Gemini\');
-          $(".send-batch-status-" + batchIdx).text("");
-          _renderSingleBatchResult(batchIdx, res);
-          if (done >= total) {
-            btn.prop("disabled", false).html(\'<i class="fa fa-send mr-1"></i> Send all \' + total + \' batches simultaneously\');
-            $("#send-all-status").text("All " + total + " done in " + ((new Date() - startAll) / 1000).toFixed(1) + "s total.");
-          }
-        }).fail(function(xhr, status, err) {
-          done++;
-          $(".btn-send-single-batch[data-batch=\'" + batchIdx + "\']").prop("disabled", false).html(\'<i class="fa fa-send mr-1"></i>Send this batch to Gemini\');
-          $(".send-batch-status-" + batchIdx).text("");
-          $(".send-batch-result-" + batchIdx).html(\'<div class="alert alert-danger p-2 small">Failed: \' + _esc(err || status) + \'</div>\');
-          if (done >= total) {
-            btn.prop("disabled", false).html(\'<i class="fa fa-send mr-1"></i> Send all \' + total + \' batches simultaneously\');
-            $("#send-all-status").text("All " + total + " done (some failed).");
-          }
-        });
-      })(bi);
-    }
-  });
-
-  function _renderSingleBatchResult(batchIdx, res) {
-    if (!res || !res.success) {
-      $(".send-batch-result-" + batchIdx).html(\'<div class="alert alert-danger p-2 small">\' + _esc((res && res.error) ? res.error : "Request failed") + \'</div>\');
-      return;
-    }
-    var ok = (res.http_status === 200 && !res.curl_error && !res.parse_error);
-    var html = \'<div class="card border-\' + (ok ? "success" : "danger") + \' mb-2"><div class="card-body p-2">\';
-    html += \'<div class="mb-1"><strong>HTTP \' + res.http_status + \'</strong>\';
-    html += \' &nbsp; \' + res.duration_s + \'s &nbsp; finishReason: \' + _esc(res.finish_reason || "?");
-    html += \' &nbsp; Response: \' + (res.response_size || 0) + \' bytes</div>\';
-    if (res.curl_error)  { html += \'<div class="text-danger small">cURL: \' + _esc(res.curl_error) + \'</div>\'; }
-    if (res.parse_error) { html += \'<div class="text-warning small">Parse error: \' + _esc(res.parse_error) + \'</div>\'; }
-    html += \'<div class="small"><strong>found (\' + (res.parsed_found_ids||[]).length + \'):</strong> \' + _esc(JSON.stringify(res.parsed_found_ids||[])) + \'</div>\';
-    html += \'<div class="small"><strong>disable (\' + (res.parsed_disable_ids||[]).length + \'):</strong> \' + _esc(JSON.stringify(res.parsed_disable_ids||[])) + \'</div>\';
-    if (res.is_primary && (res.parsed_add_products||[]).length) {
-      html += \'<div class="small"><strong>add_products (\' + res.parsed_add_products.length + \'):</strong><pre class="bg-light p-1 mt-1" style="max-height:150px;overflow:auto;">\' + _esc(JSON.stringify(res.parsed_add_products,null,2)) + \'</pre></div>\';
-    }
-    html += \'<div><a href="#" class="small" data-toggle="collapse" data-target="#raw-resp-\' + batchIdx + \'">Raw response</a>\';
-    html += \'<pre id="raw-resp-\' + batchIdx + \'" class="collapse bg-light p-1 mt-1 small" style="max-height:250px;overflow:auto;white-space:pre-wrap;">\' + _esc(res.raw_response||"") + \'</pre></div>\';
-    html += \'</div></div>\';
-    $(".send-batch-result-" + batchIdx).html(html);
-  }
-
-  // ---- Send single batch to Gemini from dry-run modal ----
-  $(document).on("click", ".btn-send-single-batch", function() {
-    var btn = $(this);
-    var poId = btn.data("po-id");
-    var batchIdx = btn.data("batch");
     if (!poId) return;
     btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Sending…\');
-    $(".send-batch-status-" + batchIdx).text("Waiting for Gemini… (up to 120s)");
-    $(".send-batch-result-" + batchIdx).html("");
+    $("#dry-run-send-status").text("Waiting for Gemini… (up to 180s)");
+    $("#dry-run-result").html("");
     $.ajax({
       url: "/ajax/po-menu-test",
       type: "POST",
-      data: { po_id: poId, single_batch: 1, batch_index: batchIdx, _r: Math.random() },
+      data: { po_id: poId, run: 1, _r: Math.random() },
       dataType: "json",
-      timeout: 150000
+      timeout: 200000
     }).done(function(res) {
-      btn.prop("disabled", false).html(\'<i class="fa fa-send mr-1"></i>Send this batch to Gemini\');
-      $(".send-batch-status-" + batchIdx).text("");
-      _renderSingleBatchResult(batchIdx, res);
+      btn.prop("disabled", false).html(\'<i class="fa fa-send mr-1"></i> Send to Gemini now\');
+      $("#dry-run-send-status").text("");
+      if (!res || !res.success) {
+        $("#dry-run-result").html(\'<div class="alert alert-danger">\' + _esc((res && res.error) ? res.error : "Request failed") + \'</div>\');
+        return;
+      }
+      var ok = (res.http_status === 200 && !res.curl_error && !res.parse_error);
+      var rhtml = \'<div class="card border-\' + (ok ? "success" : "danger") + \' mb-3"><div class="card-body p-2">\';
+      rhtml += \'<div class="mb-1"><strong>HTTP \' + res.http_status + \'</strong>\';
+      rhtml += \' &nbsp; \' + res.duration_s + \'s &nbsp; finishReason: \' + _esc(res.finish_reason || "?");
+      rhtml += \' &nbsp; Response: \' + (res.response_size || 0) + \' bytes</div>\';
+      if (res.curl_error)  { rhtml += \'<div class="text-danger">cURL: \' + _esc(res.curl_error) + \'</div>\'; }
+      if (res.parse_error) { rhtml += \'<div class="text-warning">Parse error: \' + _esc(res.parse_error) + \'</div>\'; }
+      var s2 = res.summary || {};
+      rhtml += \'<div>found: <b>\' + (s2.total_found_ids||0) + \'</b> &nbsp;|&nbsp; not-on-menu: <b>\' + (s2.total_disable_ids||0) + \'</b> &nbsp;|&nbsp; add_products: <b>\' + (s2.total_add_products||0) + \'</b></div>\';
+      rhtml += _testSection("Parsed: found IDs (" + (res.parsed_found_ids||[]).length + ")", JSON.stringify(res.parsed_found_ids||[], null, 2), "dsend-found");
+      rhtml += _testSection("Parsed: not-on-menu IDs (" + (res.parsed_disable_ids||[]).length + ")", JSON.stringify(res.parsed_disable_ids||[], null, 2), "dsend-disable");
+      rhtml += _testSection("Parsed: add_products (" + (res.parsed_add_products||[]).length + ")", JSON.stringify(res.parsed_add_products||[], null, 2), "dsend-add");
+      rhtml += _testSection("Raw Response", res.raw_response || "(empty)", "dsend-raw");
+      rhtml += \'</div></div>\';
+      $("#dry-run-result").html(rhtml);
     }).fail(function(xhr, status, err) {
-      btn.prop("disabled", false).html(\'<i class="fa fa-send mr-1"></i>Send this batch to Gemini\');
-      $(".send-batch-status-" + batchIdx).text("");
-      $(".send-batch-result-" + batchIdx).html(\'<div class="alert alert-danger p-2 small">Request failed: \' + _esc(err || status) + \'</div>\');
+      btn.prop("disabled", false).html(\'<i class="fa fa-send mr-1"></i> Send to Gemini now\');
+      $("#dry-run-send-status").text("");
+      $("#dry-run-result").html(\'<div class="alert alert-danger">Request failed: \' + _esc(err || status) + \'</div>\');
     });
   });
 
@@ -996,8 +802,8 @@ if ($_po_id && $_po_status_id == 1) {
         <div class="mb-2">' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', 'Upload menu PDF(s)...') . '</div>
         <button type="button" class="btn btn-outline-secondary btn-save-menu-pdfs">Save menu PDFs</button>
         <button type="button" class="btn btn-primary btn-po-menu-extract ml-2" data-po-id="' . (int)$_po_id . '"><i class="fa fa-magic mr-1"></i> Extract Menu &amp; Match Products (AI)</button>
-        <button type="button" class="btn btn-outline-warning btn-po-menu-test ml-2" data-po-id="' . (int)$_po_id . '" title="Runs parallel Gemini batches (CLI background). No DB writes — diagnostic only."><i class="fa fa-flask mr-1"></i> Test: Parallel Gemini</button>
-        <button type="button" class="btn btn-outline-secondary btn-po-menu-dry-run ml-1" data-po-id="' . (int)$_po_id . '" title="Build all Gemini payloads but do NOT send them. Shows what would be sent."><i class="fa fa-eye mr-1"></i> Dry Run (show prompts only)</button>
+        <button type="button" class="btn btn-outline-warning btn-po-menu-test ml-2" data-po-id="' . (int)$_po_id . '" title="Send all PO products to Gemini in one request. No DB writes — diagnostic only."><i class="fa fa-flask mr-1"></i> Test: Run Gemini</button>
+        <button type="button" class="btn btn-outline-secondary btn-po-menu-dry-run ml-1" data-po-id="' . (int)$_po_id . '" title="Build Gemini payload but do NOT send it. Shows what would be sent."><i class="fa fa-eye mr-1"></i> Dry Run (show prompt)</button>
         <button type="button" class="btn btn-link btn-po-menu-view-last ml-1 small" data-po-id="' . (int)$_po_id . '" title="Show the last saved test result file (even if incomplete)."><i class="fa fa-file-text-o mr-1"></i> View last result</button>
       </form>
       <div id="po-menu-test-status" class="alert alert-info mt-2" style="display:none;"><i class="fa fa-spinner fa-spin mr-1"></i><span id="po-menu-test-status-text">Running parallel Gemini batches in background…</span></div>
@@ -1030,7 +836,7 @@ if ($_po_id && $_po_status_id == 1) {
     <div class="modal-dialog modal-xl" role="document" style="max-width:95vw;">
       <div class="modal-content">
         <div class="modal-header bg-warning">
-          <h5 class="modal-title" id="po-menu-test-modal-title"><i class="fa fa-flask mr-2"></i>Parallel Gemini Test — Verbose Log</h5>
+          <h5 class="modal-title" id="po-menu-test-modal-title"><i class="fa fa-flask mr-2"></i>Gemini Test — Verbose Log</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span>&times;</span></button>
         </div>
         <div class="modal-body" id="po-menu-test-body" style="max-height:80vh;overflow-y:auto;font-size:12px;">
