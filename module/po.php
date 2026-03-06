@@ -198,30 +198,35 @@ $(document).ready(function(e) {
 
   function _renderTestModal(data) {
     var s = data.summary || {};
-    var ok = (data.http_status === 200 && !data.curl_error && !data.parse_error);
+    var p1ok = (data.phase1_http === 200 && !data.phase1_curl_error);
+    var p2ok = (data.phase2_http === 200 && !data.phase2_curl_error && !data.phase2_parse_error);
+    var ok   = p1ok && p2ok;
     var html = "";
     // Summary bar
     html += \'<div class="alert alert-\' + (ok ? "secondary" : "danger") + \' mb-3">\';
-    html += \'<strong>Result</strong><br>\';
+    html += \'<strong>Two-Phase Result</strong><br>\';
     html += "PO: <b>" + _esc(data.po_code || data.po_id) + "</b> &nbsp;|&nbsp; ";
-    html += "Products: <b>" + (s.total_products || 0) + "</b> &nbsp;|&nbsp; ";
-    html += "Time: <b>" + (s.duration_s || "?") + "s</b> &nbsp;|&nbsp; ";
-    html += "Payload: <b>" + (s.payload_kb || "?") + " KB</b><br>";
+    html += "PO products: <b>" + (s.total_po_products || 0) + "</b> &nbsp;|&nbsp; ";
+    html += "Total time: <b>" + (s.total_duration_s || "?") + "s</b><br>";
+    html += "Phase 1 (PDF→menu): <b>" + (s.phase1_elapsed_s || "?") + "s</b>, ";
+    html += "extracted <b>" + (s.menu_items_extracted || 0) + "</b> menu items, ";
+    html += "finish: <b>" + _esc(data.phase1_finish_reason || "?") + "</b><br>";
+    html += "Phase 2 (match): <b>" + (s.phase2_elapsed_s || "?") + "s</b>, ";
+    html += "matched pairs: <b>" + (s.matched_pairs || 0) + "</b>, ";
+    html += "finish: <b>" + _esc(data.phase2_finish_reason || "?") + "</b><br>";
     if (ok) {
-      html += "Found on menu: <b>" + (s.total_found_ids || 0) + "</b> &nbsp;|&nbsp; ";
-      html += "Not on menu: <b>" + (s.total_disable_ids || 0) + "</b> &nbsp;|&nbsp; ";
-      html += "New (add): <b>" + (s.total_add_products || 0) + "</b> &nbsp;|&nbsp; ";
-      html += "finishReason: <b>" + _esc(data.finish_reason || "?") + "</b>";
+      html += "Not on menu (disable): <b>" + (s.total_disable_ids || 0) + "</b> &nbsp;|&nbsp; ";
+      html += "New to add: <b>" + (s.total_add_products || 0) + "</b>";
     } else {
-      if (data.curl_error) html += \'<div class="text-danger">cURL error: \' + _esc(data.curl_error) + \'</div>\';
-      if (data.parse_error) html += \'<div class="text-warning">Parse error: \' + _esc(data.parse_error) + \'</div>\';
+      if (!p1ok) html += \'<div class="text-danger">Phase 1 error: HTTP \' + data.phase1_http + (data.phase1_curl_error ? \', cURL: \' + _esc(data.phase1_curl_error) : \'\') + \'</div>\';
+      if (!p2ok) html += \'<div class="text-danger">Phase 2 error: HTTP \' + data.phase2_http + (data.phase2_curl_error ? \', cURL: \' + _esc(data.phase2_curl_error) : \'\') + (data.phase2_parse_error ? \', Parse: \' + _esc(data.phase2_parse_error) : \'\') + \'</div>\';
     }
     html += \'</div>\';
     // Apply button (only shown when we have a valid result)
     if (ok && data.po_id) {
       window._geminiApplyData = {
-        po_id:       data.po_id,
-        disable_ids: data.parsed_disable_ids  || [],
+        po_id:        data.po_id,
+        disable_ids:  data.parsed_disable_ids  || [],
         add_products: data.parsed_add_products || []
       };
       var dLen = window._geminiApplyData.disable_ids.length;
@@ -233,18 +238,15 @@ $(document).ready(function(e) {
       html += \'</div>\';
     }
     // Collapsible sections
-    html += _testSection("System Instruction", data.system_instruction || "", "res-sys");
+    html += _testSection("Phase 1 — Extracted Menu Items (" + (data.phase1_menu_items || []).length + ")", JSON.stringify(data.phase1_menu_items || [], null, 2), "res-menu-items");
+    html += _testSection("Phase 1 — Raw Response", data.phase1_raw_response || "(empty)", "res-p1-raw");
+    html += _testSection("Phase 2 — Matched Pairs (" + (data.phase2_matched_pairs || []).length + ")", JSON.stringify(data.phase2_matched_pairs || [], null, 2), "res-pairs");
+    html += _testSection("Phase 2 — Raw Response", data.phase2_raw_response || "(empty)", "res-p2-raw");
+    html += _testSection("Parsed: not-on-menu IDs (" + (data.parsed_disable_ids || []).length + ")", JSON.stringify(data.parsed_disable_ids || [], null, 2), "res-disable");
+    html += _testSection("Parsed: add_products (" + (data.parsed_add_products || []).length + ")", JSON.stringify(data.parsed_add_products || [], null, 2), "res-add");
     html += _testSection("Brands Array (" + (data.brands_array || []).length + " items)", JSON.stringify(data.brands_array || [], null, 2), "res-brands");
     html += _testSection("Categories Array (" + (data.categories_array || []).length + " items)", JSON.stringify(data.categories_array || [], null, 2), "res-cats");
     html += _testSection("PO Products Sent (" + (data.po_products_sent || []).length + " items)", JSON.stringify(data.po_products_sent || [], null, 2), "res-prods");
-    var menuPrev = (data.menu_text || "").substring(0, 3000) + (data.menu_text && data.menu_text.length > 3000 ? "\n... [" + data.menu_text.length + " total chars]" : "");
-    html += _testSection("Menu Text (" + (data.menu_text ? data.menu_text.length : 0) + " chars)", menuPrev, "res-menu");
-    html += _testSection("Schema Used", JSON.stringify(data.schema || {}, null, 2), "res-schema");
-    html += _testSection("Full Prompt", data.prompt || "", "res-prompt");
-    html += _testSection("Raw Gemini Response (" + (data.response_size || 0) + " bytes)", data.raw_response || "(empty)", "res-raw");
-    html += _testSection("Parsed: found_po_product_ids (" + (data.parsed_found_ids || []).length + ")", JSON.stringify(data.parsed_found_ids || [], null, 2), "res-found");
-    html += _testSection("Parsed: not-on-menu IDs (" + (data.parsed_disable_ids || []).length + ")", JSON.stringify(data.parsed_disable_ids || [], null, 2), "res-disable");
-    html += _testSection("Parsed: add_products (" + (data.parsed_add_products || []).length + ")", JSON.stringify(data.parsed_add_products || [], null, 2), "res-add");
     $("#po-menu-test-body").html(html);
   }
 
@@ -333,19 +335,24 @@ $(document).ready(function(e) {
         $("#dry-run-result").html(\'<div class="alert alert-danger">\' + _esc((res && res.error) ? res.error : "Request failed") + \'</div>\');
         return;
       }
-      var ok = (res.http_status === 200 && !res.curl_error && !res.parse_error);
+      var p1ok = (res.phase1_http === 200 && !res.phase1_curl_error);
+      var p2ok = (res.phase2_http === 200 && !res.phase2_curl_error && !res.phase2_parse_error);
+      var ok   = p1ok && p2ok;
+      var s2   = res.summary || {};
       var rhtml = \'<div class="card border-\' + (ok ? "success" : "danger") + \' mb-3"><div class="card-body p-2">\';
-      rhtml += \'<div class="mb-1"><strong>HTTP \' + res.http_status + \'</strong>\';
-      rhtml += \' &nbsp; \' + res.duration_s + \'s &nbsp; finishReason: \' + _esc(res.finish_reason || "?");
-      rhtml += \' &nbsp; Response: \' + (res.response_size || 0) + \' bytes</div>\';
-      if (res.curl_error)  { rhtml += \'<div class="text-danger">cURL: \' + _esc(res.curl_error) + \'</div>\'; }
-      if (res.parse_error) { rhtml += \'<div class="text-warning">Parse error: \' + _esc(res.parse_error) + \'</div>\'; }
-      var s2 = res.summary || {};
-      rhtml += \'<div>found: <b>\' + (s2.total_found_ids||0) + \'</b> &nbsp;|&nbsp; not-on-menu: <b>\' + (s2.total_disable_ids||0) + \'</b> &nbsp;|&nbsp; add_products: <b>\' + (s2.total_add_products||0) + \'</b></div>\';
-      rhtml += _testSection("Parsed: found IDs (" + (res.parsed_found_ids||[]).length + ")", JSON.stringify(res.parsed_found_ids||[], null, 2), "dsend-found");
+      rhtml += \'<div class="mb-1"><strong>Two-Phase Result</strong>\';
+      rhtml += \' &nbsp; Total: \' + (s2.total_duration_s || "?") + \'s</div>\';
+      rhtml += \'<div>Phase 1: HTTP \' + res.phase1_http + \', \' + (s2.phase1_elapsed_s||"?") + \'s, \' + (s2.menu_items_extracted||0) + \' menu items, finish: \' + _esc(res.phase1_finish_reason||"?") + \'</div>\';
+      rhtml += \'<div>Phase 2: HTTP \' + res.phase2_http + \', \' + (s2.phase2_elapsed_s||"?") + \'s, \' + (s2.matched_pairs||0) + \' pairs, finish: \' + _esc(res.phase2_finish_reason||"?") + \'</div>\';
+      if (!p1ok) rhtml += \'<div class="text-danger">Phase 1 error: \' + _esc(res.phase1_curl_error||"") + \'</div>\';
+      if (!p2ok) rhtml += \'<div class="text-danger">Phase 2 error: \' + _esc(res.phase2_curl_error||res.phase2_parse_error||"") + \'</div>\';
+      rhtml += \'<div>not-on-menu: <b>\' + (s2.total_disable_ids||0) + \'</b> &nbsp;|&nbsp; add_products: <b>\' + (s2.total_add_products||0) + \'</b></div>\';
+      rhtml += _testSection("Phase 1 — Menu Items (" + (res.phase1_menu_items||[]).length + ")", JSON.stringify(res.phase1_menu_items||[], null, 2), "dsend-menu");
+      rhtml += _testSection("Phase 1 — Raw Response", res.phase1_raw_response || "(empty)", "dsend-p1-raw");
+      rhtml += _testSection("Phase 2 — Matched Pairs (" + (res.phase2_matched_pairs||[]).length + ")", JSON.stringify(res.phase2_matched_pairs||[], null, 2), "dsend-pairs");
+      rhtml += _testSection("Phase 2 — Raw Response", res.phase2_raw_response || "(empty)", "dsend-p2-raw");
       rhtml += _testSection("Parsed: not-on-menu IDs (" + (res.parsed_disable_ids||[]).length + ")", JSON.stringify(res.parsed_disable_ids||[], null, 2), "dsend-disable");
       rhtml += _testSection("Parsed: add_products (" + (res.parsed_add_products||[]).length + ")", JSON.stringify(res.parsed_add_products||[], null, 2), "dsend-add");
-      rhtml += _testSection("Raw Response", res.raw_response || "(empty)", "dsend-raw");
       rhtml += \'</div></div>\';
       $("#dry-run-result").html(rhtml);
     }).fail(function(xhr, status, err) {

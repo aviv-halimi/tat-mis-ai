@@ -130,60 +130,7 @@ $apiKey = getenv('GEMINI_API_KEY') ?: (defined('GEMINI_API_KEY') ? GEMINI_API_KE
 $model  = (defined('GEMINI_PO_MENU_MODEL') && GEMINI_PO_MENU_MODEL !== '') ? GEMINI_PO_MENU_MODEL : 'gemini-2.0-flash';
 $url    = 'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent?key=' . urlencode($apiKey);
 
-// ---- Schema ----
-$schema = [
-    'type' => 'OBJECT',
-    'properties' => [
-        'found_po_product_ids' => ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']],
-        'add_products' => [
-            'type' => 'ARRAY',
-            'items' => [
-                'type' => 'OBJECT',
-                'properties' => [
-                    'name'        => ['type' => 'STRING'],
-                    'price'       => ['type' => 'NUMBER'],
-                    'brand_id'    => ['type' => 'INTEGER', 'nullable' => true],
-                    'category_id' => ['type' => 'INTEGER', 'nullable' => true],
-                ],
-                'required' => ['name', 'price'],
-            ],
-        ],
-    ],
-    'required' => ['found_po_product_ids'],
-];
-
-// ---- System instruction ----
-$system_instr = <<<SYS
-You are a cannabis dispensary PO reconciler. Work through these steps in order:
-
-STEP 1 — DECODE THE MENU
-Read the menu text carefully. For each menu item build an internal record:
-  - strain name (exact, as shown)
-  - product type / category (map using the CATEGORY TRANSLATION RULES provided)
-  - price
-  - best matching brand_id and category_id from the provided lists
-
-STEP 2 — MATCH PO PRODUCTS
-For each PO product in the list, look it up against your Step-1 decoded menu.
-Rules:
-  • Strip the brand prefix (e.g. "710 Labs") before comparing strain names.
-  • A product is FOUND if BOTH the strain name AND the product type/category match a menu item.
-  • When in doubt, do NOT mark as found (conservative: keep the item on the PO).
-
-WEIGHT MATCHING RULES (both conditions must be met):
-  • Menu items under "Eighths / 3.5 Grams" or similar: the PO product name must contain "3.5g" (case-insensitive) to be a match.
-  • Menu items under "Half Ounce / 14 Grams" or similar: the PO product name must contain "14g" (case-insensitive) to be a match.
-
-Return found_po_product_ids — the po_product_id values of PO products that ARE on the menu.
-
-STEP 3 — IDENTIFY NEW MENU ITEMS
-List every menu item from Step 1 that has no equivalent in the PO PRODUCTS list.
-For each, return:
-  - name: concatenate as "{Brand Name} {Strain Name} {Menu Category} {Weight}" (e.g. "710 Labs C. Chrome #27 Flower 3.5g")
-  - price, brand_id, category_id
-SYS;
-
-// ---- Build prompt ----
+// ---- Shared data ----
 $brands_json     = json_encode($all_brands,     JSON_UNESCAPED_UNICODE);
 $categories_json = json_encode($all_categories, JSON_UNESCAPED_UNICODE);
 $po_products_json = json_encode($po_products,   JSON_UNESCAPED_UNICODE);
@@ -206,129 +153,301 @@ WEIGHT MATCHING RULES — a PO product is only a match if its name contains the 
 - Menu section "PERSY POD / .5G" → PO product name MUST contain ".5g" (Vape Carts .5g category)
 WMATCH;
 
-$prompt = "AVAILABLE BRANDS (use brand_id in your response):\n{$brands_json}"
-    . "\n\nAVAILABLE CATEGORIES (use category_id in your response):\n{$categories_json}"
-    . "\n\nCATEGORY TRANSLATION RULES:\n{$category_translations}"
-    . "\n\nWEIGHT MATCHING RULES:\n{$weight_matching_rules}"
-    . "\n\n--- STEP 1: DECODE THIS MENU ---\n[The menu PDF(s) are attached above. Read them carefully.]"
-    . "\n\n--- STEP 2 & 3: ALL PO PRODUCTS ---\n{$po_products_json}";
+// ============================================================
+// PHASE 1 — Extract menu items from PDF
+// ============================================================
+$p1_schema = [
+    'type' => 'OBJECT',
+    'properties' => [
+        'menu_items' => [
+            'type' => 'ARRAY',
+            'items' => [
+                'type' => 'OBJECT',
+                'properties' => [
+                    'name'        => ['type' => 'STRING'],
+                    'price'       => ['type' => 'NUMBER'],
+                    'brand_id'    => ['type' => 'INTEGER', 'nullable' => true],
+                    'category_id' => ['type' => 'INTEGER', 'nullable' => true],
+                ],
+                'required' => ['name', 'price'],
+            ],
+        ],
+    ],
+    'required' => ['menu_items'],
+];
 
-// PDFs sent as inline parts followed by the text prompt
-$payload = [
-    'system_instruction' => ['parts' => [['text' => $system_instr]]],
-    'contents' => [['parts' => array_merge($pdf_parts, [['text' => $prompt]])]],
+$p1_system_instr = <<<SYS
+You are a cannabis dispensary menu extraction assistant.
+
+Read the attached PDF menu carefully. Extract EVERY product. For each product:
+- Identify the strain name exactly as written
+- Identify the section heading (product type)
+- Record the price
+
+Then map each product to brand_id (from AVAILABLE BRANDS) and category_id (from AVAILABLE CATEGORIES) using the CATEGORY TRANSLATION RULES.
+
+For the name field, concatenate as: "{Brand Name} {Strain Name} {Menu Category} {Weight}" (e.g. "710 Labs C. Chrome #27 Flower 3.5g"). Include weight only if shown.
+
+Return every menu item. Do not skip any.
+SYS;
+
+$p1_prompt = "AVAILABLE BRANDS (use brand_id in your response, or null):\n{$brands_json}"
+    . "\n\nAVAILABLE CATEGORIES (use category_id in your response, or null):\n{$categories_json}"
+    . "\n\nCATEGORY TRANSLATION RULES:\n{$category_translations}"
+    . "\n\n[The menu PDF(s) are attached above. Extract all items.]";
+
+$p1_payload = [
+    'system_instruction' => ['parts' => [['text' => $p1_system_instr]]],
+    'contents' => [['parts' => array_merge($pdf_parts, [['text' => $p1_prompt]])]],
     'generationConfig' => [
         'temperature'      => 0.0,
         'maxOutputTokens'  => 8192,
         'responseMimeType' => 'application/json',
-        'responseSchema'   => $schema,
+        'responseSchema'   => $p1_schema,
     ],
 ];
-$payload_json = json_encode($payload);
+$p1_payload_json = json_encode($p1_payload);
 
-// ---- DRY RUN: return payload without calling Gemini ----
+// ============================================================
+// PHASE 2 — Match menu items to PO products
+// Output: matched_pairs (one entry per menu→PO match, bounded by menu size)
+// PHP derives: found_ids, disable_ids, add_products
+// ============================================================
+$p2_schema = [
+    'type' => 'OBJECT',
+    'properties' => [
+        'matched_pairs' => [
+            'type' => 'ARRAY',
+            'items' => [
+                'type' => 'OBJECT',
+                'properties' => [
+                    'menu_item_name' => ['type' => 'STRING'],
+                    'po_product_id'  => ['type' => 'INTEGER'],
+                ],
+                'required' => ['menu_item_name', 'po_product_id'],
+            ],
+        ],
+    ],
+    'required' => ['matched_pairs'],
+];
+
+$p2_system_instr = <<<SYS
+You are a cannabis dispensary PO reconciler.
+
+You are given MENU ITEMS (extracted from a vendor menu) and PO PRODUCTS (items currently on the purchase order).
+
+For each menu item, find the best matching PO product using these rules:
+  • Strip the brand prefix (e.g. "710 Labs") from both names before comparing.
+  • A product matches if BOTH the strain name AND the category match.
+  • Apply WEIGHT MATCHING RULES strictly.
+  • If no confident match exists, do NOT return a pair for that menu item.
+
+Return matched_pairs: one entry per matched menu item containing the menu_item_name and the po_product_id.
+SYS;
+
+// p2_prompt is built dynamically after Phase 1 completes (uses $menu_items_json)
+// Stored here as a template; menu_items_json placeholder filled after Phase 1.
+$p2_prompt_template = "WEIGHT MATCHING RULES:\n{$weight_matching_rules}"
+    . "\n\n--- MENU ITEMS (from Phase 1) ---\n{{MENU_ITEMS_JSON}}"
+    . "\n\n--- PO PRODUCTS ---\n{$po_products_json}";
+
+// ---- DRY RUN: return both payloads without calling Gemini ----
 if ($is_dry_run) {
+    $p2_payload_preview = [
+        'system_instruction' => ['parts' => [['text' => $p2_system_instr]]],
+        'contents' => [['parts' => [['text' => str_replace('{{MENU_ITEMS_JSON}}', '(populated after Phase 1)', $p2_prompt_template)]]]],
+        'generationConfig' => [
+            'temperature'      => 0.0,
+            'maxOutputTokens'  => 4096,
+            'responseMimeType' => 'application/json',
+            'responseSchema'   => $p2_schema,
+        ],
+    ];
     echo json_encode([
-        'success'            => true,
-        'dry_run'            => true,
-        'po_id'              => $po_id,
-        'po_code'            => $po_code,
-        'url'                => $url,
-        'payload_size'       => strlen($payload_json),
-        'system_instruction' => $system_instr,
-        'brands_array'       => $all_brands,
-        'categories_array'   => $all_categories,
-        'po_products_array'  => $po_products,
-        'pdf_files'          => $pdf_summary,
-        'schema'             => $schema,
-        'prompt'             => $prompt,
-        'full_payload_json'  => '(omitted — contains base64 PDF data)',
+        'success'                  => true,
+        'dry_run'                  => true,
+        'po_id'                    => $po_id,
+        'po_code'                  => $po_code,
+        'url'                      => $url,
+        'pdf_files'                => $pdf_summary,
+        'brands_array'             => $all_brands,
+        'categories_array'         => $all_categories,
+        'po_products_array'        => $po_products,
+        'phase1_system_instruction'=> $p1_system_instr,
+        'phase1_prompt'            => $p1_prompt,
+        'phase1_schema'            => $p1_schema,
+        'phase1_payload_size'      => strlen($p1_payload_json),
+        'phase2_system_instruction'=> $p2_system_instr,
+        'phase2_prompt_template'   => $p2_prompt_template,
+        'phase2_schema'            => $p2_schema,
+        'phase2_payload_preview'   => $p2_payload_preview,
         'summary' => [
-            'total_products'      => count($po_products),
-            'payload_kb'          => round(strlen($payload_json) / 1024, 1),
-            'pdf_count'           => count($pdf_parts),
-            'pdf_files'           => implode(', ', $pdf_summary),
-            'brands_count'        => count($all_brands),
-            'categories_count'    => count($all_categories),
+            'total_products'   => count($po_products),
+            'pdf_count'        => count($pdf_parts),
+            'pdf_files'        => implode(', ', $pdf_summary),
+            'brands_count'     => count($all_brands),
+            'categories_count' => count($all_categories),
+            'p1_payload_kb'    => round(strlen($p1_payload_json) / 1024, 1),
         ],
     ]);
     exit;
 }
 
-// ---- LIVE RUN: send to Gemini ----
-$start = microtime(true);
+// ---- LIVE RUN: Phase 1 — extract menu from PDF ----
+$p1_start  = microtime(true);
 $ch = curl_init($url);
 curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_POST           => true,
-    CURLOPT_POSTFIELDS     => $payload_json,
+    CURLOPT_POSTFIELDS     => $p1_payload_json,
     CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
     CURLOPT_TIMEOUT        => 180,
     CURLOPT_CONNECTTIMEOUT => 15,
 ]);
-$raw      = curl_exec($ch);
-$curl_err = curl_error($ch);
-$http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+$p1_raw      = curl_exec($ch);
+$p1_curl_err = curl_error($ch);
+$p1_http     = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
-$elapsed = round(microtime(true) - $start, 3);
+$p1_elapsed = round(microtime(true) - $p1_start, 3);
 
-$parsed_found = $parsed_add = [];
-$finish_reason = $parse_error = null;
-$response_text = '';
-if (!$curl_err && $raw && $http_code === 200) {
-    $res_data      = json_decode($raw, true);
-    $response_text = $res_data['candidates'][0]['content']['parts'][0]['text'] ?? '';
-    $finish_reason = $res_data['candidates'][0]['finishReason'] ?? null;
-    if ($response_text !== '') {
-        $data = json_decode($response_text, true);
-        if (is_array($data)) {
-            $parsed_found = array_map('intval', $data['found_po_product_ids'] ?? []);
-            $parsed_add   = $data['add_products'] ?? [];
+$menu_items = [];
+$p1_response_text = $p1_finish_reason = $p1_parse_error = null;
+if (!$p1_curl_err && $p1_raw && $p1_http === 200) {
+    $p1_data          = json_decode($p1_raw, true);
+    $p1_response_text = $p1_data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+    $p1_finish_reason = $p1_data['candidates'][0]['finishReason'] ?? null;
+    if ($p1_response_text !== '') {
+        $p1_parsed = json_decode($p1_response_text, true);
+        if (is_array($p1_parsed) && !empty($p1_parsed['menu_items'])) {
+            $menu_items = $p1_parsed['menu_items'];
         } else {
-            $parse_error = json_last_error_msg();
+            $p1_parse_error = json_last_error_msg();
         }
     }
 }
 
-$all_po_ids  = array_column($po_products, 'po_product_id');
-$found_set   = array_flip($parsed_found);
-$disable_ids = array_values(array_filter($all_po_ids, fn($id) => !isset($found_set[$id])));
+if (empty($menu_items)) {
+    $err = 'Phase 1 failed: could not extract menu items from PDF.'
+        . ($p1_curl_err ? ' cURL: ' . $p1_curl_err : '')
+        . ($p1_http !== 200 ? ' HTTP ' . $p1_http : '')
+        . ($p1_parse_error ? ' Parse: ' . $p1_parse_error : '');
+    if (!is_dir($log_dir)) { @mkdir($log_dir, 0755, true); }
+    @file_put_contents($result_file, json_encode([
+        'status' => 'failed', 'error' => $err,
+        'phase1_raw' => $p1_raw, 'phase1_response_text' => $p1_response_text,
+    ]), LOCK_EX);
+    if (!$is_cli) echo json_encode(['success' => false, 'error' => $err,
+        'phase1_raw' => $p1_raw, 'phase1_response_text' => $p1_response_text]);
+    exit($is_cli ? 1 : 0);
+}
+
+// ---- Phase 2 — match menu items to PO products ----
+$menu_items_json = json_encode($menu_items, JSON_UNESCAPED_UNICODE);
+$p2_prompt = str_replace('{{MENU_ITEMS_JSON}}', $menu_items_json, $p2_prompt_template);
+
+$p2_payload = [
+    'system_instruction' => ['parts' => [['text' => $p2_system_instr]]],
+    'contents' => [['parts' => [['text' => $p2_prompt]]]],
+    'generationConfig' => [
+        'temperature'      => 0.0,
+        'maxOutputTokens'  => 4096,
+        'responseMimeType' => 'application/json',
+        'responseSchema'   => $p2_schema,
+    ],
+];
+$p2_payload_json = json_encode($p2_payload);
+
+$p2_start = microtime(true);
+$ch = curl_init($url);
+curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_POST           => true,
+    CURLOPT_POSTFIELDS     => $p2_payload_json,
+    CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+    CURLOPT_TIMEOUT        => 180,
+    CURLOPT_CONNECTTIMEOUT => 15,
+]);
+$p2_raw      = curl_exec($ch);
+$p2_curl_err = curl_error($ch);
+$p2_http     = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_close($ch);
+$p2_elapsed = round(microtime(true) - $p2_start, 3);
+
+$matched_pairs = [];
+$p2_response_text = $p2_finish_reason = $p2_parse_error = null;
+if (!$p2_curl_err && $p2_raw && $p2_http === 200) {
+    $p2_data          = json_decode($p2_raw, true);
+    $p2_response_text = $p2_data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+    $p2_finish_reason = $p2_data['candidates'][0]['finishReason'] ?? null;
+    if ($p2_response_text !== '') {
+        $p2_parsed = json_decode($p2_response_text, true);
+        if (is_array($p2_parsed)) {
+            $matched_pairs = $p2_parsed['matched_pairs'] ?? [];
+        } else {
+            $p2_parse_error = json_last_error_msg();
+        }
+    }
+}
+
+// ---- Derive final sets ----
+$found_ids_raw   = array_column($matched_pairs, 'po_product_id');
+$found_ids       = array_values(array_unique(array_map('intval', $found_ids_raw)));
+$found_set       = array_flip($found_ids);
+$all_po_ids      = array_column($po_products, 'po_product_id');
+$disable_ids     = array_values(array_filter($all_po_ids, fn($id) => !isset($found_set[$id])));
+
+// add_products = menu items whose name was NOT returned in any matched_pair
+$matched_names_set = array_flip(array_column($matched_pairs, 'menu_item_name'));
+$add_products = array_values(array_filter($menu_items, fn($item) => !isset($matched_names_set[$item['name']])));
 
 $result = [
-    'success'             => true,
-    'status'              => 'completed',
-    'po_id'               => $po_id,
-    'po_code'             => $po_code,
-    'started_at'          => date('Y-m-d H:i:s', (int) $start),
-    'finished_at'         => date('Y-m-d H:i:s'),
-    'duration_s'          => $elapsed,
-    'http_status'         => $http_code,
-    'curl_error'          => $curl_err ?: null,
-    'payload_size'        => strlen($payload_json),
-    'finish_reason'       => $finish_reason,
-    'response_size'       => strlen($raw ?? ''),
-    'raw_response'        => $raw ?? '',
-    'response_text'       => $response_text,
-    'parse_error'         => $parse_error,
-    'parsed_found_ids'    => $parsed_found,
-    'parsed_disable_ids'  => $disable_ids,
-    'parsed_add_products' => $parsed_add,
-    'system_instruction'  => $system_instr,
-    'brands_array'        => $all_brands,
-    'categories_array'    => $all_categories,
-    'po_products_sent'    => $po_products,
-    'pdf_files'           => $pdf_summary,
-    'schema'              => $schema,
-    'prompt'              => $prompt,
+    'success'              => true,
+    'status'               => 'completed',
+    'po_id'                => $po_id,
+    'po_code'              => $po_code,
+    'started_at'           => date('Y-m-d H:i:s', (int) $p1_start),
+    'finished_at'          => date('Y-m-d H:i:s'),
+    'duration_s'           => round($p1_elapsed + $p2_elapsed, 3),
+    // Phase 1
+    'phase1_http'          => $p1_http,
+    'phase1_curl_error'    => $p1_curl_err ?: null,
+    'phase1_elapsed_s'     => $p1_elapsed,
+    'phase1_finish_reason' => $p1_finish_reason,
+    'phase1_response_text' => $p1_response_text,
+    'phase1_raw_response'  => $p1_raw ?? '',
+    'phase1_menu_items'    => $menu_items,
+    // Phase 2
+    'phase2_http'          => $p2_http,
+    'phase2_curl_error'    => $p2_curl_err ?: null,
+    'phase2_elapsed_s'     => $p2_elapsed,
+    'phase2_finish_reason' => $p2_finish_reason,
+    'phase2_response_text' => $p2_response_text,
+    'phase2_raw_response'  => $p2_raw ?? '',
+    'phase2_matched_pairs' => $matched_pairs,
+    'phase2_parse_error'   => $p2_parse_error,
+    // Final results
+    'parsed_found_ids'     => $found_ids,
+    'parsed_disable_ids'   => $disable_ids,
+    'parsed_add_products'  => $add_products,
+    // Context
+    'pdf_files'            => $pdf_summary,
+    'brands_array'         => $all_brands,
+    'categories_array'     => $all_categories,
+    'po_products_sent'     => $po_products,
     'summary' => [
-        'total_products'      => count($po_products),
-        'total_found_ids'     => count($parsed_found),
-        'total_disable_ids'   => count($disable_ids),
-        'total_add_products'  => count($parsed_add),
-        'duration_s'          => $elapsed,
-        'payload_kb'          => round(strlen($payload_json) / 1024, 1),
-        'pdf_count'           => count($pdf_parts),
-        'pdf_files'           => implode(', ', $pdf_summary),
+        'total_po_products'    => count($po_products),
+        'menu_items_extracted' => count($menu_items),
+        'matched_pairs'        => count($matched_pairs),
+        'total_found_ids'      => count($found_ids),
+        'total_disable_ids'    => count($disable_ids),
+        'total_add_products'   => count($add_products),
+        'phase1_elapsed_s'     => $p1_elapsed,
+        'phase2_elapsed_s'     => $p2_elapsed,
+        'total_duration_s'     => round($p1_elapsed + $p2_elapsed, 3),
+        'p1_payload_kb'        => round(strlen($p1_payload_json) / 1024, 1),
+        'p2_payload_kb'        => round(strlen($p2_payload_json) / 1024, 1),
+        'pdf_count'            => count($pdf_parts),
+        'pdf_files'            => implode(', ', $pdf_summary),
     ],
 ];
 
