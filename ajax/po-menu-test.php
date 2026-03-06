@@ -487,13 +487,14 @@ if (!$p2_curl_err && $p2_raw && $p2_http === 200) {
 // ---- PHP-side verification of Gemini's matched_pairs ----
 // Gemini sometimes matches by category+weight alone — PHP enforces strain name, category, and weight.
 function _po_strip_strain(string $name): string {
-    // Remove brand prefix and Close Friends / x Connected wrappers
-    $name = preg_replace('/^710\s+Labs\s+(?:\(Close\s+Friends\)\s+)?(?:x\s+Connected\s+)?/iu', '', $name);
+    // Remove brand prefix: "710 Labs", numeric brand ID (e.g. "121 "), Close Friends, x Connected wrappers
+    $name = preg_replace('/^(?:710\s+Labs\s+|\d+\s+)(?:\(Close\s+Friends\)\s+)?(?:x\s+Connected\s+)?/iu', '', $name);
     // Remove (I/H), (S/H), (H), (S), (I) type qualifiers
     $name = preg_replace('/\([A-Z\/]+\)/iu', ' ', $name);
-    // Remove product-type and weight words
+    // Remove product-type descriptor words
     $name = preg_replace('/\b(?:flower|persy|live\s+rosin|infused|hash\s+rosin|rosin|badder|sauce|pod|battery|prerolls?|pre-rolls?|aio|vape\s+carts?|solventless\s+extracts?|edibles?|gummies?|tinctures?|rso|water\s+hash|thumbprint)\b/iu', ' ', $name);
-    $name = preg_replace('/\b\d+(?:\.\d+)?g\b|\b\d+mg\b|\b\d+pk\b/iu', ' ', $name);
+    // Remove weight tokens — handle ".5g" separately (no leading \b before the dot)
+    $name = preg_replace('/(?<![a-z0-9])\.?\d+(?:\.\d+)?g\b|\b\d+mg\b|\b\d+pk\b/iu', ' ', $name);
     return strtolower(preg_replace('/\s+/u', ' ', trim($name)));
 }
 
@@ -530,11 +531,20 @@ foreach ($matched_pairs as $pair) {
     }
 
     // 3. Strain name check
-    // Extract strain core from menu item (what remains after stripping brand/fluff/weight)
     $menu_core = _po_strip_strain($menu_item['name']);
-    // Split on " + " to handle combo products — each part must appear in the PO name
-    $parts = array_map('trim', preg_split('/\s*\+\s*/u', $menu_core));
-    $parts = array_filter($parts, fn($p) => strlen($p) >= 2);
+    $po_core   = _po_strip_strain($po_product['product_name']);
+
+    // Single-strain menu item must not match a combo PO product (and vice versa)
+    $menu_is_combo = str_contains($menu_core, '+');
+    $po_is_combo   = str_contains($po_core,   '+');
+    if ($menu_is_combo !== $po_is_combo) {
+        $rejected_pairs[] = $pair + ['reject_reason' => 'combo_mismatch',
+            'menu_core' => $menu_core, 'po_core' => $po_core];
+        continue;
+    }
+
+    // Split on " + " — each part from the menu must appear in the PO name
+    $parts = array_filter(array_map('trim', preg_split('/\s*\+\s*/u', $menu_core)), fn($p) => strlen($p) >= 2);
 
     $strain_ok = true;
     foreach ($parts as $strain) {
