@@ -83,23 +83,6 @@ $(document).ready(function(e) {
       });
   });
 
-  // ---- Show/hide extract actions based on upload events only (not DB state) ----
-  console.log("[po-menu] v3 — buttons hidden until upload");
-  // Show buttons only when user actively uploads a file in this session
-  $(document).on("fileuploaddone", "#menu_filenames_fileupload", function(e, data) {
-    var files = data && data.result && data.result.files;
-    if (files && files.length && !files[0].error) {
-      $("#po-menu-extract-actions").show();
-    }
-  });
-  // Hide buttons if all files are removed
-  $(document).on("click", ".btn-remove-media-item.menu_filenames, #menu_filenames_remove", function() {
-    setTimeout(function() {
-      if ($("#f_po-menu-data .upload-preview .media-item").length === 0) {
-        $("#po-menu-extract-actions").hide();
-      }
-    }, 600);
-  });
 
   function _renderTestModal(data, pagePoId) {
     var s = data.summary || {};
@@ -608,16 +591,16 @@ foreach($rf as $f) {
 
 <?php
 if ($_po_id && $_po_status_id == 1) {
+  $_action_buttons = '
+    <button type="button" class="btn btn-primary btn-po-menu-extract ml-2" data-po-id="' . (int)$_po_id . '"><i class="fa fa-magic mr-1"></i> Extract Menu (AI)</button>
+    <button type="button" class="btn btn-link btn-po-menu-view-last ml-2" data-po-id="' . (int)$_po_id . '" title="Show the last saved result." style="font-size:0.75rem;"><i class="fa fa-file-text-o mr-1"></i> View last result</button>';
+  $_upload_widget = str_replace('</span>', '</span>' . $_action_buttons, uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', '<i class="fa fa-upload mr-1"></i> Upload Brand Menu', 'btn-secondary'));
   echo '
   <div class="mt-3" id="po-brand-menu-panel">
     <form id="f_po-menu-data" class="po-data" action="" method="post">
       <input type="hidden" name="c" value="' . htmlspecialchars($po_code) . '" />
       <input type="hidden" name="f" value="menu_filenames" />
-      ' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', '<i class="fa fa-upload mr-1"></i> Upload Brand Menu', 'btn-secondary') . '
-      <div id="po-menu-extract-actions" class="mt-2 d-flex align-items-center" style="display:none;">
-        <button type="button" class="btn btn-primary btn-po-menu-extract" data-po-id="' . (int)$_po_id . '"><i class="fa fa-magic mr-1"></i> Extract Menu (AI)</button>
-        <button type="button" class="btn btn-link btn-po-menu-view-last ml-2" data-po-id="' . (int)$_po_id . '" title="Show the last saved result." style="font-size:0.75rem;"><i class="fa fa-file-text-o mr-1"></i> View last result</button>
-      </div>
+      ' . $_upload_widget . '
     </form>
     <div id="po-menu-status" class="alert mt-2" style="display:none;"><span id="po-menu-status-text"></span></div>
   </div>
