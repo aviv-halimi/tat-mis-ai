@@ -22,25 +22,32 @@ if (!$po_id) {
 if (!is_array($disable_ids))  { $disable_ids  = []; }
 if (!is_array($add_products)) { $add_products = []; }
 
-// -- diagnostics: capture current DB, count, and a direct row attempt --
-$_diag_db      = getRow(getRs("SELECT DATABASE() AS db"))['db'] ?? '?';
-$_diag_count   = getRow(getRs("SELECT COUNT(*) AS n FROM po WHERE po_id = ?", [$po_id]))['n'] ?? '?';
-$_diag_any     = getRow(getRs("SELECT po_id, po_status_id, is_active, is_enabled FROM po ORDER BY po_id DESC LIMIT 1")) ?: [];
-
+// If the JS-passed po_id isn't in the po table, derive it from the product IDs.
+// This handles cases where display settings drift and the button sends a po_product_id by mistake.
 $po = getRow(getRs(
     "SELECT po_id, po_code, po_status_id, is_active, is_enabled FROM po WHERE po_id = ? LIMIT 1",
     [$po_id]
 ));
+if (!$po && !empty($disable_ids)) {
+    $sample_product_id = (int) reset($disable_ids);
+    $db = $_Session->db;
+    $derived = getRow(getRs(
+        "SELECT po_id FROM {$db}.po_product WHERE po_product_id = ? LIMIT 1",
+        [$sample_product_id]
+    ));
+    if ($derived && (int) $derived['po_id'] > 0) {
+        $derived_po_id = (int) $derived['po_id'];
+        $po = getRow(getRs(
+            "SELECT po_id, po_code, po_status_id, is_active, is_enabled FROM po WHERE po_id = ? LIMIT 1",
+            [$derived_po_id]
+        ));
+        if ($po) {
+            $po_id = $derived_po_id; // use the correct PO ID going forward
+        }
+    }
+}
 if (!$po) {
-    echo json_encode([
-        'success' => false,
-        'error'   => "PO not found (po_id={$po_id})",
-        'diag'    => [
-            'current_db'      => $_diag_db,
-            'count_for_po_id' => $_diag_count,
-            'latest_po_row'   => $_diag_any,
-        ],
-    ]);
+    echo json_encode(['success' => false, 'error' => "PO not found (po_id={$po_id})"]);
     exit;
 }
 if (!(int)$po['is_active'] || !(int)$po['is_enabled']) {

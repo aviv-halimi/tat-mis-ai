@@ -186,7 +186,7 @@ $(document).ready(function(e) {
         console.error("[test] response:", res);
         return;
       }
-      _renderTestModal(res);
+      _renderTestModal(res, poId);
       $("#po-menu-test-modal .modal-title").html(\'<i class="fa fa-flask mr-2"></i>Gemini Test — Verbose Result\');
       $("#po-menu-test-modal").modal("show");
     }).fail(function(xhr, status, err) {
@@ -196,7 +196,7 @@ $(document).ready(function(e) {
     });
   });
 
-  function _renderTestModal(data) {
+  function _renderTestModal(data, pagePoId) {
     var s = data.summary || {};
     var p1ok = (data.phase1_http === 200 && !data.phase1_curl_error);
     var p2ok = (data.phase2_http === 200 && !data.phase2_curl_error && !data.phase2_parse_error);
@@ -223,9 +223,12 @@ $(document).ready(function(e) {
     }
     html += \'</div>\';
     // Apply button (only shown when we have a valid result)
-    if (ok && data.po_id) {
+    // Use the page's PO ID (PHP-baked into the button) as the authoritative value.
+    // data.po_id can be stale/wrong (e.g. a po_product_id) if display settings drifted.
+    var resolvedPoId = (pagePoId && parseInt(pagePoId, 10) > 0) ? parseInt(pagePoId, 10) : (data.po_id || 0);
+    if (ok && resolvedPoId) {
       window._geminiApplyData = {
-        po_id:        data.po_id,
+        po_id:        resolvedPoId,
         disable_ids:  data.parsed_disable_ids  || [],
         add_products: data.parsed_add_products || []
       };
@@ -424,7 +427,7 @@ $(document).ready(function(e) {
       }
       var d = r.data;
       if (d.status === "completed") {
-        _renderTestModal(d);
+        _renderTestModal(d, poId);
       } else {
         // Show whatever partial/raw data exists
         $("#po-menu-test-modal .modal-title").html(\'<i class="fa fa-file-text-o mr-2"></i>Last Result File (status: \' + _esc(d.status || "?") + \')\');
