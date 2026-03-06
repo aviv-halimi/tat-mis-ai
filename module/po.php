@@ -83,24 +83,21 @@ $(document).ready(function(e) {
       });
   });
 
-  // ---- Show/hide extract actions based on whether menu files are present ----
-  function _poMenuCheckFiles() {
-    var $preview = $("#f_po-menu-data .upload-preview");
-    // Files exist when the preview div is visible and has at least one .media-item child
-    var hasFiles = $preview.length > 0 && $preview.is(":visible") && $preview.find(".media-item").length > 0;
-    $("#po-menu-extract-actions").toggle(hasFiles);
-  }
-  // Run once after upload widget has had time to initialize the DOM
-  setTimeout(_poMenuCheckFiles, 300);
-  // Watch for new files added or removed via MutationObserver on the preview div
-  var _menuPreviewEl = document.querySelector("#f_po-menu-data .upload-preview");
-  if (_menuPreviewEl) {
-    new MutationObserver(function() { setTimeout(_poMenuCheckFiles, 150); })
-      .observe(_menuPreviewEl, { attributes: true, childList: true, subtree: false, attributeFilter: ["style"] });
-  }
-  // Also catch remove-all and remove-item clicks as a safety net
+  // ---- Show/hide extract actions based on upload events only (not DB state) ----
+  // Show buttons only when user actively uploads a file in this session
+  $(document).on("fileuploaddone", "#menu_filenames_fileupload", function(e, data) {
+    var files = data && data.result && data.result.files;
+    if (files && files.length && !files[0].error) {
+      $("#po-menu-extract-actions").show();
+    }
+  });
+  // Hide buttons if all files are removed
   $(document).on("click", ".btn-remove-media-item.menu_filenames, #menu_filenames_remove", function() {
-    setTimeout(_poMenuCheckFiles, 600);
+    setTimeout(function() {
+      if ($("#f_po-menu-data .upload-preview .media-item").length === 0) {
+        $("#po-menu-extract-actions").hide();
+      }
+    }, 600);
   });
 
   function _renderTestModal(data, pagePoId) {
