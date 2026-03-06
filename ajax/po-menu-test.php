@@ -130,10 +130,14 @@ $apiKey   = getenv('GEMINI_API_KEY') ?: (defined('GEMINI_API_KEY') ? GEMINI_API_
 // Phase 1 (PDF extraction): standard flash model
 $p1_model = (defined('GEMINI_PO_MENU_MODEL') && GEMINI_PO_MENU_MODEL !== '') ? GEMINI_PO_MENU_MODEL : 'gemini-2.0-flash';
 $url      = 'https://generativelanguage.googleapis.com/v1beta/models/' . $p1_model . ':generateContent?key=' . urlencode($apiKey);
-// Phase 2 (matching): thinking model for better reasoning; thinking models require separate handling
-$p2_model        = (defined('GEMINI_PO_MENU_MATCH_MODEL') && GEMINI_PO_MENU_MATCH_MODEL !== '') ? GEMINI_PO_MENU_MATCH_MODEL : 'gemini-2.0-flash-thinking-exp';
-$p2_url          = 'https://generativelanguage.googleapis.com/v1beta/models/' . $p2_model . ':generateContent?key=' . urlencode($apiKey);
-$p2_is_thinking  = (stripos($p2_model, 'thinking') !== false);
+// Phase 2 (matching): gemini-2.5-flash supports thinking via thinkingConfig AND structured outputs
+$p2_model             = (defined('GEMINI_PO_MENU_MATCH_MODEL') && GEMINI_PO_MENU_MATCH_MODEL !== '') ? GEMINI_PO_MENU_MATCH_MODEL : 'gemini-2.5-flash';
+$p2_url               = 'https://generativelanguage.googleapis.com/v1beta/models/' . $p2_model . ':generateContent?key=' . urlencode($apiKey);
+// Old experimental thinking models don't support structured output — need JSON-in-prompt workaround
+$p2_is_old_thinking   = (stripos($p2_model, 'thinking-exp') !== false);
+// 2.5+ models support thinkingConfig alongside structured outputs
+$p2_use_thinking_cfg  = !$p2_is_old_thinking && (strpos($p2_model, '2.5') !== false || strpos($p2_model, '2-5') !== false);
+$p2_is_thinking       = $p2_is_old_thinking || $p2_use_thinking_cfg;
 
 // ---- Shared data ----
 $brands_json     = json_encode($all_brands,     JSON_UNESCAPED_UNICODE);
@@ -405,18 +409,21 @@ $indexed_menu_items = array_map(
 $indexed_menu_items_json = json_encode($indexed_menu_items, JSON_UNESCAPED_UNICODE);
 $p2_prompt = str_replace('{{MENU_ITEMS_JSON}}', $indexed_menu_items_json, $p2_prompt_template);
 
-// Thinking models don't support responseMimeType / responseSchema.
-// Add an explicit JSON format instruction to the prompt instead.
+// Old experimental thinking models don't support structured output — add JSON instruction to prompt instead
 $p2_prompt_final = $p2_prompt;
-if ($p2_is_thinking) {
+if ($p2_is_old_thinking) {
     $p2_prompt_final .= "\n\nIMPORTANT: Respond with a single valid JSON object only. No markdown, no code fences, no explanation text. Format:\n{\"matched_pairs\":[{\"menu_item_index\":0,\"po_product_id\":12345},...]}\nIf nothing matches, return {\"matched_pairs\":[]}";
 }
 
+// 2.5-flash supports thinking AND structured output simultaneously
 $p2_gen_config = ['maxOutputTokens' => 16000];
-if (!$p2_is_thinking) {
+if (!$p2_is_old_thinking) {
     $p2_gen_config['temperature']      = 0.0;
     $p2_gen_config['responseMimeType'] = 'application/json';
     $p2_gen_config['responseSchema']   = $p2_schema;
+}
+if ($p2_use_thinking_cfg) {
+    $p2_gen_config['thinkingConfig'] = ['thinkingBudget' => 8192];
 }
 
 $p2_payload = [
@@ -441,19 +448,19 @@ $p2_curl_err = curl_error($ch);
 $p2_http     = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
-// If thinking model not found (404), fall back to standard flash with structured output
-if ($p2_http === 404 && $p2_is_thinking) {
-    $p2_model       = $p1_model;  // fall back to flash
-    $p2_url         = 'https://generativelanguage.googleapis.com/v1beta/models/' . $p2_model . ':generateContent?key=' . urlencode($apiKey);
-    $p2_is_thinking = false;
-    // Rebuild payload with structured output
+// If model not found (404), fall back to standard flash with structured output
+if ($p2_http === 404) {
+    $p2_model            = $p1_model;
+    $p2_url              = 'https://generativelanguage.googleapis.com/v1beta/models/' . $p2_model . ':generateContent?key=' . urlencode($apiKey);
+    $p2_is_old_thinking  = false;
+    $p2_use_thinking_cfg = false;
+    $p2_is_thinking      = false;
     $p2_payload['generationConfig'] = [
         'temperature'      => 0.0,
         'maxOutputTokens'  => 4096,
         'responseMimeType' => 'application/json',
         'responseSchema'   => $p2_schema,
     ];
-    // Remove the JSON instruction appended for thinking models
     $p2_payload['contents'][0]['parts'][0]['text'] = $p2_prompt;
     $p2_payload_json = json_encode($p2_payload);
     $ch = curl_init($p2_url);
