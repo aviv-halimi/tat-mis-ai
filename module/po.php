@@ -362,7 +362,11 @@ $(document).ready(function(e) {
     var poId       = d.po_id;
     var disableIds = d.disable_ids  || [];
     var addProds   = d.add_products || [];
-    if (!poId) return;
+    console.log("[apply] po_id=" + poId + " disable=" + disableIds.length + " add=" + addProds.length);
+    if (!poId) {
+      alert("Error: po_id is missing. Re-run the Gemini test and try again.");
+      return;
+    }
     if (!confirm("Apply Gemini results to PO?\n\n• Disable " + disableIds.length + " product(s) not on menu\n• Add " + addProds.length + " new product(s) from menu\n\nThis will modify the PO immediately.")) return;
     btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Applying…\');
     $("#gemini-apply-status").text("Saving changes…");
@@ -370,20 +374,26 @@ $(document).ready(function(e) {
       url: "/ajax/po-menu-gemini-apply",
       type: "POST",
       data: { po_id: poId, disable_ids: JSON.stringify(disableIds), add_products: JSON.stringify(addProds), _r: Math.random() },
-      dataType: "json",
       timeout: 60000
-    }).done(function(res) {
+    }).done(function(raw) {
+      console.log("[apply] raw response:", raw);
+      var res;
+      try { res = (typeof raw === "object") ? raw : JSON.parse(raw); } catch(e) { res = null; }
       if (res && res.success) {
         btn.removeClass("btn-danger").addClass("btn-success").html(\'<i class="fa fa-check mr-1"></i>Applied!\');
         $("#gemini-apply-status").html(\'<span class="text-success">\' + _esc(res.message) + \'</span>\');
-        setTimeout(function() { location.reload(); }, 2000);
+        setTimeout(function() { location.reload(); }, 2500);
       } else {
+        var errMsg = (res && res.error) ? res.error : (typeof raw === "string" ? raw.substring(0, 300) : "Unknown error");
+        console.error("[apply] server error:", errMsg);
         btn.prop("disabled", false).html(\'<i class="fa fa-check-circle mr-1"></i>Apply to PO\');
-        $("#gemini-apply-status").html(\'<span class="text-danger">Error: \' + _esc((res && res.error) ? res.error : "Failed") + \'</span>\');
+        $("#gemini-apply-status").html(\'<span class="text-danger"><strong>Error:</strong> \' + _esc(errMsg) + \'</span>\');
       }
     }).fail(function(xhr, status, err) {
+      var body = xhr.responseText ? xhr.responseText.substring(0, 500) : "";
+      console.error("[apply] request failed:", status, err, body);
       btn.prop("disabled", false).html(\'<i class="fa fa-check-circle mr-1"></i>Apply to PO\');
-      $("#gemini-apply-status").html(\'<span class="text-danger">Request failed: \' + _esc(err || status) + \'</span>\');
+      $("#gemini-apply-status").html(\'<span class="text-danger"><strong>Request failed (\' + _esc(status) + \'):</strong> \' + _esc(err || "") + \' — \' + _esc(body) + \'</span>\');
     });
   });
 
