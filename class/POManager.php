@@ -631,7 +631,8 @@ class POManager extends SessionManager {
     
             if (!str_len($response)) {
               $rs = getRs("SELECT po_id, po_status_id, vendor_id FROM po WHERE po_code = ?", array($po_code));
-              $po_product_id = $this->GetCodeId('po_product', $po_product_code);
+              // Only look up existing record when a code is actually provided; avoids full-table scan on empty code.
+              $po_product_id = str_len($po_product_code) ? $this->GetCodeId('po_product', $po_product_code) : null;
           
               if ($r = getRow($rs)) {
                 $po_id = $r['po_id'];
@@ -682,7 +683,6 @@ class POManager extends SessionManager {
                   }
                 }
                 else {
-                  /*
                   $_ds = $this->GetTableDisplaySettings('po');
                   $_category_id = (isset($_ds['category_id']))?$_ds['category_id']:null;
                   $_brand_id = (isset($_ds['brand_id']))?$_ds['brand_id']:null;
@@ -691,7 +691,6 @@ class POManager extends SessionManager {
                   $_sort_by = (isset($_ds['sort_by']))?$_ds['sort_by']:null;
                   $rs = $this->GetSavedPOProducts($po_id, $_brand_id, $_category_id, $_date_last_purchased, $_disaggregate_ids, $_sort_by);
                   $tbody = $this->ProductRows($rs, $_disaggregate_ids);
-                  */
                 }
               }
               else {
