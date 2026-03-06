@@ -23,15 +23,19 @@ if (!is_array($disable_ids))  { $disable_ids  = []; }
 if (!is_array($add_products)) { $add_products = []; }
 
 $po = getRow(getRs(
-    "SELECT po_id, po_code, po_status_id FROM po WHERE " . is_enabled() . " AND po_id = ?",
+    "SELECT po_id, po_code, po_status_id, is_active, is_enabled FROM po WHERE po_id = ? LIMIT 1",
     [$po_id]
 ));
 if (!$po) {
-    echo json_encode(['success' => false, 'error' => 'PO not found']);
+    echo json_encode(['success' => false, 'error' => "PO not found (po_id={$po_id})"]);
+    exit;
+}
+if (!(int)$po['is_active'] || !(int)$po['is_enabled']) {
+    echo json_encode(['success' => false, 'error' => "PO {$po_id} is inactive (is_active={$po['is_active']}, is_enabled={$po['is_enabled']})"]);
     exit;
 }
 if ((int) $po['po_status_id'] !== 1) {
-    echo json_encode(['success' => false, 'error' => 'PO must be in Draft status (1)']);
+    echo json_encode(['success' => false, 'error' => "PO must be in Draft status (1), current status={$po['po_status_id']}"]);
     exit;
 }
 $po_code = $po['po_code'];
