@@ -253,7 +253,7 @@ $(document).ready(function(e) {
       dataType: "json",
       timeout: 60000
     }).done(function(res) {
-      btn.prop("disabled", false).html(\'<i class="fa fa-eye mr-1"></i>Dry Run (show prompts only)\');
+      btn.prop("disabled", false).html(\'<i class="fa fa-eye mr-1"></i>Dry Run (show prompt)\');
       console.log("[dry-run] response:", res);
       if (!res || !res.success) {
         _testStatusError(btn, (res && res.error) ? res.error : "Dry run failed — check console");
@@ -263,7 +263,7 @@ $(document).ready(function(e) {
       _renderDryRunModal(res);
       $("#po-menu-test-modal").modal("show");
     }).fail(function(xhr, status, err) {
-      btn.prop("disabled", false).html(\'<i class="fa fa-eye mr-1"></i>Dry Run (show prompts only)\');
+      btn.prop("disabled", false).html(\'<i class="fa fa-eye mr-1"></i>Dry Run (show prompt)\');
       console.error("[dry-run] fail:", status, err, xhr.responseText);
       $("#po-menu-test-status").removeClass("alert-info").addClass("alert-danger").show();
       $("#po-menu-test-status-text").html(\'<strong>Dry run failed:</strong> \' + _esc(err || status) + \' — \' + _esc(xhr.responseText.substring(0, 300)));
