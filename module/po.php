@@ -509,6 +509,7 @@ $_category_id = (isset($_ds['category_id']))?$_ds['category_id']:null;
 $_brand_id = (isset($_ds['brand_id']))?$_ds['brand_id']:null;
 $_date_last_purchased = (isset($_ds['date_last_purchased']))?$_ds['date_last_purchased']:null;
 $_sort_by = (isset($_ds['sort_by']))?$_ds['sort_by']:null;
+$_merge_custom = (isset($_ds['merge_custom']))?$_ds['merge_custom']:0;
 $_disaggregate_ids = (isset($_ds['disaggregate_ids']))?$_ds['disaggregate_ids']:($_po_id?array():array(1,2));
 if ($_po_id) {
   $rs = $_PO->GetPO($_po_id);
@@ -820,6 +821,16 @@ foreach($rf as $f) {
           </div>
         </div>
 
+        <?php if ($_po_id and $_po_status_id == 1) { ?>
+        <div class="panel-option mt-3 pt-1 pb-1 pl-4">Custom/Added Items</div>
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-12">
+          <span class="nowrap"><input type="checkbox" value="1" id="merge_custom" name="merge_custom" data-render="switchery" data-theme="info"<?php echo iif($_merge_custom, ' checked'); ?> />
+          <label for="merge_custom"><span class="m-l-5 m-r-10">Show inline with regular products (sorted by name)</span></label></span>
+          </div>
+        </div>
+        <?php } ?>
+
         <div class="panel-option bg-none mt-4 p-0 mb-0" style="background:none;">
           <hr class="m-0" />
           <div class="p-10">
@@ -913,7 +924,7 @@ if ($_po_id) {
 $rt = $_PO->GetPO($_po_id);
 if ($t = getRow($rt)) {
 if ($t['po_type_id'] == 1 || $_Session->HasModulePermission('cr')) {
-$rs = $_PO->GetSavedPOProducts($_po_id, $_brand_id, $_category_id, ($_po_status_id == 1)?$_date_last_purchased:null, $_disaggregate_ids, $_sort_by);
+$rs = $_PO->GetSavedPOProducts($_po_id, $_brand_id, $_category_id, ($_po_status_id == 1)?$_date_last_purchased:null, $_disaggregate_ids, $_sort_by, null, ($_po_status_id == 1) ? $_merge_custom : false);
 $progress = $_PO->POProgress($_po_id);
 
 if (true) { //sizeof($rs)) {

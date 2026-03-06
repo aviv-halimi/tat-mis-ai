@@ -324,7 +324,7 @@ class POManager extends SessionManager {
 	  GROUP BY product_id"), $params);
     }
 
-    function GetSavedPOProducts($po_id, $_brand_id = null, $_category_id = null, $_date_last_purchased = null, $_disaggregate_ids = array(), $_sort_by = null, $_po_product_id = null) {
+    function GetSavedPOProducts($po_id, $_brand_id = null, $_category_id = null, $_date_last_purchased = null, $_disaggregate_ids = array(), $_sort_by = null, $_po_product_id = null, $_merge_custom = false) {
       $po_status_id = null;
       $rs = getRs("SELECT po_status_id FROM po WHERE po_id = ?", array($po_id));
       if ($r = getRow($rs)) {
@@ -354,8 +354,12 @@ class POManager extends SessionManager {
         array_push($a_sql_order, 't.flower_type');
       }
       //array_push($a_sql_order, iif($_sort_by == 2, 's.sku', 's.name'));
+
+      // When merge_custom is enabled (status=1 only), sort custom/editable items inline with regular products
+      $sort2_sql = ($_merge_custom) ? '0' : '(case when po.po_status_id = 1 then t.is_editable else 0 end)';
+      $sort3_sql = ($_merge_custom) ? 'COALESCE(s.name, t.po_product_name)' : 'case when po.po_status_id = 1 and t.is_editable then t.po_product_id else COALESCE(s.name, t.po_product_name) end';
       	  
-      return getRs("SELECT po.po_code, po.po_status_id, t.po_product_id, t.po_product_code, COALESCE(c.category_id,c2.category_id,'0') as category_id, COALESCE(c.name,c2.name,'(No Category Listed)') AS category_name, ifnull(b.brand_id,0) as brand_id, ifnull(b.name,'(No Brand Listed)') AS brand_name, CASE WHEN po.po_type_id = 1 THEN b.is_suspended else 0 end as is_suspended, s.product_id, CONCAT(case when json_contains(`b`.`suspended_categories`,json_array(`s`.`category_id`)) AND po.po_type_id = 1 then '**Suspended -- ' else '' end, case when s.tags LIKE '%Clearance%' AND po.po_type_id = 1 THEN 'CLEARANCE!! -- ' ELSE '' END,COALESCE(s.name, t.po_product_name)) AS product_name, COALESCE(s.sku, 'NEW*') AS sku, s.id, t.inv_1, t.inv_2, t.par_level, t.reorder_level, ROUND(t.daily_sales,1) as daily_sales, t.on_order_qty, t.suggested_qty, t.order_qty, t.received_qty, t.price, t.paid, t.cost, t.is_editable, t.is_non_conforming, t.weight_per_unit, t.cannabis_type, t.flower_type, t.is_tax, t.is_created, t.is_editable, t.is_transferred, t.is_included, (case when po.po_status_id = 1 then t.is_editable else 0 end) as sort2, case when po.po_status_id = 1 and t.is_editable then t.po_product_id else COALESCE(s.name, t.po_product_name) end as sort3 FROM 
+      return getRs("SELECT po.po_code, po.po_status_id, t.po_product_id, t.po_product_code, COALESCE(c.category_id,c2.category_id,'0') as category_id, COALESCE(c.name,c2.name,'(No Category Listed)') AS category_name, ifnull(b.brand_id,0) as brand_id, ifnull(b.name,'(No Brand Listed)') AS brand_name, CASE WHEN po.po_type_id = 1 THEN b.is_suspended else 0 end as is_suspended, s.product_id, CONCAT(case when json_contains(`b`.`suspended_categories`,json_array(`s`.`category_id`)) AND po.po_type_id = 1 then '**Suspended -- ' else '' end, case when s.tags LIKE '%Clearance%' AND po.po_type_id = 1 THEN 'CLEARANCE!! -- ' ELSE '' END,COALESCE(s.name, t.po_product_name)) AS product_name, COALESCE(s.sku, 'NEW*') AS sku, s.id, t.inv_1, t.inv_2, t.par_level, t.reorder_level, ROUND(t.daily_sales,1) as daily_sales, t.on_order_qty, t.suggested_qty, t.order_qty, t.received_qty, t.price, t.paid, t.cost, t.is_editable, t.is_non_conforming, t.weight_per_unit, t.cannabis_type, t.flower_type, t.is_tax, t.is_created, t.is_editable, t.is_transferred, t.is_included, {$sort2_sql} as sort2, {$sort3_sql} as sort3 FROM 
       ({$this->db}.category c RIGHT JOIN (
         {$this->db}.brand b RIGHT JOIN (
           {$this->db}.product_sale p RIGHT JOIN ({$this->db}.product s RIGHT JOIN (po_product t INNER JOIN po ON po.po_id = t.po_id) ON s.product_id = t.product_id) ON t.product_id = p.product_id
@@ -689,7 +693,8 @@ class POManager extends SessionManager {
                   $_disaggregate_ids = (isset($_ds['disaggregate_ids']))?$_ds['disaggregate_ids']:array();
                   $_date_last_purchased = (isset($_ds['date_last_purchased']))?$_ds['date_last_purchased']:null;
                   $_sort_by = (isset($_ds['sort_by']))?$_ds['sort_by']:null;
-                  $rs = $this->GetSavedPOProducts($po_id, $_brand_id, $_category_id, $_date_last_purchased, $_disaggregate_ids, $_sort_by);
+                  $_merge_custom = (isset($_ds['merge_custom']))?$_ds['merge_custom']:false;
+                  $rs = $this->GetSavedPOProducts($po_id, $_brand_id, $_category_id, $_date_last_purchased, $_disaggregate_ids, $_sort_by, null, $_merge_custom);
                   $tbody = $this->ProductRows($rs, $_disaggregate_ids);
                 }
               }
@@ -1069,7 +1074,8 @@ class POManager extends SessionManager {
         $_disaggregate_ids = (isset($_ds['disaggregate_ids']))?$_ds['disaggregate_ids']:array();
         $_date_last_purchased = (isset($_ds['date_last_purchased']))?$_ds['date_last_purchased']:null;
         $_sort_by = (isset($_ds['sort_by']))?$_ds['sort_by']:null;
-        $rs = $this->GetSavedPOProducts($po_id, $_brand_id, $_category_id, $_date_last_purchased, $_disaggregate_ids, $_sort_by);
+        $_merge_custom = (isset($_ds['merge_custom']))?$_ds['merge_custom']:false;
+        $rs = $this->GetSavedPOProducts($po_id, $_brand_id, $_category_id, $_date_last_purchased, $_disaggregate_ids, $_sort_by, null, $_merge_custom);
         $num_filtered_products = sizeof($rs);
 
         $this->RecalculateDiscounts($po_id, false);
