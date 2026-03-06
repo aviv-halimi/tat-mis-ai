@@ -164,10 +164,11 @@ $p1_schema = [
             'items' => [
                 'type' => 'OBJECT',
                 'properties' => [
-                    'name'        => ['type' => 'STRING'],
-                    'price'       => ['type' => 'NUMBER'],
-                    'brand_id'    => ['type' => 'INTEGER', 'nullable' => true],
-                    'category_id' => ['type' => 'INTEGER', 'nullable' => true],
+                    'name'         => ['type' => 'STRING'],
+                    'price'        => ['type' => 'NUMBER'],
+                    'brand_id'     => ['type' => 'INTEGER', 'nullable' => true],
+                    'category_id'  => ['type' => 'INTEGER', 'nullable' => true],
+                    'weight_token' => ['type' => 'STRING', 'nullable' => true],
                 ],
                 'required' => ['name', 'price'],
             ],
@@ -187,6 +188,13 @@ Read the attached PDF menu carefully. Extract EVERY product. For each product:
 Then map each product to brand_id (from AVAILABLE BRANDS) and category_id (from AVAILABLE CATEGORIES) using the CATEGORY TRANSLATION RULES.
 
 For the name field, concatenate as: "{Brand Name} {Strain Name} {Menu Category} {Weight}" (e.g. "710 Labs C. Chrome #27 Flower 3.5g"). Include weight only if shown.
+
+For the weight_token field, extract the canonical weight abbreviation from the menu section heading:
+- "Eighths / 3.5 Grams" or any 3.5g section → weight_token = "3.5g"
+- "Half Ounce / 14 Grams" or any 14g section → weight_token = "14g"
+- "Single Joints / 1 Gram" or any 1g preroll/AIO section → weight_token = "1g"
+- "PERSY POD / .5G" or any .5g vape section → weight_token = ".5g"
+- If no specific weight applies → weight_token = null
 
 Return every menu item. Do not skip any.
 SYS;
@@ -234,27 +242,29 @@ $p2_schema = [
 $p2_system_instr = <<<SYS
 You are a cannabis dispensary PO reconciler.
 
-You are given MENU ITEMS (each with a numeric "index" field) and PO PRODUCTS.
+You are given MENU ITEMS (each with a numeric "index" and an optional "weight_token") and PO PRODUCTS.
 
-MATCHING RULES — ALL of these must be true for a match:
+MATCHING RULES — ALL must be true for a match:
 
-1. STRAIN NAME MATCH (required): The strain name from the menu item MUST appear in the PO product name (case-insensitive). Strip the brand prefix (e.g. "710 Labs") from both sides before comparing. If "SB36 #1" is the strain, the PO product name must contain "SB36 #1". A different strain such as "Ztan Lee #5" is NOT a match, even if the category and weight are identical.
+1. STRAIN NAME (hard required): After stripping the brand prefix (e.g. "710 Labs") from both sides, the strain name from the menu item MUST appear in the PO product name (case-insensitive). "SB36 #1" must appear in the PO name. "Super Freak" must appear in the PO name. A different strain is never a match even if category and weight are identical.
 
-2. CATEGORY MATCH (required): The category implied by the menu item must match the category of the PO product. Do not match a Flower product to a Vape Cart, etc.
+2. CATEGORY (hard required): The menu item's category must match the PO product's category. Do not match a Flower product to a Vape Cart or Solventless Extract, etc.
 
-3. WEIGHT MATCH (required): Apply the WEIGHT MATCHING RULES exactly.
+3. WEIGHT (hard required): If the menu item has a non-null weight_token (e.g. "14g", "3.5g", "1g", ".5g"), the PO product name MUST contain that exact token (case-insensitive). A menu item with weight_token "14g" can ONLY match a PO product whose name contains "14g". A PO product containing "3.5g" is NOT a match for a menu item with weight_token "14g", even if the strain name matches.
 
-If ANY of the three conditions is not met, do NOT return a pair for that menu item. It is better to leave a menu item unmatched than to return a wrong match.
+4. UNIQUENESS: Each po_product_id may appear at most once in matched_pairs. If two menu items would match the same PO product, return only the better match and leave the other unmatched.
 
-Return matched_pairs: one entry per confidently matched menu item:
+If ANY rule is not met, do NOT return a pair for that menu item. It is better to leave a menu item unmatched than to return a wrong match.
+
+Return matched_pairs — one entry per confidently matched menu item:
   - menu_item_index: the "index" value of the matched menu item
   - po_product_id: the po_product_id of the matching PO product
 SYS;
 
 // p2_prompt is built dynamically after Phase 1 completes (uses $indexed_menu_items_json)
 // Stored here as a template; placeholder filled after Phase 1.
-$p2_prompt_template = "WEIGHT MATCHING RULES:\n{$weight_matching_rules}"
-    . "\n\n--- MENU ITEMS (each has an \"index\" field — use that index in matched_pairs) ---\n{{MENU_ITEMS_JSON}}"
+$p2_prompt_template = "WEIGHT MATCHING RULES (reference only — the weight_token field in each menu item is the canonical source):\n{$weight_matching_rules}"
+    . "\n\n--- MENU ITEMS (each has an \"index\" and \"weight_token\" — use both in matching) ---\n{{MENU_ITEMS_JSON}}"
     . "\n\n--- PO PRODUCTS ---\n{$po_products_json}";
 
 // ---- DRY RUN: return both payloads without calling Gemini ----
@@ -447,6 +457,11 @@ $result = [
     'parsed_found_ids'     => $found_ids,
     'parsed_disable_ids'   => $disable_ids,
     'parsed_add_products'  => $add_products,
+    // Full prompts (for debugging via "View last result")
+    'phase1_system_instr'  => $p1_system_instr,
+    'phase1_prompt'        => $p1_prompt,
+    'phase2_system_instr'  => $p2_system_instr,
+    'phase2_prompt'        => $p2_prompt,
     // Context
     'pdf_files'            => $pdf_summary,
     'brands_array'         => $all_brands,
