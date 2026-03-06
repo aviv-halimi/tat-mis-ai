@@ -41,12 +41,10 @@ function extractMenuItemsFromPDF(array $pdf_paths, array $all_brands, array $all
     $categories_json = json_encode($all_categories, JSON_UNESCAPED_UNICODE);
 
     $prompt = <<<PROMPT
-Extract every product listed on the vendor menu below.
-
-AVAILABLE BRANDS — pick the best matching brand_id for each product, or null:
+AVAILABLE BRANDS (use brand_id in your response, or null):
 {$brands_json}
 
-AVAILABLE CATEGORIES — pick the best matching category_id for each product using the translation rules below, or null:
+AVAILABLE CATEGORIES (use category_id in your response, or null):
 {$categories_json}
 
 CATEGORY TRANSLATION RULES (map vendor menu section headings → our category names):
@@ -56,14 +54,17 @@ CATEGORY TRANSLATION RULES (map vendor menu section headings → our category na
 - "GUMMIS", "EDIBLES", "HASH ROSIN GUMMIS" → match category "Edibles"
 - "PREROLL", "SINGLE JOINTS", "JOINTS", "DOINKS", "PRE-ROLL" → match category "Pre-Rolls" or similar
 
-INSTRUCTIONS:
-- Extract EVERY product. Do not skip any.
-- Use the exact product name as shown on the menu.
-- price: numeric value only (no $ sign). Use 0 if not shown.
-- brand_id: best matching brand from the list above, or null.
-- category_id: best matching category from the list above using translation rules, or null.
+--- STEP 1: DECODE THIS MENU ---
+Read the menu carefully. For each item, identify: exact product name (as written), price, product type / section heading.
 
-MENU:
+--- STEP 2: MAP BRAND & CATEGORY ---
+For every item decoded in Step 1, assign:
+  - brand_id: best matching brand from AVAILABLE BRANDS, or null
+  - category_id: best matching category from AVAILABLE CATEGORIES (using CATEGORY TRANSLATION RULES), or null
+  - price: numeric value only (no $ sign), 0 if not shown
+
+Extract EVERY product. Do not skip any.
+
 {$menu_text}
 PROMPT;
 
@@ -87,8 +88,18 @@ PROMPT;
         'required' => ['menu_items'],
     ];
 
+    $system_instruction_text = <<<SYS
+You are a cannabis dispensary menu extraction assistant.
+
+STEP 1 — DECODE THE MENU: Read the menu text and identify every product. Record the strain name exactly as written, the section heading (product type), and the price.
+
+STEP 2 — MAP BRAND & CATEGORY: For each decoded product, match it to the best brand_id from AVAILABLE BRANDS and the best category_id from AVAILABLE CATEGORIES using the CATEGORY TRANSLATION RULES. Use null if no confident match exists.
+
+Return all menu items in the structured JSON format. Do not skip any items.
+SYS;
+
     $payload = [
-        'system_instruction' => ['parts' => [['text' => 'You are a precise menu extraction assistant. Return valid JSON only. Extract every product.']]],
+        'system_instruction' => ['parts' => [['text' => $system_instruction_text]]],
         'contents' => [['parts' => [['text' => $prompt]]]],
         'generationConfig' => [
             'temperature'     => 0.0,

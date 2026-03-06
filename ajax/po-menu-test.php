@@ -172,18 +172,72 @@ $schema_ids_only = [
 ];
 
 $system_instr = <<<SYS
-You are a strict PO-to-menu reconciler. Your job:
-1. Read the vendor menu text carefully.
-2. For each PO product: decide if an equivalent item appears on the menu.
-   - Match by strain name + product type (ignore brand prefix like "710 Labs", ignore weight).
-   - A PO product is FOUND if both strain name AND category/product-type match a menu item.
-   - If in doubt, do NOT include the ID (conservative – keep items on PO).
-3. Return found_po_product_ids: the list of po_product_id values that ARE on the menu.
-4. (Primary batch only) Return add_products: menu items NOT represented in the PO batch.
+You are a cannabis dispensary PO reconciler. Work through these steps in order:
+
+STEP 1 — DECODE THE MENU
+Read the menu text carefully. For each menu item build an internal record:
+  - strain name (exact, as shown)
+  - product type / category (map using the CATEGORY TRANSLATION RULES provided)
+  - price
+  - best matching brand_id and category_id from the provided lists
+
+STEP 2 — MATCH PO PRODUCTS
+For each PO product in the batch, look it up against your Step-1 decoded menu.
+Rules:
+  • Strip the brand prefix (e.g. "710 Labs") before comparing strain names.
+  • Strip weight/size (e.g. "3.5g", "1g", "14g") before comparing.
+  • A product is FOUND if BOTH the strain name AND the product type/category match a menu item.
+  • When in doubt, do NOT mark as found (conservative: keep the item on the PO).
+Return found_po_product_ids — the po_product_id values of PO products that ARE on the menu.
+
+STEP 3 — IDENTIFY NEW MENU ITEMS (primary batch only)
+List every menu item from Step 1 that has no equivalent anywhere in the FULL PO PRODUCT LIST provided.
+For each, return: name (as on menu), price, brand_id, category_id.
 SYS;
+
+// Build a shared prompt for any batch. Primary batch also receives all PO names for add_products context.
+$all_po_names_json = json_encode(array_column($po_products, 'product_name'), JSON_UNESCAPED_UNICODE);
 
 $brands_json     = json_encode($all_brands,     JSON_UNESCAPED_UNICODE);
 $categories_json = json_encode($all_categories, JSON_UNESCAPED_UNICODE);
+
+$category_translations = <<<TRANS
+- "PERSY BADDER","PERSY ROSIN","LIVE ROSIN","THUMB PRINT","SAUCE" → "Solventless Extracts"
+- "PERSY POD","SOLVENTLESS PODS","ALL IN ONE","AIO" → "Vape Carts .5g" or "AIO"
+- "FLOWER","EIGHTHS","HALF OUNCE","3.5G","14G" → "Flowers"
+- "GUMMIS","EDIBLES","HASH ROSIN GUMMIS" → "Edibles"
+- "PREROLL","JOINTS","DOINKS" → "Pre-Rolls"
+TRANS;
+
+/**
+ * Build the Gemini prompt for a single batch.
+ * Primary batch (idx 0) also includes all PO product names so Gemini can
+ * accurately identify add_products (menu items absent from the full PO).
+ */
+function _build_batch_prompt(
+    int    $batch_index,
+    int    $n_batches,
+    bool   $is_primary,
+    string $brands_json,
+    string $categories_json,
+    string $category_translations,
+    string $batch_json,
+    string $menu_text,
+    string $all_po_names_json
+): string {
+    $step3 = $is_primary
+        ? "\n\n--- STEP 3: FULL PO PRODUCT LIST ---\n"
+          . "All {$n_batches} batches together cover these PO product names (for add_products identification only — do NOT use these IDs):\n"
+          . $all_po_names_json
+        : "\n\n(STEP 3 — add_products: skip, non-primary batch)";
+
+    return "AVAILABLE BRANDS (use brand_id in your response):\n{$brands_json}"
+        . "\n\nAVAILABLE CATEGORIES (use category_id in your response):\n{$categories_json}"
+        . "\n\nCATEGORY TRANSLATION RULES:\n{$category_translations}"
+        . "\n\n--- STEP 1: DECODE THIS MENU ---\n{$menu_text}"
+        . "\n\n--- STEP 2: MATCH THESE PO PRODUCTS (Batch " . ($batch_index + 1) . " of {$n_batches}) ---\n{$batch_json}"
+        . $step3;
+}
 
 // ---- SINGLE BATCH: send exactly one batch to Gemini and return full verbose response ----
 $is_single_batch = !$is_cli && !$is_dry_run && !empty($_POST['single_batch']);
@@ -198,16 +252,11 @@ if ($is_single_batch) {
     $schema      = $is_primary ? $schema_primary : $schema_ids_only;
     $batch_json  = json_encode($batch, JSON_UNESCAPED_UNICODE);
 
-    $prompt = "AVAILABLE BRANDS:\n" . $brands_json
-        . "\n\nAVAILABLE CATEGORIES:\n" . $categories_json
-        . "\n\nCATEGORY TRANSLATIONS:\n"
-        . "- \"PERSY BADDER\",\"PERSY ROSIN\",\"LIVE ROSIN\",\"THUMB PRINT\",\"SAUCE\" → \"Solventless Extracts\"\n"
-        . "- \"PERSY POD\",\"SOLVENTLESS PODS\",\"ALL IN ONE\",\"AIO\" → \"Vape Carts .5g\" or \"AIO\"\n"
-        . "- \"FLOWER\",\"EIGHTHS\",\"HALF OUNCE\",\"3.5G\",\"14G\" → \"Flowers\"\n"
-        . "- \"GUMMIS\",\"EDIBLES\",\"HASH ROSIN GUMMIS\" → \"Edibles\"\n"
-        . "- \"PREROLL\",\"JOINTS\",\"DOINKS\" → \"Pre-Rolls\"\n"
-        . "\nPO PRODUCTS BATCH " . ($batch_index + 1) . " of {$n_batches} (JSON):\n" . $batch_json
-        . "\n\nMENU TEXT:\n" . $menu_text;
+    $prompt = _build_batch_prompt(
+        $batch_index, $n_batches, $is_primary,
+        $brands_json, $categories_json, $category_translations,
+        $batch_json, $menu_text, $all_po_names_json
+    );
 
     $payload      = [
         'system_instruction' => ['parts' => [['text' => $system_instr]]],
@@ -291,16 +340,11 @@ if ($is_dry_run) {
         $batch_json  = json_encode($batch, JSON_UNESCAPED_UNICODE);
         $schema      = $is_primary ? $schema_primary : $schema_ids_only;
 
-        $prompt = "AVAILABLE BRANDS:\n" . $brands_json
-            . "\n\nAVAILABLE CATEGORIES:\n" . $categories_json
-            . "\n\nCATEGORY TRANSLATIONS:\n"
-            . "- \"PERSY BADDER\",\"PERSY ROSIN\",\"LIVE ROSIN\",\"THUMB PRINT\",\"SAUCE\" → \"Solventless Extracts\"\n"
-            . "- \"PERSY POD\",\"SOLVENTLESS PODS\",\"ALL IN ONE\",\"AIO\" → \"Vape Carts .5g\" or \"AIO\"\n"
-            . "- \"FLOWER\",\"EIGHTHS\",\"HALF OUNCE\",\"3.5G\",\"14G\" → \"Flowers\"\n"
-            . "- \"GUMMIS\",\"EDIBLES\",\"HASH ROSIN GUMMIS\" → \"Edibles\"\n"
-            . "- \"PREROLL\",\"JOINTS\",\"DOINKS\" → \"Pre-Rolls\"\n"
-            . "\nPO PRODUCTS BATCH " . ($idx + 1) . " of {$n_batches} (JSON):\n" . $batch_json
-            . "\n\nMENU TEXT:\n" . $menu_text;
+        $prompt = _build_batch_prompt(
+            $idx, $n_batches, $is_primary,
+            $brands_json, $categories_json, $category_translations,
+            $batch_json, $menu_text, $all_po_names_json
+        );
 
         $payload = [
             'system_instruction' => ['parts' => [['text' => $system_instr]]],
@@ -369,26 +413,11 @@ foreach ($wave_groups as $wave_indices) {
         $batch       = $batches[$idx];
         $batch_json  = json_encode($batch, JSON_UNESCAPED_UNICODE);
 
-        $prompt = <<<PROMPT
-AVAILABLE BRANDS:
-{$brands_json}
-
-AVAILABLE CATEGORIES:
-{$categories_json}
-
-CATEGORY TRANSLATIONS:
-- "PERSY BADDER","PERSY ROSIN","LIVE ROSIN","THUMB PRINT","SAUCE" → "Solventless Extracts"
-- "PERSY POD","SOLVENTLESS PODS","ALL IN ONE","AIO" → "Vape Carts .5g" or "AIO"
-- "FLOWER","EIGHTHS","HALF OUNCE","3.5G","14G" → "Flowers"
-- "GUMMIS","EDIBLES","HASH ROSIN GUMMIS" → "Edibles"
-- "PREROLL","JOINTS","DOINKS" → "Pre-Rolls"
-
-PO PRODUCTS BATCH {$idx} of {$n_batches} (JSON):
-{$batch_json}
-
-MENU TEXT:
-{$menu_text}
-PROMPT;
+        $prompt = _build_batch_prompt(
+            $idx, $n_batches, $is_primary,
+            $brands_json, $categories_json, $category_translations,
+            $batch_json, $menu_text, $all_po_names_json
+        );
 
         $payload = [
             'system_instruction' => ['parts' => [['text' => $system_instr]]],
