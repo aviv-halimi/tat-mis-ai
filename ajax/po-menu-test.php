@@ -240,25 +240,58 @@ $p2_schema = [
 ];
 
 $p2_system_instr = <<<SYS
-You are a cannabis dispensary PO reconciler.
+You are a cannabis dispensary PO reconciler. Your job is to match MENU ITEMS to PO PRODUCTS. Follow these rules strictly.
 
-You are given MENU ITEMS (each with a numeric "index" and an optional "weight_token") and PO PRODUCTS.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULE 1 — IDENTITY MATCH (THE GOLDEN RULE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Strip the brand prefix (e.g. "710 Labs") from both the menu item name and the PO product name.
+Then ignore these common "fluff" words in both names before comparing: Flower, Persy, Live Rosin, (I/H), (S), (I), (H).
+Focus on the core identifier — the strain name and any number (e.g. "SB36 #1", "Ztan Lee #5", "Sherb Fumez #14").
 
-MATCHING RULES — ALL must be true for a match:
+The core strain identifier from the menu item MUST be present in the PO product name.
+If "Sherb Fumez #14" does not appear in the PO product list → NO MATCH. Return no pair for that menu item.
+DO NOT substitute a different strain just because it shares the same category or weight.
+Examples of WRONG matches:
+  ✗ "Sherb Fumez #14" → any product that does not contain "Sherb Fumez" in its name
+  ✗ "SB36 #1 Flower 14g" → a product containing "SB36 #1" but in a different category (e.g. AIO)
+  ✗ "Super Freak Flower 14g" → any product that contains "Super Freak" but whose name contains "3.5g"
 
-1. STRAIN NAME (hard required): After stripping the brand prefix (e.g. "710 Labs") from both sides, the strain name from the menu item MUST appear in the PO product name (case-insensitive). "SB36 #1" must appear in the PO name. "Super Freak" must appear in the PO name. A different strain is never a match even if category and weight are identical.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULE 2 — WEIGHT MATCH (HARD REQUIRED)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Each menu item has a "weight_token" field. If it is not null, the PO product name MUST contain that exact token (case-insensitive):
+  • weight_token "14g"  → PO name must contain "14g"
+  • weight_token "3.5g" → PO name must contain "3.5g"
+  • weight_token "1g"   → PO name must contain "1g"
+  • weight_token ".5g"  → PO name must contain ".5g"
+A weight_token mismatch is an automatic NO MATCH, even if the strain name is identical.
 
-2. CATEGORY (hard required): The menu item's category must match the PO product's category. Do not match a Flower product to a Vape Cart or Solventless Extract, etc.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULE 3 — CATEGORY-SPECIFIC WEIGHT RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• AIO (category_id 22): Menu item and PO product must BOTH be the same weight (both 1g, or both .5g). Do not match a 1g AIO to a .5g AIO or vice versa.
+• Vape Carts (category_id 32): Strict match on ".5g". Do not match across weights.
 
-3. WEIGHT (hard required): If the menu item has a non-null weight_token (e.g. "14g", "3.5g", "1g", ".5g"), the PO product name MUST contain that exact token (case-insensitive). A menu item with weight_token "14g" can ONLY match a PO product whose name contains "14g". A PO product containing "3.5g" is NOT a match for a menu item with weight_token "14g", even if the strain name matches.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULE 4 — CATEGORY MATCH (HARD REQUIRED)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The menu item's category_id must match the PO product's category_id.
+Do not match across categories (e.g. Flower ≠ AIO, Flower ≠ Solventless Extracts).
 
-4. UNIQUENESS: Each po_product_id may appear at most once in matched_pairs. If two menu items would match the same PO product, return only the better match and leave the other unmatched.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULE 5 — UNIQUENESS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Each po_product_id may appear at most ONCE in matched_pairs. If two menu items satisfy the rules for the same PO product, return only the better match and leave the other unmatched (it will be added as a new custom product).
 
-If ANY rule is not met, do NOT return a pair for that menu item. It is better to leave a menu item unmatched than to return a wrong match.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHEN IN DOUBT → NO MATCH
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+It is always better to return no pair than a wrong pair. Unmatched menu items will be added as new custom products — that is the safe outcome.
 
 Return matched_pairs — one entry per confidently matched menu item:
   - menu_item_index: the "index" value of the matched menu item
-  - po_product_id: the po_product_id of the matching PO product
+  - po_product_id: the po_product_id of the exactly matching PO product
 SYS;
 
 // p2_prompt is built dynamically after Phase 1 completes (uses $indexed_menu_items_json)
