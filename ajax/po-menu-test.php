@@ -236,15 +236,19 @@ You are a cannabis dispensary PO reconciler.
 
 You are given MENU ITEMS (each with a numeric "index" field) and PO PRODUCTS.
 
-For each menu item, find the best matching PO product using these rules:
-  • Strip the brand prefix (e.g. "710 Labs") from both names before comparing.
-  • A product matches if BOTH the strain name AND the category match.
-  • Apply WEIGHT MATCHING RULES strictly.
-  • If no confident match exists, do NOT return a pair for that menu item.
+MATCHING RULES — ALL of these must be true for a match:
 
-Return matched_pairs: one entry per matched menu item containing:
+1. STRAIN NAME MATCH (required): The strain name from the menu item MUST appear in the PO product name (case-insensitive). Strip the brand prefix (e.g. "710 Labs") from both sides before comparing. If "SB36 #1" is the strain, the PO product name must contain "SB36 #1". A different strain such as "Ztan Lee #5" is NOT a match, even if the category and weight are identical.
+
+2. CATEGORY MATCH (required): The category implied by the menu item must match the category of the PO product. Do not match a Flower product to a Vape Cart, etc.
+
+3. WEIGHT MATCH (required): Apply the WEIGHT MATCHING RULES exactly.
+
+If ANY of the three conditions is not met, do NOT return a pair for that menu item. It is better to leave a menu item unmatched than to return a wrong match.
+
+Return matched_pairs: one entry per confidently matched menu item:
   - menu_item_index: the "index" value of the matched menu item
-  - po_product_id: the po_product_id of the best matching PO product
+  - po_product_id: the po_product_id of the matching PO product
 SYS;
 
 // p2_prompt is built dynamically after Phase 1 completes (uses $indexed_menu_items_json)
