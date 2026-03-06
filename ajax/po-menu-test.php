@@ -108,14 +108,18 @@ foreach (getRs(
     $all_categories[] = ['category_id' => (int) $r['category_id'], 'name' => (string) $r['name']];
 }
 
-// Extract menu text
-$menu_text = '';
+// Load PDFs as base64 inline parts for Gemini (native PDF understanding)
+$pdf_parts   = [];
+$pdf_summary = [];
 foreach ($pdf_paths as $path) {
-    $out = @shell_exec('pdftotext -layout -enc UTF-8 ' . escapeshellarg($path) . ' - 2>/dev/null');
-    if ($out) { $menu_text .= "--- MENU ---\n" . trim($out) . "\n\n"; }
+    $bytes = @file_get_contents($path);
+    if ($bytes !== false && strlen($bytes) > 0) {
+        $pdf_parts[]   = ['inlineData' => ['mimeType' => 'application/pdf', 'data' => base64_encode($bytes)]];
+        $pdf_summary[] = basename($path) . ' (' . round(strlen($bytes) / 1024, 1) . ' KB)';
+    }
 }
-if (!trim($menu_text)) {
-    $err = 'pdftotext returned empty. Is it installed?';
+if (empty($pdf_parts)) {
+    $err = 'Could not read any PDF files.';
     if (!is_dir($log_dir)) { @mkdir($log_dir, 0755, true); }
     @file_put_contents($result_file, json_encode(['status' => 'failed', 'error' => $err]), LOCK_EX);
     if (!$is_cli) echo json_encode(['success' => false, 'error' => $err]);
@@ -206,12 +210,13 @@ $prompt = "AVAILABLE BRANDS (use brand_id in your response):\n{$brands_json}"
     . "\n\nAVAILABLE CATEGORIES (use category_id in your response):\n{$categories_json}"
     . "\n\nCATEGORY TRANSLATION RULES:\n{$category_translations}"
     . "\n\nWEIGHT MATCHING RULES:\n{$weight_matching_rules}"
-    . "\n\n--- STEP 1: DECODE THIS MENU ---\n{$menu_text}"
+    . "\n\n--- STEP 1: DECODE THIS MENU ---\n[The menu PDF(s) are attached above. Read them carefully.]"
     . "\n\n--- STEP 2 & 3: ALL PO PRODUCTS ---\n{$po_products_json}";
 
+// PDFs sent as inline parts followed by the text prompt
 $payload = [
     'system_instruction' => ['parts' => [['text' => $system_instr]]],
-    'contents' => [['parts' => [['text' => $prompt]]]],
+    'contents' => [['parts' => array_merge($pdf_parts, [['text' => $prompt]])]],
     'generationConfig' => [
         'temperature'      => 0.0,
         'maxOutputTokens'  => 8192,
@@ -234,14 +239,15 @@ if ($is_dry_run) {
         'brands_array'       => $all_brands,
         'categories_array'   => $all_categories,
         'po_products_array'  => $po_products,
-        'menu_text'          => $menu_text,
+        'pdf_files'          => $pdf_summary,
         'schema'             => $schema,
         'prompt'             => $prompt,
-        'full_payload_json'  => $payload_json,
+        'full_payload_json'  => '(omitted — contains base64 PDF data)',
         'summary' => [
             'total_products'      => count($po_products),
             'payload_kb'          => round(strlen($payload_json) / 1024, 1),
-            'menu_text_chars'     => strlen($menu_text),
+            'pdf_count'           => count($pdf_parts),
+            'pdf_files'           => implode(', ', $pdf_summary),
             'brands_count'        => count($all_brands),
             'categories_count'    => count($all_categories),
         ],
@@ -311,7 +317,7 @@ $result = [
     'brands_array'        => $all_brands,
     'categories_array'    => $all_categories,
     'po_products_sent'    => $po_products,
-    'menu_text'           => $menu_text,
+    'pdf_files'           => $pdf_summary,
     'schema'              => $schema,
     'prompt'              => $prompt,
     'summary' => [
@@ -321,7 +327,8 @@ $result = [
         'total_add_products'  => count($parsed_add),
         'duration_s'          => $elapsed,
         'payload_kb'          => round(strlen($payload_json) / 1024, 1),
-        'menu_text_chars'     => strlen($menu_text),
+        'pdf_count'           => count($pdf_parts),
+        'pdf_files'           => implode(', ', $pdf_summary),
     ],
 ];
 

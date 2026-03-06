@@ -19,18 +19,18 @@ function extractMenuItemsFromPDF(array $pdf_paths, array $all_brands, array $all
         return null;
     }
 
-    $menu_text = '';
+    // Load PDFs as base64 inline parts for Gemini native PDF understanding
+    $pdf_parts = [];
     foreach ($pdf_paths as $path) {
-        if (!file_exists($path)) {
-            continue;
-        }
-        $out = @shell_exec('pdftotext -layout -enc UTF-8 ' . escapeshellarg($path) . ' - 2>/dev/null');
-        if ($out) {
-            $menu_text .= "--- MENU START ---\n" . trim($out) . "\n--- MENU END ---\n\n";
+        if (!file_exists($path)) { continue; }
+        $bytes = @file_get_contents($path);
+        if ($bytes !== false && strlen($bytes) > 0) {
+            $pdf_parts[] = ['inlineData' => ['mimeType' => 'application/pdf', 'data' => base64_encode($bytes)]];
+            $debug_log[] = '[EXTRACT] PDF loaded: ' . basename($path) . ' (' . round(strlen($bytes) / 1024, 1) . ' KB)';
         }
     }
-    if (trim($menu_text) === '') {
-        $debug_log[] = '[EXTRACT] pdftotext returned no text. Check that pdftotext is installed.';
+    if (empty($pdf_parts)) {
+        $debug_log[] = '[EXTRACT] Could not read any PDF files.';
         return null;
     }
 
@@ -63,7 +63,7 @@ WEIGHT MATCHING RULES — a PO product is only a match if its name contains the 
 - Menu section "PERSY POD / .5G" → PO product name MUST contain ".5g" (Vape Carts .5g category)
 
 --- STEP 1: DECODE THIS MENU ---
-Read the menu carefully. For each item, identify: exact product name (as written), price, product type / section heading.
+[The menu PDF(s) are attached above. Read them carefully.]
 
 --- STEP 2: MAP BRAND & CATEGORY ---
 For every item decoded in Step 1, assign:
@@ -72,8 +72,6 @@ For every item decoded in Step 1, assign:
   - price: numeric value only (no $ sign), 0 if not shown
 
 Extract EVERY product. Do not skip any.
-
-{$menu_text}
 PROMPT;
 
     $schema = [
@@ -110,7 +108,7 @@ SYS;
 
     $payload = [
         'system_instruction' => ['parts' => [['text' => $system_instruction_text]]],
-        'contents' => [['parts' => [['text' => $prompt]]]],
+        'contents' => [['parts' => array_merge($pdf_parts, [['text' => $prompt]])]],
         'generationConfig' => [
             'temperature'     => 0.0,
             'maxOutputTokens' => 16384,
@@ -119,7 +117,7 @@ SYS;
         ],
     ];
 
-    $debug_log[] = '[EXTRACT] Sending request to Gemini (' . $model . '). Menu text: ' . strlen($menu_text) . ' chars, brands: ' . count($all_brands) . ', categories: ' . count($all_categories) . '.';
+    $debug_log[] = '[EXTRACT] Sending request to Gemini (' . $model . '). PDFs: ' . count($pdf_parts) . ', brands: ' . count($all_brands) . ', categories: ' . count($all_categories) . '.';
 
     $ch = curl_init($url);
     curl_setopt_array($ch, [
