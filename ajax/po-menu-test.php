@@ -210,7 +210,7 @@ $p1_payload_json = json_encode($p1_payload);
 
 // ============================================================
 // PHASE 2 — Match menu items to PO products
-// Output: matched_pairs (one entry per menu→PO match, bounded by menu size)
+// Output: matched_pairs indexed by menu_item_index (immune to name drift between phases)
 // PHP derives: found_ids, disable_ids, add_products
 // ============================================================
 $p2_schema = [
@@ -221,10 +221,10 @@ $p2_schema = [
             'items' => [
                 'type' => 'OBJECT',
                 'properties' => [
-                    'menu_item_name' => ['type' => 'STRING'],
-                    'po_product_id'  => ['type' => 'INTEGER'],
+                    'menu_item_index' => ['type' => 'INTEGER'],
+                    'po_product_id'   => ['type' => 'INTEGER'],
                 ],
-                'required' => ['menu_item_name', 'po_product_id'],
+                'required' => ['menu_item_index', 'po_product_id'],
             ],
         ],
     ],
@@ -234,7 +234,7 @@ $p2_schema = [
 $p2_system_instr = <<<SYS
 You are a cannabis dispensary PO reconciler.
 
-You are given MENU ITEMS (extracted from a vendor menu) and PO PRODUCTS (items currently on the purchase order).
+You are given MENU ITEMS (each with a numeric "index" field) and PO PRODUCTS.
 
 For each menu item, find the best matching PO product using these rules:
   • Strip the brand prefix (e.g. "710 Labs") from both names before comparing.
@@ -242,20 +242,22 @@ For each menu item, find the best matching PO product using these rules:
   • Apply WEIGHT MATCHING RULES strictly.
   • If no confident match exists, do NOT return a pair for that menu item.
 
-Return matched_pairs: one entry per matched menu item containing the menu_item_name and the po_product_id.
+Return matched_pairs: one entry per matched menu item containing:
+  - menu_item_index: the "index" value of the matched menu item
+  - po_product_id: the po_product_id of the best matching PO product
 SYS;
 
-// p2_prompt is built dynamically after Phase 1 completes (uses $menu_items_json)
-// Stored here as a template; menu_items_json placeholder filled after Phase 1.
+// p2_prompt is built dynamically after Phase 1 completes (uses $indexed_menu_items_json)
+// Stored here as a template; placeholder filled after Phase 1.
 $p2_prompt_template = "WEIGHT MATCHING RULES:\n{$weight_matching_rules}"
-    . "\n\n--- MENU ITEMS (from Phase 1) ---\n{{MENU_ITEMS_JSON}}"
+    . "\n\n--- MENU ITEMS (each has an \"index\" field — use that index in matched_pairs) ---\n{{MENU_ITEMS_JSON}}"
     . "\n\n--- PO PRODUCTS ---\n{$po_products_json}";
 
 // ---- DRY RUN: return both payloads without calling Gemini ----
 if ($is_dry_run) {
     $p2_payload_preview = [
         'system_instruction' => ['parts' => [['text' => $p2_system_instr]]],
-        'contents' => [['parts' => [['text' => str_replace('{{MENU_ITEMS_JSON}}', '(populated after Phase 1)', $p2_prompt_template)]]]],
+        'contents' => [['parts' => [['text' => str_replace('{{MENU_ITEMS_JSON}}', '(indexed items populated after Phase 1)', $p2_prompt_template)]]]],
         'generationConfig' => [
             'temperature'      => 0.0,
             'maxOutputTokens'  => 4096,
@@ -342,8 +344,14 @@ if (empty($menu_items)) {
 }
 
 // ---- Phase 2 — match menu items to PO products ----
-$menu_items_json = json_encode($menu_items, JSON_UNESCAPED_UNICODE);
-$p2_prompt = str_replace('{{MENU_ITEMS_JSON}}', $menu_items_json, $p2_prompt_template);
+// Add numeric index to each menu item so Phase 2 can reference by index (not name)
+$indexed_menu_items = array_map(
+    fn($item, $idx) => array_merge(['index' => $idx], $item),
+    $menu_items,
+    array_keys($menu_items)
+);
+$indexed_menu_items_json = json_encode($indexed_menu_items, JSON_UNESCAPED_UNICODE);
+$p2_prompt = str_replace('{{MENU_ITEMS_JSON}}', $indexed_menu_items_json, $p2_prompt_template);
 
 $p2_payload = [
     'system_instruction' => ['parts' => [['text' => $p2_system_instr]]],
@@ -390,15 +398,21 @@ if (!$p2_curl_err && $p2_raw && $p2_http === 200) {
 }
 
 // ---- Derive final sets ----
-$found_ids_raw   = array_column($matched_pairs, 'po_product_id');
-$found_ids       = array_values(array_unique(array_map('intval', $found_ids_raw)));
-$found_set       = array_flip($found_ids);
-$all_po_ids      = array_column($po_products, 'po_product_id');
-$disable_ids     = array_values(array_filter($all_po_ids, fn($id) => !isset($found_set[$id])));
+$found_ids_raw = array_column($matched_pairs, 'po_product_id');
+$found_ids     = array_values(array_unique(array_map('intval', $found_ids_raw)));
+$found_set     = array_flip($found_ids);
+$all_po_ids    = array_column($po_products, 'po_product_id');
+$disable_ids   = array_values(array_filter($all_po_ids, fn($id) => !isset($found_set[$id])));
 
-// add_products = menu items whose name was NOT returned in any matched_pair
-$matched_names_set = array_flip(array_column($matched_pairs, 'menu_item_name'));
-$add_products = array_values(array_filter($menu_items, fn($item) => !isset($matched_names_set[$item['name']])));
+// add_products = menu items whose index was NOT returned in any matched_pair
+// Using index-based lookup avoids mismatches when Gemini slightly rephrases names between phases
+$matched_indices_set = array_flip(array_column($matched_pairs, 'menu_item_index'));
+$add_products = [];
+foreach ($menu_items as $idx => $item) {
+    if (!isset($matched_indices_set[$idx])) {
+        $add_products[] = $item;
+    }
+}
 
 $result = [
     'success'              => true,
