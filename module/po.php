@@ -84,17 +84,25 @@ $(document).ready(function(e) {
   });
 
   // ---- Show/hide extract actions when files are present ----
+  // Use .upload-preview visibility as the reliable indicator (the widget explicitly shows/hides it)
   function _poMenuCheckFiles() {
-    var val = ($("#menu_filenames").val() || "").trim();
-    var hasFiles = val.length > 2; // non-empty JSON array like "[{...}]"
+    var $preview = $("#f_po-menu-data .upload-preview");
+    var hasFiles = $preview.length > 0 && $preview.is(":visible") && $preview.children().length > 0;
     $("#po-menu-extract-actions").toggle(hasFiles);
   }
   _poMenuCheckFiles();
-  $(document).on("fileuploaddone fileuploadcomplete", "#menu_filenames_fileupload", function() {
-    setTimeout(_poMenuCheckFiles, 400);
+  // Watch .upload-preview style changes via MutationObserver for reliable detection
+  var _menuPreviewEl = document.querySelector("#f_po-menu-data .upload-preview");
+  if (_menuPreviewEl) {
+    new MutationObserver(function() { setTimeout(_poMenuCheckFiles, 100); })
+      .observe(_menuPreviewEl, { attributes: true, childList: true, subtree: true, attributeFilter: ["style"] });
+  }
+  // Fallback: fileupload plugin events and remove button
+  $(document).on("fileuploaddone fileuploadcomplete fileuploadadd", "#menu_filenames_fileupload", function() {
+    setTimeout(_poMenuCheckFiles, 500);
   });
   $(document).on("click", ".btn-remove-media-item.menu_filenames, #menu_filenames_remove", function() {
-    setTimeout(_poMenuCheckFiles, 400);
+    setTimeout(_poMenuCheckFiles, 500);
   });
 
   function _renderTestModal(data, pagePoId) {
@@ -610,7 +618,7 @@ if ($_po_id && $_po_status_id == 1) {
     <form id="f_po-menu-data" class="po-data" action="" method="post">
       <input type="hidden" name="c" value="' . htmlspecialchars($po_code) . '" />
       <input type="hidden" name="f" value="menu_filenames" />
-      ' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', '<i class="fa fa-upload mr-1"></i> Upload Brand Menu', 'btn-outline-secondary') . '
+      ' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', '<i class="fa fa-upload mr-1"></i> Upload Brand Menu', 'btn-secondary') . '
       <div id="po-menu-extract-actions" class="mt-2 d-flex align-items-center"' . ($_has_menu_files ? '' : ' style="display:none;"') . '>
         <button type="button" class="btn btn-primary btn-po-menu-extract" data-po-id="' . (int)$_po_id . '"><i class="fa fa-magic mr-1"></i> Extract Menu (AI)</button>
         <button type="button" class="btn btn-link btn-po-menu-view-last ml-2" data-po-id="' . (int)$_po_id . '" title="Show the last saved result." style="font-size:0.75rem;"><i class="fa fa-file-text-o mr-1"></i> View last result</button>
