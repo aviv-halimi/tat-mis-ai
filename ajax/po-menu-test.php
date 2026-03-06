@@ -126,9 +126,14 @@ if (empty($pdf_parts)) {
     exit($is_cli ? 1 : 0);
 }
 
-$apiKey = getenv('GEMINI_API_KEY') ?: (defined('GEMINI_API_KEY') ? GEMINI_API_KEY : null);
-$model  = (defined('GEMINI_PO_MENU_MODEL') && GEMINI_PO_MENU_MODEL !== '') ? GEMINI_PO_MENU_MODEL : 'gemini-2.0-flash';
-$url    = 'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent?key=' . urlencode($apiKey);
+$apiKey   = getenv('GEMINI_API_KEY') ?: (defined('GEMINI_API_KEY') ? GEMINI_API_KEY : null);
+// Phase 1 (PDF extraction): standard flash model
+$p1_model = (defined('GEMINI_PO_MENU_MODEL') && GEMINI_PO_MENU_MODEL !== '') ? GEMINI_PO_MENU_MODEL : 'gemini-2.0-flash';
+$url      = 'https://generativelanguage.googleapis.com/v1beta/models/' . $p1_model . ':generateContent?key=' . urlencode($apiKey);
+// Phase 2 (matching): thinking model for better reasoning; thinking models require separate handling
+$p2_model        = (defined('GEMINI_PO_MENU_MATCH_MODEL') && GEMINI_PO_MENU_MATCH_MODEL !== '') ? GEMINI_PO_MENU_MATCH_MODEL : 'gemini-2.0-flash-thinking-exp-01-21';
+$p2_url          = 'https://generativelanguage.googleapis.com/v1beta/models/' . $p2_model . ':generateContent?key=' . urlencode($apiKey);
+$p2_is_thinking  = (stripos($p2_model, 'thinking') !== false);
 
 // ---- Shared data ----
 $brands_json     = json_encode($all_brands,     JSON_UNESCAPED_UNICODE);
@@ -400,26 +405,35 @@ $indexed_menu_items = array_map(
 $indexed_menu_items_json = json_encode($indexed_menu_items, JSON_UNESCAPED_UNICODE);
 $p2_prompt = str_replace('{{MENU_ITEMS_JSON}}', $indexed_menu_items_json, $p2_prompt_template);
 
+// Thinking models don't support responseMimeType / responseSchema.
+// Add an explicit JSON format instruction to the prompt instead.
+$p2_prompt_final = $p2_prompt;
+if ($p2_is_thinking) {
+    $p2_prompt_final .= "\n\nIMPORTANT: Respond with a single valid JSON object only. No markdown, no code fences, no explanation text. Format:\n{\"matched_pairs\":[{\"menu_item_index\":0,\"po_product_id\":12345},...]}\nIf nothing matches, return {\"matched_pairs\":[]}";
+}
+
+$p2_gen_config = ['maxOutputTokens' => 16000];
+if (!$p2_is_thinking) {
+    $p2_gen_config['temperature']      = 0.0;
+    $p2_gen_config['responseMimeType'] = 'application/json';
+    $p2_gen_config['responseSchema']   = $p2_schema;
+}
+
 $p2_payload = [
     'system_instruction' => ['parts' => [['text' => $p2_system_instr]]],
-    'contents' => [['parts' => [['text' => $p2_prompt]]]],
-    'generationConfig' => [
-        'temperature'      => 0.0,
-        'maxOutputTokens'  => 4096,
-        'responseMimeType' => 'application/json',
-        'responseSchema'   => $p2_schema,
-    ],
+    'contents' => [['parts' => [['text' => $p2_prompt_final]]]],
+    'generationConfig' => $p2_gen_config,
 ];
 $p2_payload_json = json_encode($p2_payload);
 
 $p2_start = microtime(true);
-$ch = curl_init($url);
+$ch = curl_init($p2_url);
 curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_POST           => true,
     CURLOPT_POSTFIELDS     => $p2_payload_json,
     CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
-    CURLOPT_TIMEOUT        => 180,
+    CURLOPT_TIMEOUT        => 300,  // thinking model needs more time
     CURLOPT_CONNECTTIMEOUT => 15,
 ]);
 $p2_raw      = curl_exec($ch);
@@ -432,14 +446,23 @@ $matched_pairs = [];
 $p2_response_text = $p2_finish_reason = $p2_parse_error = null;
 if (!$p2_curl_err && $p2_raw && $p2_http === 200) {
     $p2_data          = json_decode($p2_raw, true);
-    $p2_response_text = $p2_data['candidates'][0]['content']['parts'][0]['text'] ?? '';
     $p2_finish_reason = $p2_data['candidates'][0]['finishReason'] ?? null;
+    // Thinking models emit thought parts (thought:true) before the answer — skip them
+    $p2_response_text = '';
+    foreach ($p2_data['candidates'][0]['content']['parts'] ?? [] as $part) {
+        if (!($part['thought'] ?? false)) {
+            $p2_response_text .= $part['text'] ?? '';
+        }
+    }
     if ($p2_response_text !== '') {
-        $p2_parsed = json_decode($p2_response_text, true);
+        // Strip markdown code fences if present (thinking models sometimes add them)
+        $clean = preg_replace('/^```(?:json)?\s*/i', '', trim($p2_response_text));
+        $clean = preg_replace('/\s*```\s*$/', '', $clean);
+        $p2_parsed = json_decode($clean, true);
         if (is_array($p2_parsed)) {
             $matched_pairs = $p2_parsed['matched_pairs'] ?? [];
         } else {
-            $p2_parse_error = json_last_error_msg();
+            $p2_parse_error = json_last_error_msg() . ' (cleaned text: ' . substr($clean, 0, 200) . ')';
         }
     }
 }
@@ -512,6 +535,8 @@ $result = [
         'total_duration_s'     => round($p1_elapsed + $p2_elapsed, 3),
         'p1_payload_kb'        => round(strlen($p1_payload_json) / 1024, 1),
         'p2_payload_kb'        => round(strlen($p2_payload_json) / 1024, 1),
+        'p1_model'             => $p1_model,
+        'p2_model'             => $p2_model,
         'pdf_count'            => count($pdf_parts),
         'pdf_files'            => implode(', ', $pdf_summary),
     ],

@@ -208,10 +208,10 @@ $(document).ready(function(e) {
     html += "PO: <b>" + _esc(data.po_code || data.po_id) + "</b> &nbsp;|&nbsp; ";
     html += "PO products: <b>" + (s.total_po_products || 0) + "</b> &nbsp;|&nbsp; ";
     html += "Total time: <b>" + (s.total_duration_s || "?") + "s</b><br>";
-    html += "Phase 1 (PDF→menu): <b>" + (s.phase1_elapsed_s || "?") + "s</b>, ";
+    html += "Phase 1 [" + _esc(s.p1_model || "flash") + "] (PDF→menu): <b>" + (s.phase1_elapsed_s || "?") + "s</b>, ";
     html += "extracted <b>" + (s.menu_items_extracted || 0) + "</b> menu items, ";
     html += "finish: <b>" + _esc(data.phase1_finish_reason || "?") + "</b><br>";
-    html += "Phase 2 (match): <b>" + (s.phase2_elapsed_s || "?") + "s</b>, ";
+    html += "Phase 2 [" + _esc(s.p2_model || "thinking") + "] (match): <b>" + (s.phase2_elapsed_s || "?") + "s</b>, ";
     html += "matched pairs: <b>" + (s.matched_pairs || 0) + "</b>, ";
     html += "finish: <b>" + _esc(data.phase2_finish_reason || "?") + "</b><br>";
     if (ok) {
