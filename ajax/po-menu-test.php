@@ -197,11 +197,12 @@ Then map each product to brand_id (from AVAILABLE BRANDS) and category_id (from 
 For the name field, concatenate as: "{Brand Name} {Strain Name} {Menu Category} {Weight}" (e.g. "710 Labs C. Chrome #27 Flower 3.5g"). Include weight only if shown.
 
 For the weight_token field, extract the canonical weight abbreviation from the menu section heading:
-- "Eighths / 3.5 Grams" or any 3.5g section → weight_token = "3.5g"
-- "Half Ounce / 14 Grams" or any 14g section → weight_token = "14g"
-- "Single Joints / 1 Gram" or any 1g preroll/AIO section → weight_token = "1g"
-- "PERSY POD / .5G" or any .5g vape section → weight_token = ".5g"
-- If no specific weight applies → weight_token = null
+- "Eighths / 3.5 Grams", "3.5G", or any 3.5g flower section → weight_token = "3.5g"
+- "Half Ounce / 14 Grams", "14G", or any 14g section → weight_token = "14g"
+- "Single Joints / 1 Gram", "DOINKS", "PRE-ROLL" or any 1g preroll section → weight_token = "1g"
+- "ALL IN ONE LIVE ROSIN VAPE 1G", "AIO", "ALL IN ONE" → weight_token = "1g"  ← AIO is always 1g
+- "PERSY POD / .5G", "SOLVENTLESS PODS .5G" or any .5g vape/pod section → weight_token = ".5g"
+- If the item has no weight in its section heading → weight_token = null
 
 Return every menu item. Do not skip any.
 SYS;
