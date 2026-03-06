@@ -219,15 +219,16 @@ $(document).ready(function(e) {
     html += \'</div>\';
     // Apply button (only shown when we have a valid result)
     if (ok && data.po_id) {
-      var disableJson = JSON.stringify(data.parsed_disable_ids || []);
-      var addJson     = JSON.stringify(data.parsed_add_products || []);
+      window._geminiApplyData = {
+        po_id:       data.po_id,
+        disable_ids: data.parsed_disable_ids  || [],
+        add_products: data.parsed_add_products || []
+      };
+      var dLen = window._geminiApplyData.disable_ids.length;
+      var aLen = window._geminiApplyData.add_products.length;
       html += \'<div class="mb-3" id="gemini-apply-wrap">\';
-      html += \'<button type="button" class="btn btn-danger btn-gemini-apply"\';
-      html += \' data-po-id="\' + data.po_id + \'"\';
-      html += \' data-disable-ids=\\\'\' + _esc(disableJson) + \'\\\'\';
-      html += \' data-add-products=\\\'\' + _esc(addJson) + \'\\\'>\';
-      html += \'<i class="fa fa-check-circle mr-1"></i>Apply to PO (\';
-      html += (data.parsed_disable_ids||[]).length + \' disable, \' + (data.parsed_add_products||[]).length + \' add)</button>\';
+      html += \'<button type="button" class="btn btn-danger btn-gemini-apply">\';
+      html += \'<i class="fa fa-check-circle mr-1"></i>Apply to PO (\' + dLen + \' disable, \' + aLen + \' add)</button>\';
       html += \' <span id="gemini-apply-status" class="text-muted small ml-2"></span>\';
       html += \'</div>\';
     }
@@ -357,20 +358,18 @@ $(document).ready(function(e) {
   // ---- Apply Gemini result to PO ----
   $(document).on("click", ".btn-gemini-apply", function() {
     var btn = $(this);
-    var poId       = btn.data("po-id");
-    var disableIds = btn.data("disable-ids");
-    var addProds   = btn.data("add-products");
+    var d = window._geminiApplyData || {};
+    var poId       = d.po_id;
+    var disableIds = d.disable_ids  || [];
+    var addProds   = d.add_products || [];
     if (!poId) return;
-    var dCount = 0, aCount = 0;
-    try { dCount = JSON.parse(disableIds).length; } catch(e) {}
-    try { aCount = JSON.parse(addProds).length;   } catch(e) {}
-    if (!confirm("Apply Gemini results to PO?\n\n• Disable " + dCount + " product(s) not on menu\n• Add " + aCount + " new product(s) from menu\n\nThis will modify the PO immediately.")) return;
+    if (!confirm("Apply Gemini results to PO?\n\n• Disable " + disableIds.length + " product(s) not on menu\n• Add " + addProds.length + " new product(s) from menu\n\nThis will modify the PO immediately.")) return;
     btn.prop("disabled", true).html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Applying…\');
     $("#gemini-apply-status").text("Saving changes…");
     $.ajax({
       url: "/ajax/po-menu-gemini-apply",
       type: "POST",
-      data: { po_id: poId, disable_ids: disableIds, add_products: addProds, _r: Math.random() },
+      data: { po_id: poId, disable_ids: JSON.stringify(disableIds), add_products: JSON.stringify(addProds), _r: Math.random() },
       dataType: "json",
       timeout: 60000
     }).done(function(res) {
