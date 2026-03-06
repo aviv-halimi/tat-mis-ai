@@ -223,7 +223,7 @@ $(document).ready(function(e) {
     }
     html += \'</div>\';
     // Apply button (only shown when we have a valid result)
-    // Use the page's PO ID (PHP-baked into the button) as the authoritative value.
+    // Use the page PO ID (PHP-baked into the button) as the authoritative value.
     // data.po_id can be stale/wrong (e.g. a po_product_id) if display settings drifted.
     var resolvedPoId = (pagePoId && parseInt(pagePoId, 10) > 0) ? parseInt(pagePoId, 10) : (data.po_id || 0);
     if (ok && resolvedPoId) {
