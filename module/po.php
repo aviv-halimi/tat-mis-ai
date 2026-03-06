@@ -84,6 +84,7 @@ $(document).ready(function(e) {
   });
 
   // ---- Show/hide extract actions based on upload events only (not DB state) ----
+  console.log("[po-menu] v3 — buttons hidden until upload");
   // Show buttons only when user actively uploads a file in this session
   $(document).on("fileuploaddone", "#menu_filenames_fileupload", function(e, data) {
     var files = data && data.result && data.result.files;
