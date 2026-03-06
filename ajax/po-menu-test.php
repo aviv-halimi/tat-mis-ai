@@ -131,7 +131,7 @@ $apiKey   = getenv('GEMINI_API_KEY') ?: (defined('GEMINI_API_KEY') ? GEMINI_API_
 $p1_model = (defined('GEMINI_PO_MENU_MODEL') && GEMINI_PO_MENU_MODEL !== '') ? GEMINI_PO_MENU_MODEL : 'gemini-2.0-flash';
 $url      = 'https://generativelanguage.googleapis.com/v1beta/models/' . $p1_model . ':generateContent?key=' . urlencode($apiKey);
 // Phase 2 (matching): thinking model for better reasoning; thinking models require separate handling
-$p2_model        = (defined('GEMINI_PO_MENU_MATCH_MODEL') && GEMINI_PO_MENU_MATCH_MODEL !== '') ? GEMINI_PO_MENU_MATCH_MODEL : 'gemini-2.0-flash-thinking-exp-01-21';
+$p2_model        = (defined('GEMINI_PO_MENU_MATCH_MODEL') && GEMINI_PO_MENU_MATCH_MODEL !== '') ? GEMINI_PO_MENU_MATCH_MODEL : 'gemini-2.0-flash-thinking-exp';
 $p2_url          = 'https://generativelanguage.googleapis.com/v1beta/models/' . $p2_model . ':generateContent?key=' . urlencode($apiKey);
 $p2_is_thinking  = (stripos($p2_model, 'thinking') !== false);
 
@@ -440,6 +440,37 @@ $p2_raw      = curl_exec($ch);
 $p2_curl_err = curl_error($ch);
 $p2_http     = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
+
+// If thinking model not found (404), fall back to standard flash with structured output
+if ($p2_http === 404 && $p2_is_thinking) {
+    $p2_model       = $p1_model;  // fall back to flash
+    $p2_url         = 'https://generativelanguage.googleapis.com/v1beta/models/' . $p2_model . ':generateContent?key=' . urlencode($apiKey);
+    $p2_is_thinking = false;
+    // Rebuild payload with structured output
+    $p2_payload['generationConfig'] = [
+        'temperature'      => 0.0,
+        'maxOutputTokens'  => 4096,
+        'responseMimeType' => 'application/json',
+        'responseSchema'   => $p2_schema,
+    ];
+    // Remove the JSON instruction appended for thinking models
+    $p2_payload['contents'][0]['parts'][0]['text'] = $p2_prompt;
+    $p2_payload_json = json_encode($p2_payload);
+    $ch = curl_init($p2_url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => $p2_payload_json,
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        CURLOPT_TIMEOUT        => 180,
+        CURLOPT_CONNECTTIMEOUT => 15,
+    ]);
+    $p2_raw      = curl_exec($ch);
+    $p2_curl_err = curl_error($ch);
+    $p2_http     = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+}
+
 $p2_elapsed = round(microtime(true) - $p2_start, 3);
 
 $matched_pairs = [];
