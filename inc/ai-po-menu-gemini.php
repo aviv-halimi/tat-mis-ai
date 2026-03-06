@@ -95,6 +95,8 @@ STEP 1 — DECODE THE MENU: Read the menu text and identify every product. Recor
 
 STEP 2 — MAP BRAND & CATEGORY: For each decoded product, match it to the best brand_id from AVAILABLE BRANDS and the best category_id from AVAILABLE CATEGORIES using the CATEGORY TRANSLATION RULES. Use null if no confident match exists.
 
+For the name field, concatenate as: "{Brand Name} {Strain Name} {Menu Category} {Weight}" (e.g. "710 Labs C. Chrome #27 Flower 3.5g"). Use the exact values from the menu; include weight only if shown.
+
 Return all menu items in the structured JSON format. Do not skip any items.
 SYS;
 

@@ -166,7 +166,9 @@ Return found_po_product_ids — the po_product_id values of PO products that ARE
 
 STEP 3 — IDENTIFY NEW MENU ITEMS
 List every menu item from Step 1 that has no equivalent in the PO PRODUCTS list.
-For each, return: name (as on menu), price, brand_id, category_id.
+For each, return:
+  - name: concatenate as "{Brand Name} {Strain Name} {Menu Category} {Weight}" (e.g. "710 Labs C. Chrome #27 Flower 3.5g")
+  - price, brand_id, category_id
 SYS;
 
 // ---- Build prompt ----
