@@ -69,13 +69,32 @@ $(document).ready(function(e) {
             dataType: "json", timeout: 60000
           }).done(function(applyRes) {
             if (!applyRes || !applyRes.success) { showErr("Apply failed: " + _esc((applyRes && applyRes.error) || "Unknown error")); return; }
-            $.post("/ajax/table-display", { module_code: "po", po_id: poId, merge_custom: 1, _r: Math.random() });
+            // Preserve all current display settings; only force merge_custom=1
+            var $df = $("#f_table-display");
+            var _dsData = $df.length
+              ? $df.serialize().replace(/(?:^|&)merge_custom=[^&]*/g, "") + "&merge_custom=1"
+              : "module_code=po&po_id=" + poId + "&merge_custom=1";
+            $.post("/ajax/table-display", _dsData);
             $status.removeClass("alert-info alert-danger").addClass("alert-success");
             $statusText.text(_esc(applyRes.message || "Done.") + " Reloading…");
             setTimeout(function() { location.reload(); }, 2500);
           }).fail(function(xhr, s, err) { showErr("Apply request failed: " + _esc(err || s)); });
         }).fail(function(xhr, s, err) { showErr("Extraction request failed: " + _esc(err || s)); });
       });
+  });
+
+  // ---- Show/hide extract actions when files are present ----
+  function _poMenuCheckFiles() {
+    var val = ($("#menu_filenames").val() || "").trim();
+    var hasFiles = val.length > 2; // non-empty JSON array like "[{...}]"
+    $("#po-menu-extract-actions").toggle(hasFiles);
+  }
+  _poMenuCheckFiles();
+  $(document).on("fileuploaddone fileuploadcomplete", "#menu_filenames_fileupload", function() {
+    setTimeout(_poMenuCheckFiles, 400);
+  });
+  $(document).on("click", ".btn-remove-media-item.menu_filenames, #menu_filenames_remove", function() {
+    setTimeout(_poMenuCheckFiles, 400);
   });
 
   function _renderTestModal(data, pagePoId) {
@@ -585,26 +604,19 @@ foreach($rf as $f) {
 
 <?php
 if ($_po_id && $_po_status_id == 1) {
+  $_has_menu_files = !empty($_menu_filenames) && strlen($_menu_filenames) > 2;
   echo '
-  <div class="panel panel-default mt-3" id="po-brand-menu-panel">
-    <div class="panel-heading">
-      <div class="panel-heading-btn">
-        <a href="javascript:;" class="btn btn-xs btn-icon btn-circle btn-warning" data-click="panel-collapse"><i class="fa fa-minus"></i></a>
+  <div class="mt-3" id="po-brand-menu-panel">
+    <form id="f_po-menu-data" class="po-data" action="" method="post">
+      <input type="hidden" name="c" value="' . htmlspecialchars($po_code) . '" />
+      <input type="hidden" name="f" value="menu_filenames" />
+      ' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', '<i class="fa fa-upload mr-1"></i> Upload Brand Menu', 'btn-outline-secondary') . '
+      <div id="po-menu-extract-actions" class="mt-2 d-flex align-items-center"' . ($_has_menu_files ? '' : ' style="display:none;"') . '>
+        <button type="button" class="btn btn-primary btn-po-menu-extract" data-po-id="' . (int)$_po_id . '"><i class="fa fa-magic mr-1"></i> Extract Menu (AI)</button>
+        <button type="button" class="btn btn-link btn-po-menu-view-last ml-2" data-po-id="' . (int)$_po_id . '" title="Show the last saved result." style="font-size:0.75rem;"><i class="fa fa-file-text-o mr-1"></i> View last result</button>
       </div>
-      <h4 class="panel-title"><i class="fa fa-upload mr-1"></i> Upload Brand Menu</h4>
-    </div>
-    <div class="panel-body" style="display:none;">
-      <form id="f_po-menu-data" class="po-data" action="" method="post">
-        <input type="hidden" name="c" value="' . htmlspecialchars($po_code) . '" />
-        <input type="hidden" name="f" value="menu_filenames" />
-        <div class="mb-2">' . uploadWidget('po', 'menu_filenames', $_menu_filenames, '', 'multiple', 'Upload menu PDF(s)...') . '</div>
-        <div class="d-flex align-items-center mt-2">
-          <button type="button" class="btn btn-primary btn-po-menu-extract" data-po-id="' . (int)$_po_id . '"><i class="fa fa-magic mr-1"></i> Extract Menu (AI)</button>
-          <button type="button" class="btn btn-link btn-po-menu-view-last ml-2" data-po-id="' . (int)$_po_id . '" title="Show the last saved result." style="font-size:0.75rem;"><i class="fa fa-file-text-o mr-1"></i> View last result</button>
-        </div>
-      </form>
-      <div id="po-menu-status" class="alert mt-2" style="display:none;"><span id="po-menu-status-text"></span></div>
-    </div>
+    </form>
+    <div id="po-menu-status" class="alert mt-2" style="display:none;"><span id="po-menu-status-text"></span></div>
   </div>
 
   <!-- PO Menu Last Result Modal -->
