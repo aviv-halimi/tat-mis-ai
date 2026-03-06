@@ -69,15 +69,19 @@ $(document).ready(function(e) {
             dataType: "json", timeout: 60000
           }).done(function(applyRes) {
             if (!applyRes || !applyRes.success) { showErr("Apply failed: " + _esc((applyRes && applyRes.error) || "Unknown error")); return; }
-            // Preserve all current display settings; only force merge_custom=1
-            var $df = $("#f_table-display");
-            var _dsData = $df.length
-              ? $df.serialize().replace(/(?:^|&)merge_custom=[^&]*/g, "") + "&merge_custom=1"
-              : "module_code=po&po_id=" + poId + "&merge_custom=1";
-            $.post("/ajax/table-display", _dsData);
             $status.removeClass("alert-info alert-danger").addClass("alert-success");
-            $statusText.text(_esc(applyRes.message || "Done.") + " Reloading…");
-            setTimeout(function() { location.reload(); }, 2500);
+            $statusText.text(_esc(applyRes.message || "Done.") + " Saving display settings…");
+            // Build display settings payload: serialize full form, force merge_custom=1
+            var $df = $("#f_table-display");
+            var _dsFields = $df.length ? $df.serializeArray() : [];
+            _dsFields = _dsFields.filter(function(f) { return f.name !== "merge_custom"; });
+            _dsFields.push({ name: "merge_custom", value: "1" });
+            // Wait for settings save to complete, THEN reload
+            $.ajax({ url: "/ajax/table-display", type: "POST", data: _dsFields, dataType: "json" })
+              .always(function() {
+                $statusText.text(_esc(applyRes.message || "Done.") + " Reloading…");
+                setTimeout(function() { location.reload(); }, 800);
+              });
           }).fail(function(xhr, s, err) { showErr("Apply request failed: " + _esc(err || s)); });
         }).fail(function(xhr, s, err) { showErr("Extraction request failed: " + _esc(err || s)); });
       });
