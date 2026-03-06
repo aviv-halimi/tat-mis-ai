@@ -52,7 +52,7 @@ foreach (getRs("SELECT brand_id, name FROM {$db}.brand WHERE is_active = 1 ORDER
     $all_brands[] = ['brand_id' => (int) $r['brand_id'], 'name' => (string) $r['name']];
 }
 $all_categories = [];
-foreach (getRs("SELECT category_id, name FROM {$db}.category WHERE is_active = 1 ORDER BY name") as $r) {
+foreach (getRs("SELECT category_id, name FROM {$db}.category WHERE is_active = 1 AND is_enabled = 1 ORDER BY name") as $r) {
     $all_categories[] = ['category_id' => (int) $r['category_id'], 'name' => (string) $r['name']];
 }
 

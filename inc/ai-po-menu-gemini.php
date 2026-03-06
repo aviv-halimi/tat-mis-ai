@@ -48,11 +48,12 @@ AVAILABLE CATEGORIES (use category_id in your response, or null):
 {$categories_json}
 
 CATEGORY TRANSLATION RULES (map vendor menu section headings → our category names):
-- "PERSY BADDER", "PERSY ROSIN", "LIVE ROSIN", "THUMB PRINT", "SAUCE", "BADDER", "ROSIN" → match category "Solventless Extracts"
-- "PERSY POD", "SOLVENTLESS PODS", "ALL IN ONE", "AIO", "VAPE CART" → match category "Vape Carts .5g" or "AIO"
-- "FLOWER", "EIGHTHS", "HALF OUNCE", "3.5G", "14G" → match category "Flowers"
-- "GUMMIS", "EDIBLES", "HASH ROSIN GUMMIS" → match category "Edibles"
-- "PREROLL", "SINGLE JOINTS", "JOINTS", "DOINKS", "PRE-ROLL" → match category "Pre-Rolls" or similar
+- "PERSY BADDER","PERSY ROSIN","LIVE ROSIN","THUMB PRINT","SAUCE","BADDER","ROSIN" → "Solventless Extracts"
+- "PERSY POD / .5G","PERSY POD","SOLVENTLESS PODS" → "Vape Carts .5g"
+- "ALL IN ONE LIVE ROSIN VAPE 1G","ALL IN ONE","AIO" → "AIO"
+- "FLOWER","EIGHTHS / 3.5 GRAMS","HALF OUNCE / 14 GRAMS","EIGHTHS","HALF OUNCE","3.5G","14G" → "Flowers"
+- "GUMMIS","EDIBLES","HASH ROSIN GUMMIS" → "Edibles"
+- "SINGLE JOINTS / 1 GRAM","PREROLL","JOINTS","DOINKS","PRE-ROLL" → "Pre-Rolls"
 
 --- STEP 1: DECODE THIS MENU ---
 Read the menu carefully. For each item, identify: exact product name (as written), price, product type / section heading.

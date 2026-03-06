@@ -88,21 +88,25 @@ foreach (getRs(
     ];
 }
 
-// Brands and categories present on this PO
-$seen_brand_ids = $seen_cat_ids = [];
-$all_brands = $all_categories = [];
+// Brands present on this PO
+$seen_brand_ids = [];
+$all_brands = [];
 foreach ($po_products as $p) {
     if ($p['brand_id'] && !isset($seen_brand_ids[$p['brand_id']])) {
         $seen_brand_ids[$p['brand_id']] = true;
         $all_brands[] = ['brand_id' => $p['brand_id'], 'name' => $p['brand_name']];
     }
-    if ($p['category_id'] && !isset($seen_cat_ids[$p['category_id']])) {
-        $seen_cat_ids[$p['category_id']] = true;
-        $all_categories[] = ['category_id' => $p['category_id'], 'name' => $p['category_name']];
-    }
 }
-usort($all_brands,     fn($a, $b) => strcmp($a['name'], $b['name']));
-usort($all_categories, fn($a, $b) => strcmp($a['name'], $b['name']));
+usort($all_brands, fn($a, $b) => strcmp($a['name'], $b['name']));
+
+// All active/enabled categories from the store DB
+$all_categories = [];
+foreach (getRs(
+    "SELECT category_id, name FROM {$db}.category WHERE is_active = 1 AND is_enabled = 1 ORDER BY name",
+    []
+) as $r) {
+    $all_categories[] = ['category_id' => (int) $r['category_id'], 'name' => (string) $r['name']];
+}
 
 // Extract menu text
 $menu_text = '';
@@ -159,9 +163,13 @@ STEP 2 — MATCH PO PRODUCTS
 For each PO product in the list, look it up against your Step-1 decoded menu.
 Rules:
   • Strip the brand prefix (e.g. "710 Labs") before comparing strain names.
-  • Strip weight/size (e.g. "3.5g", "1g", "14g") before comparing.
   • A product is FOUND if BOTH the strain name AND the product type/category match a menu item.
   • When in doubt, do NOT mark as found (conservative: keep the item on the PO).
+
+WEIGHT MATCHING RULES (both conditions must be met):
+  • Menu items under "Eighths / 3.5 Grams" or similar: the PO product name must contain "3.5g" (case-insensitive) to be a match.
+  • Menu items under "Half Ounce / 14 Grams" or similar: the PO product name must contain "14g" (case-insensitive) to be a match.
+
 Return found_po_product_ids — the po_product_id values of PO products that ARE on the menu.
 
 STEP 3 — IDENTIFY NEW MENU ITEMS
@@ -177,11 +185,12 @@ $categories_json = json_encode($all_categories, JSON_UNESCAPED_UNICODE);
 $po_products_json = json_encode($po_products,   JSON_UNESCAPED_UNICODE);
 
 $category_translations = <<<TRANS
-- "PERSY BADDER","PERSY ROSIN","LIVE ROSIN","THUMB PRINT","SAUCE" → "Solventless Extracts"
-- "PERSY POD","SOLVENTLESS PODS","ALL IN ONE","AIO" → "Vape Carts .5g" or "AIO"
-- "FLOWER","EIGHTHS","HALF OUNCE","3.5G","14G" → "Flowers"
+- "PERSY BADDER","PERSY ROSIN","LIVE ROSIN","THUMB PRINT","SAUCE","BADDER","ROSIN" → "Solventless Extracts"
+- "PERSY POD / .5G","PERSY POD","SOLVENTLESS PODS" → "Vape Carts .5g"
+- "ALL IN ONE LIVE ROSIN VAPE 1G","ALL IN ONE","AIO" → "AIO"
+- "FLOWER","EIGHTHS / 3.5 GRAMS","HALF OUNCE / 14 GRAMS","EIGHTHS","HALF OUNCE","3.5G","14G" → "Flowers"
 - "GUMMIS","EDIBLES","HASH ROSIN GUMMIS" → "Edibles"
-- "PREROLL","JOINTS","DOINKS" → "Pre-Rolls"
+- "SINGLE JOINTS / 1 GRAM","PREROLL","JOINTS","DOINKS","PRE-ROLL" → "Pre-Rolls"
 TRANS;
 
 $prompt = "AVAILABLE BRANDS (use brand_id in your response):\n{$brands_json}"
