@@ -242,7 +242,9 @@ $(document).ready(function(e) {
     html += _testSection("Phase 1 — Raw Response", data.phase1_raw_response || "(empty)", "res-p1-raw");
     html += _testSection("Phase 1 — System Instruction", data.phase1_system_instr || "", "res-p1-sys");
     html += _testSection("Phase 1 — Prompt Sent", data.phase1_prompt || "", "res-p1-prompt");
-    html += _testSection("Phase 2 — Matched Pairs (" + (data.phase2_matched_pairs || []).length + ")", JSON.stringify(data.phase2_matched_pairs || [], null, 2), "res-pairs");
+    html += _testSection("Phase 2 — Gemini Raw Pairs (" + (data.phase2_matched_pairs || []).length + ")", JSON.stringify(data.phase2_matched_pairs || [], null, 2), "res-pairs");
+    html += _testSection("Phase 2 — PHP Verified ✓ (" + (data.phase2_verified_pairs || []).length + ")", JSON.stringify(data.phase2_verified_pairs || [], null, 2), "res-verified");
+    html += _testSection("Phase 2 — PHP Rejected ✗ (" + (data.phase2_rejected_pairs || []).length + ")", JSON.stringify(data.phase2_rejected_pairs || [], null, 2), "res-rejected");
     html += _testSection("Phase 2 — Raw Response", data.phase2_raw_response || "(empty)", "res-p2-raw");
     html += _testSection("Phase 2 — System Instruction", data.phase2_system_instr || "", "res-p2-sys");
     html += _testSection("Phase 2 — Prompt Sent", data.phase2_prompt || "", "res-p2-prompt");

@@ -484,16 +484,83 @@ if (!$p2_curl_err && $p2_raw && $p2_http === 200) {
     }
 }
 
-// ---- Derive final sets ----
-$found_ids_raw = array_column($matched_pairs, 'po_product_id');
+// ---- PHP-side verification of Gemini's matched_pairs ----
+// Gemini sometimes matches by category+weight alone — PHP enforces strain name, category, and weight.
+function _po_strip_strain(string $name): string {
+    // Remove brand prefix and Close Friends / x Connected wrappers
+    $name = preg_replace('/^710\s+Labs\s+(?:\(Close\s+Friends\)\s+)?(?:x\s+Connected\s+)?/iu', '', $name);
+    // Remove (I/H), (S/H), (H), (S), (I) type qualifiers
+    $name = preg_replace('/\([A-Z\/]+\)/iu', ' ', $name);
+    // Remove product-type and weight words
+    $name = preg_replace('/\b(?:flower|persy|live\s+rosin|infused|hash\s+rosin|rosin|badder|sauce|pod|battery|prerolls?|pre-rolls?|aio|vape\s+carts?|solventless\s+extracts?|edibles?|gummies?|tinctures?|rso|water\s+hash|thumbprint)\b/iu', ' ', $name);
+    $name = preg_replace('/\b\d+(?:\.\d+)?g\b|\b\d+mg\b|\b\d+pk\b/iu', ' ', $name);
+    return strtolower(preg_replace('/\s+/u', ' ', trim($name)));
+}
+
+$po_by_id = array_column($po_products, null, 'po_product_id');
+
+$verified_pairs  = [];
+$rejected_pairs  = [];
+
+foreach ($matched_pairs as $pair) {
+    $idx   = (int)($pair['menu_item_index'] ?? -1);
+    $po_id = (int)($pair['po_product_id']   ?? 0);
+
+    $menu_item  = $menu_items[$idx]     ?? null;
+    $po_product = $po_by_id[$po_id]     ?? null;
+
+    if (!$menu_item || !$po_product) {
+        $rejected_pairs[] = $pair + ['reject_reason' => 'not_found'];
+        continue;
+    }
+
+    // 1. Category check
+    if ((int)$menu_item['category_id'] !== (int)$po_product['category_id']) {
+        $rejected_pairs[] = $pair + ['reject_reason' => 'category_mismatch',
+            'menu_cat' => $menu_item['category_id'], 'po_cat' => $po_product['category_id']];
+        continue;
+    }
+
+    // 2. Weight token check
+    $wt = $menu_item['weight_token'] ?? null;
+    if ($wt !== null && stripos($po_product['product_name'], $wt) === false) {
+        $rejected_pairs[] = $pair + ['reject_reason' => 'weight_mismatch',
+            'weight_token' => $wt, 'po_name' => $po_product['product_name']];
+        continue;
+    }
+
+    // 3. Strain name check
+    // Extract strain core from menu item (what remains after stripping brand/fluff/weight)
+    $menu_core = _po_strip_strain($menu_item['name']);
+    // Split on " + " to handle combo products — each part must appear in the PO name
+    $parts = array_map('trim', preg_split('/\s*\+\s*/u', $menu_core));
+    $parts = array_filter($parts, fn($p) => strlen($p) >= 2);
+
+    $strain_ok = true;
+    foreach ($parts as $strain) {
+        if (stripos($po_product['product_name'], $strain) === false) {
+            $strain_ok = false;
+            break;
+        }
+    }
+    if (!$strain_ok) {
+        $rejected_pairs[] = $pair + ['reject_reason' => 'strain_mismatch',
+            'menu_strains' => implode(' + ', $parts), 'po_name' => $po_product['product_name']];
+        continue;
+    }
+
+    $verified_pairs[] = $pair;
+}
+
+// ---- Derive final sets (using PHP-verified pairs only) ----
+$found_ids_raw = array_column($verified_pairs, 'po_product_id');
 $found_ids     = array_values(array_unique(array_map('intval', $found_ids_raw)));
 $found_set     = array_flip($found_ids);
 $all_po_ids    = array_column($po_products, 'po_product_id');
 $disable_ids   = array_values(array_filter($all_po_ids, fn($id) => !isset($found_set[$id])));
 
-// add_products = menu items whose index was NOT returned in any matched_pair
-// Using index-based lookup avoids mismatches when Gemini slightly rephrases names between phases
-$matched_indices_set = array_flip(array_column($matched_pairs, 'menu_item_index'));
+// add_products = menu items not in any verified pair
+$matched_indices_set = array_flip(array_column($verified_pairs, 'menu_item_index'));
 $add_products = [];
 foreach ($menu_items as $idx => $item) {
     if (!isset($matched_indices_set[$idx])) {
@@ -524,8 +591,10 @@ $result = [
     'phase2_finish_reason' => $p2_finish_reason,
     'phase2_response_text' => $p2_response_text,
     'phase2_raw_response'  => $p2_raw ?? '',
-    'phase2_matched_pairs' => $matched_pairs,
-    'phase2_parse_error'   => $p2_parse_error,
+    'phase2_matched_pairs'  => $matched_pairs,
+    'phase2_parse_error'    => $p2_parse_error,
+    'phase2_verified_pairs' => $verified_pairs,
+    'phase2_rejected_pairs' => $rejected_pairs,
     // Final results
     'parsed_found_ids'     => $found_ids,
     'parsed_disable_ids'   => $disable_ids,
@@ -543,8 +612,10 @@ $result = [
     'summary' => [
         'total_po_products'    => count($po_products),
         'menu_items_extracted' => count($menu_items),
-        'matched_pairs'        => count($matched_pairs),
-        'total_found_ids'      => count($found_ids),
+        'gemini_matched_pairs'  => count($matched_pairs),
+        'php_verified_pairs'    => count($verified_pairs),
+        'php_rejected_pairs'    => count($rejected_pairs),
+        'total_found_ids'       => count($found_ids),
         'total_disable_ids'    => count($disable_ids),
         'total_add_products'   => count($add_products),
         'phase1_elapsed_s'     => $p1_elapsed,
