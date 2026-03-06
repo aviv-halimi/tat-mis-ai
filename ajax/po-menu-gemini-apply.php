@@ -54,26 +54,42 @@ if (!empty($disable_ids)) {
 }
 
 // ---- 2. Add new products from the menu (not already on PO) ----
-$_p = [];
-foreach ($add_products as $item) {
-    $name = trim((string) ($item['name'] ?? ''));
-    if ($name === '') { continue; }
-    $_p[] = [
-        'po_code'             => $po_code,
-        'po_product_name'     => $name,
-        'is_existing_product' => 0,
-        'brand_id'            => isset($item['brand_id'])    && (int) $item['brand_id']    > 0 ? (int) $item['brand_id']    : null,
-        'category_id'         => isset($item['category_id']) && (int) $item['category_id'] > 0 ? (int) $item['category_id'] : null,
-        'price'               => isset($item['price'])       && is_numeric($item['price'])      ? (float) $item['price']     : 0,
-        'qty'                 => 0,
-    ];
-}
-foreach ($_p as $_r) {
-    $res = $_PO->SavePOCustomProduct($_r);
-    if (!empty($res['success'])) {
-        $added_count++;
+// Bypass SavePOCustomProduct to avoid per-row overhead (GetCodeId scan + POProgress recalc).
+// Mirror exactly what SavePOCustomProduct does at line 652-656 of POManager.php.
+if (!empty($add_products)) {
+    $po_row = getRow(getRs("SELECT po_id FROM po WHERE po_code = ?", [$po_code]));
+    $direct_po_id = $po_row ? (int) $po_row['po_id'] : 0;
+
+    if ($direct_po_id) {
+        foreach ($add_products as $item) {
+            $name = trim((string) ($item['name'] ?? ''));
+            if ($name === '') { continue; }
+
+            $brand_id    = isset($item['brand_id'])    && (int) $item['brand_id']    > 0 ? (int) $item['brand_id']    : null;
+            $category_id = isset($item['category_id']) && (int) $item['category_id'] > 0 ? (int) $item['category_id'] : null;
+            $price       = isset($item['price'])       && is_numeric($item['price'])      ? (float) $item['price']     : 0;
+
+            $new_id = dbPut('po_product', [
+                'po_id'           => $direct_po_id,
+                'po_product_name' => $name,
+                'is_editable'     => 1,
+                'is_tax'          => 0,
+                'category_id'     => $category_id,
+                'brand_id'        => $brand_id,
+                'is_created'      => 0,
+                'is_transferred'  => 0,
+            ]);
+            if ($new_id) {
+                if ($price > 0) {
+                    dbUpdate('po_product', ['price' => $price], $new_id);
+                }
+                $added_count++;
+            } else {
+                $errors[] = $name . ': insert failed';
+            }
+        }
     } else {
-        $errors[] = ($_r['po_product_name']) . ': ' . ($res['response'] ?? 'Failed');
+        $errors[] = 'Could not resolve po_id from po_code';
     }
 }
 
