@@ -130,14 +130,12 @@ $apiKey   = getenv('GEMINI_API_KEY') ?: (defined('GEMINI_API_KEY') ? GEMINI_API_
 // Phase 1 (PDF extraction): standard flash model
 $p1_model = (defined('GEMINI_PO_MENU_MODEL') && GEMINI_PO_MENU_MODEL !== '') ? GEMINI_PO_MENU_MODEL : 'gemini-2.0-flash';
 $url      = 'https://generativelanguage.googleapis.com/v1beta/models/' . $p1_model . ':generateContent?key=' . urlencode($apiKey);
-// Phase 2 (matching): gemini-2.5-flash supports thinking via thinkingConfig AND structured outputs
-$p2_model             = (defined('GEMINI_PO_MENU_MATCH_MODEL') && GEMINI_PO_MENU_MATCH_MODEL !== '') ? GEMINI_PO_MENU_MATCH_MODEL : 'gemini-2.5-flash';
+// Phase 2 (matching): gemini-2.0-flash with strict CoT prompt + structured output
+$p2_model             = (defined('GEMINI_PO_MENU_MATCH_MODEL') && GEMINI_PO_MENU_MATCH_MODEL !== '') ? GEMINI_PO_MENU_MATCH_MODEL : 'gemini-2.0-flash';
 $p2_url               = 'https://generativelanguage.googleapis.com/v1beta/models/' . $p2_model . ':generateContent?key=' . urlencode($apiKey);
-// Old experimental thinking models don't support structured output — need JSON-in-prompt workaround
 $p2_is_old_thinking   = (stripos($p2_model, 'thinking-exp') !== false);
-// 2.5+ models support thinkingConfig alongside structured outputs
-$p2_use_thinking_cfg  = !$p2_is_old_thinking && (strpos($p2_model, '2.5') !== false || strpos($p2_model, '2-5') !== false);
-$p2_is_thinking       = $p2_is_old_thinking || $p2_use_thinking_cfg;
+$p2_use_thinking_cfg  = false;
+$p2_is_thinking       = $p2_is_old_thinking;
 
 // ---- Shared data ----
 $brands_json     = json_encode($all_brands,     JSON_UNESCAPED_UNICODE);
@@ -249,58 +247,41 @@ $p2_schema = [
 ];
 
 $p2_system_instr = <<<SYS
-You are a cannabis dispensary PO reconciler. Your job is to match MENU ITEMS to PO PRODUCTS. Follow these rules strictly.
+You are a cannabis dispensary PO reconciler. For each menu item, follow this exact 4-step protocol before returning any match.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RULE 1 — IDENTITY MATCH (THE GOLDEN RULE)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Strip the brand prefix (e.g. "710 Labs") from both the menu item name and the PO product name.
-Then ignore these common "fluff" words in both names before comparing: Flower, Persy, Live Rosin, (I/H), (S), (I), (H).
-Focus on the core identifier — the strain name and any number (e.g. "SB36 #1", "Ztan Lee #5", "Sherb Fumez #14").
+STRICT MATCHING PROTOCOL — execute these steps IN ORDER for every menu item:
 
-The core strain identifier from the menu item MUST be present in the PO product name.
-If "Sherb Fumez #14" does not appear in the PO product list → NO MATCH. Return no pair for that menu item.
-DO NOT substitute a different strain just because it shares the same category or weight.
-Examples of WRONG matches:
-  ✗ "Sherb Fumez #14" → any product that does not contain "Sherb Fumez" in its name
-  ✗ "SB36 #1 Flower 14g" → a product containing "SB36 #1" but in a different category (e.g. AIO)
-  ✗ "Super Freak Flower 14g" → any product that contains "Super Freak" but whose name contains "3.5g"
+STEP 1 — IDENTIFY CORE STRAIN
+  Extract the unique strain name and number from the menu item name.
+  Strip the brand prefix (e.g. "710 Labs") and ignore descriptor words: Flower, Persy, Live Rosin, (I/H), (S), (I), (H).
+  The core identifier is what remains (e.g. "SB36 #1", "Ztan Lee #5", "Sherb Fumez #14", "Super Freak").
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RULE 2 — WEIGHT MATCH (HARD REQUIRED)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Each menu item has a "weight_token" field. If it is not null, the PO product name MUST contain that exact token (case-insensitive):
-  • weight_token "14g"  → PO name must contain "14g"
-  • weight_token "3.5g" → PO name must contain "3.5g"
-  • weight_token "1g"   → PO name must contain "1g"
-  • weight_token ".5g"  → PO name must contain ".5g"
-A weight_token mismatch is an automatic NO MATCH, even if the strain name is identical.
+STEP 2 — FILTER PO LIST BY STRAIN
+  Search the PO PRODUCTS list for entries whose product_name contains that EXACT core strain identifier (case-insensitive).
+  If ZERO PO products contain the strain identifier → return NO MATCH for this menu item. Stop here.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RULE 3 — CATEGORY-SPECIFIC WEIGHT RULES
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• AIO (category_id 22): Menu item and PO product must BOTH be the same weight (both 1g, or both .5g). Do not match a 1g AIO to a .5g AIO or vice versa.
-• Vape Carts (category_id 32): Strict match on ".5g". Do not match across weights.
+STEP 3 — VALIDATE WEIGHT
+  From the filtered list in Step 2, check the weight_token (from the menu item).
+  If weight_token is not null, the PO product name MUST contain that exact token (e.g. "14g", "3.5g", "1g", ".5g").
+  If no filtered product passes the weight check → return NO MATCH. Stop here.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RULE 4 — CATEGORY MATCH (HARD REQUIRED)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-The menu item's category_id must match the PO product's category_id.
-Do not match across categories (e.g. Flower ≠ AIO, Flower ≠ Solventless Extracts).
+STEP 4 — VALIDATE CATEGORY
+  The menu item's category_id must equal the PO product's category_id.
+  If no match remains after category check → return NO MATCH.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RULE 5 — UNIQUENESS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Each po_product_id may appear at most ONCE in matched_pairs. If two menu items satisfy the rules for the same PO product, return only the better match and leave the other unmatched (it will be added as a new custom product).
+FORBIDDEN SUBSTITUTIONS — these are always wrong:
+  ✗ Matching "Sherb Fumez #14" to any product that does not contain "Sherb Fumez" in its name
+  ✗ Matching "SB36 #1 Flower 14g" to a product with "SB36 #1" in a different category (e.g. AIO)
+  ✗ Matching "Super Freak Flower 14g" to a "Super Freak" product whose name contains "3.5g"
+  ✗ Substituting one strain for another because they share the same weight and category
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WHEN IN DOUBT → NO MATCH
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-It is always better to return no pair than a wrong pair. Unmatched menu items will be added as new custom products — that is the safe outcome.
+UNIQUENESS: Each po_product_id may appear at most once in matched_pairs. If two menu items pass all steps for the same PO product, keep only the better match; leave the other as NO MATCH (it becomes a new custom product).
 
-Return matched_pairs — one entry per confidently matched menu item:
-  - menu_item_index: the "index" value of the matched menu item
-  - po_product_id: the po_product_id of the exactly matching PO product
+DEFAULT: When in doubt → NO MATCH. An unmatched menu item safely becomes a new custom product. A wrong match corrupts the PO.
+
+Return matched_pairs — one entry per menu item that passed all four steps:
+  - menu_item_index: the "index" value from the menu item
+  - po_product_id: the po_product_id of the matched PO product
 SYS;
 
 // p2_prompt is built dynamically after Phase 1 completes (uses $indexed_menu_items_json)
@@ -421,9 +402,6 @@ if (!$p2_is_old_thinking) {
     $p2_gen_config['temperature']      = 0.0;
     $p2_gen_config['responseMimeType'] = 'application/json';
     $p2_gen_config['responseSchema']   = $p2_schema;
-}
-if ($p2_use_thinking_cfg) {
-    $p2_gen_config['thinkingConfig'] = ['thinkingBudget' => 8192];
 }
 
 $p2_payload = [
