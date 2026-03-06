@@ -55,6 +55,13 @@ CATEGORY TRANSLATION RULES (map vendor menu section headings → our category na
 - "GUMMIS","EDIBLES","HASH ROSIN GUMMIS" → "Edibles"
 - "SINGLE JOINTS / 1 GRAM","PREROLL","JOINTS","DOINKS","PRE-ROLL" → "Pre-Rolls"
 
+WEIGHT MATCHING RULES — a PO product is only a match if its name contains the required weight token (case-insensitive):
+- Menu section "EIGHTHS / 3.5 GRAMS" or any "3.5g" section → PO product name MUST contain "3.5g"
+- Menu section "HALF OUNCE / 14 GRAMS" or any "14g" section → PO product name MUST contain "14g"
+- Menu section "SINGLE JOINTS / 1 GRAM" or "1g" preroll → PO product name MUST contain "1g"
+- Menu section "ALL IN ONE LIVE ROSIN VAPE 1G" → PO product name MUST contain "1g" (AIO category)
+- Menu section "PERSY POD / .5G" → PO product name MUST contain ".5g" (Vape Carts .5g category)
+
 --- STEP 1: DECODE THIS MENU ---
 Read the menu carefully. For each item, identify: exact product name (as written), price, product type / section heading.
 

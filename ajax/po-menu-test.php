@@ -193,9 +193,19 @@ $category_translations = <<<TRANS
 - "SINGLE JOINTS / 1 GRAM","PREROLL","JOINTS","DOINKS","PRE-ROLL" → "Pre-Rolls"
 TRANS;
 
+$weight_matching_rules = <<<WMATCH
+WEIGHT MATCHING RULES — a PO product is only a match if its name contains the required weight token (case-insensitive):
+- Menu section "EIGHTHS / 3.5 GRAMS" or any "3.5g" section → PO product name MUST contain "3.5g"
+- Menu section "HALF OUNCE / 14 GRAMS" or any "14g" section → PO product name MUST contain "14g"
+- Menu section "SINGLE JOINTS / 1 GRAM" or "1g" preroll → PO product name MUST contain "1g"
+- Menu section "ALL IN ONE LIVE ROSIN VAPE 1G" → PO product name MUST contain "1g" (AIO category)
+- Menu section "PERSY POD / .5G" → PO product name MUST contain ".5g" (Vape Carts .5g category)
+WMATCH;
+
 $prompt = "AVAILABLE BRANDS (use brand_id in your response):\n{$brands_json}"
     . "\n\nAVAILABLE CATEGORIES (use category_id in your response):\n{$categories_json}"
     . "\n\nCATEGORY TRANSLATION RULES:\n{$category_translations}"
+    . "\n\nWEIGHT MATCHING RULES:\n{$weight_matching_rules}"
     . "\n\n--- STEP 1: DECODE THIS MENU ---\n{$menu_text}"
     . "\n\n--- STEP 2 & 3: ALL PO PRODUCTS ---\n{$po_products_json}";
 
