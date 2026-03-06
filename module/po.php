@@ -198,33 +198,25 @@ $(document).ready(function(e) {
 
   function _renderTestModal(data, pagePoId) {
     var s = data.summary || {};
-    var p1ok = (data.phase1_http === 200 && !data.phase1_curl_error);
-    var p2ok = (data.phase2_http === 200 && !data.phase2_curl_error && !data.phase2_parse_error);
-    var ok   = p1ok && p2ok;
+    var ok = (data.phase1_http === 200 && !data.phase1_curl_error);
     var html = "";
-    // Summary bar
     html += \'<div class="alert alert-\' + (ok ? "secondary" : "danger") + \' mb-3">\';
-    html += \'<strong>Two-Phase Result</strong><br>\';
+    html += \'<strong>Result</strong><br>\';
     html += "PO: <b>" + _esc(data.po_code || data.po_id) + "</b> &nbsp;|&nbsp; ";
     html += "PO products: <b>" + (s.total_po_products || 0) + "</b> &nbsp;|&nbsp; ";
     html += "Total time: <b>" + (s.total_duration_s || "?") + "s</b><br>";
-    html += "Phase 1 [" + _esc(s.p1_model || "flash") + "] (PDF→menu): <b>" + (s.phase1_elapsed_s || "?") + "s</b>, ";
+    html += "Gemini [" + _esc(s.p1_model || "flash") + "] (PDF→menu): <b>" + (s.phase1_elapsed_s || "?") + "s</b>, ";
     html += "extracted <b>" + (s.menu_items_extracted || 0) + "</b> menu items, ";
     html += "finish: <b>" + _esc(data.phase1_finish_reason || "?") + "</b><br>";
-    html += "Phase 2 [" + _esc(s.p2_model || "thinking") + "] (match): <b>" + (s.phase2_elapsed_s || "?") + "s</b>, ";
-    html += "matched pairs: <b>" + (s.matched_pairs || 0) + "</b>, ";
-    html += "finish: <b>" + _esc(data.phase2_finish_reason || "?") + "</b><br>";
+    html += "PHP matcher: <b>" + (s.php_matched_pairs || 0) + "</b> matched, ";
+    html += "<b>" + (s.php_unmatched_items || 0) + "</b> unmatched (new custom products)<br>";
     if (ok) {
       html += "Not on menu (disable): <b>" + (s.total_disable_ids || 0) + "</b> &nbsp;|&nbsp; ";
       html += "New to add: <b>" + (s.total_add_products || 0) + "</b>";
     } else {
-      if (!p1ok) html += \'<div class="text-danger">Phase 1 error: HTTP \' + data.phase1_http + (data.phase1_curl_error ? \', cURL: \' + _esc(data.phase1_curl_error) : \'\') + \'</div>\';
-      if (!p2ok) html += \'<div class="text-danger">Phase 2 error: HTTP \' + data.phase2_http + (data.phase2_curl_error ? \', cURL: \' + _esc(data.phase2_curl_error) : \'\') + (data.phase2_parse_error ? \', Parse: \' + _esc(data.phase2_parse_error) : \'\') + \'</div>\';
+      html += \'<div class="text-danger">Gemini error: HTTP \' + data.phase1_http + (data.phase1_curl_error ? \', cURL: \' + _esc(data.phase1_curl_error) : \'\') + \'</div>\';
     }
     html += \'</div>\';
-    // Apply button (only shown when we have a valid result)
-    // Use the page PO ID (PHP-baked into the button) as the authoritative value.
-    // data.po_id can be stale/wrong (e.g. a po_product_id) if display settings drifted.
     var resolvedPoId = (pagePoId && parseInt(pagePoId, 10) > 0) ? parseInt(pagePoId, 10) : (data.po_id || 0);
     if (ok && resolvedPoId) {
       window._geminiApplyData = {
@@ -240,19 +232,14 @@ $(document).ready(function(e) {
       html += \' <span id="gemini-apply-status" class="text-muted small ml-2"></span>\';
       html += \'</div>\';
     }
-    // Collapsible sections
-    html += _testSection("Phase 1 — Extracted Menu Items (" + (data.phase1_menu_items || []).length + ")", JSON.stringify(data.phase1_menu_items || [], null, 2), "res-menu-items");
-    html += _testSection("Phase 1 — Raw Response", data.phase1_raw_response || "(empty)", "res-p1-raw");
-    html += _testSection("Phase 1 — System Instruction", data.phase1_system_instr || "", "res-p1-sys");
-    html += _testSection("Phase 1 — Prompt Sent", data.phase1_prompt || "", "res-p1-prompt");
-    html += _testSection("Phase 2 — Gemini Raw Pairs (" + (data.phase2_matched_pairs || []).length + ")", JSON.stringify(data.phase2_matched_pairs || [], null, 2), "res-pairs");
-    html += _testSection("Phase 2 — PHP Verified ✓ (" + (data.phase2_verified_pairs || []).length + ")", JSON.stringify(data.phase2_verified_pairs || [], null, 2), "res-verified");
-    html += _testSection("Phase 2 — PHP Rejected ✗ (" + (data.phase2_rejected_pairs || []).length + ")", JSON.stringify(data.phase2_rejected_pairs || [], null, 2), "res-rejected");
-    html += _testSection("Phase 2 — Raw Response", data.phase2_raw_response || "(empty)", "res-p2-raw");
-    html += _testSection("Phase 2 — System Instruction", data.phase2_system_instr || "", "res-p2-sys");
-    html += _testSection("Phase 2 — Prompt Sent", data.phase2_prompt || "", "res-p2-prompt");
+    html += _testSection("Extracted Menu Items (" + (data.phase1_menu_items || []).length + ")", JSON.stringify(data.phase1_menu_items || [], null, 2), "res-menu-items");
+    html += _testSection("PHP Matched Pairs (" + (data.php_matched_pairs || []).length + ")", JSON.stringify(data.php_matched_pairs || [], null, 2), "res-matched");
+    html += _testSection("PHP Unmatched — will add as new (" + (data.php_unmatched_items || []).length + ")", JSON.stringify(data.php_unmatched_items || [], null, 2), "res-unmatched");
     html += _testSection("Parsed: not-on-menu IDs (" + (data.parsed_disable_ids || []).length + ")", JSON.stringify(data.parsed_disable_ids || [], null, 2), "res-disable");
     html += _testSection("Parsed: add_products (" + (data.parsed_add_products || []).length + ")", JSON.stringify(data.parsed_add_products || [], null, 2), "res-add");
+    html += _testSection("Gemini Raw Response", data.phase1_raw_response || "(empty)", "res-p1-raw");
+    html += _testSection("Gemini System Instruction", data.phase1_system_instr || "", "res-p1-sys");
+    html += _testSection("Gemini Prompt Sent", data.phase1_prompt || "", "res-p1-prompt");
     html += _testSection("Brands Array (" + (data.brands_array || []).length + " items)", JSON.stringify(data.brands_array || [], null, 2), "res-brands");
     html += _testSection("Categories Array (" + (data.categories_array || []).length + " items)", JSON.stringify(data.categories_array || [], null, 2), "res-cats");
     html += _testSection("PO Products Sent (" + (data.po_products_sent || []).length + " items)", JSON.stringify(data.po_products_sent || [], null, 2), "res-prods");
