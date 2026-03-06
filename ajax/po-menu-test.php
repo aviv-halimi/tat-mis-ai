@@ -178,6 +178,7 @@ Read the attached PDF menu carefully. Extract EVERY product. For each product:
 Then map each product to brand_id (from AVAILABLE BRANDS) and category_id (from AVAILABLE CATEGORIES) using the CATEGORY TRANSLATION RULES.
 
 For the name field, concatenate as: "{Brand Name} {Strain Name} {Menu Category} {Weight}" (e.g. "710 Labs C. Chrome #27 Flower 3.5g"). Include weight only if shown.
+IMPORTANT: Use the brand's actual NAME text (e.g. "710 Labs"), NOT its brand_id number. Never start the name with a number like "121 ...".
 
 For the weight_token field, extract the canonical weight abbreviation from the menu section heading:
 - "Eighths / 3.5 Grams", "3.5G", or any 3.5g flower section → weight_token = "3.5g"
@@ -263,6 +264,22 @@ if (!$p1_curl_err && $p1_raw && $p1_http === 200) {
         $p1_parsed = json_decode($p1_response_text, true);
         if (is_array($p1_parsed) && !empty($p1_parsed['menu_items'])) {
             $menu_items = $p1_parsed['menu_items'];
+            // Post-process: if Gemini put the brand_id number at the start of the name
+            // instead of the brand name text (e.g. "121 SB36 #1 ..." → "710 Labs SB36 #1 ..."),
+            // replace it with the actual brand name.
+            $brand_id_to_name = array_column($all_brands, 'name', 'brand_id');
+            foreach ($menu_items as &$item) {
+                $bid = isset($item['brand_id']) ? (int) $item['brand_id'] : 0;
+                if ($bid && isset($brand_id_to_name[$bid])) {
+                    $brand_name = $brand_id_to_name[$bid];
+                    // Replace leading "123 " with the actual brand name if it doesn't already start with it
+                    $name = (string) ($item['name'] ?? '');
+                    if (preg_match('/^\d+\s+/u', $name) && stripos($name, $brand_name) !== 0) {
+                        $item['name'] = $brand_name . ' ' . preg_replace('/^\d+\s+/u', '', $name);
+                    }
+                }
+            }
+            unset($item);
         } else {
             $p1_parse_error = json_last_error_msg();
         }
