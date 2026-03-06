@@ -22,12 +22,25 @@ if (!$po_id) {
 if (!is_array($disable_ids))  { $disable_ids  = []; }
 if (!is_array($add_products)) { $add_products = []; }
 
+// -- diagnostics: capture current DB, count, and a direct row attempt --
+$_diag_db      = getRow(getRs("SELECT DATABASE() AS db"))['db'] ?? '?';
+$_diag_count   = getRow(getRs("SELECT COUNT(*) AS n FROM po WHERE po_id = ?", [$po_id]))['n'] ?? '?';
+$_diag_any     = getRow(getRs("SELECT po_id, po_status_id, is_active, is_enabled FROM po ORDER BY po_id DESC LIMIT 1")) ?: [];
+
 $po = getRow(getRs(
     "SELECT po_id, po_code, po_status_id, is_active, is_enabled FROM po WHERE po_id = ? LIMIT 1",
     [$po_id]
 ));
 if (!$po) {
-    echo json_encode(['success' => false, 'error' => "PO not found (po_id={$po_id})"]);
+    echo json_encode([
+        'success' => false,
+        'error'   => "PO not found (po_id={$po_id})",
+        'diag'    => [
+            'current_db'      => $_diag_db,
+            'count_for_po_id' => $_diag_count,
+            'latest_po_row'   => $_diag_any,
+        ],
+    ]);
     exit;
 }
 if (!(int)$po['is_active'] || !(int)$po['is_enabled']) {
