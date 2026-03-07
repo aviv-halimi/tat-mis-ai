@@ -59,6 +59,17 @@ if ((int) $po['po_status_id'] !== 1) {
     exit;
 }
 $po_code = $po['po_code'];
+$db      = $_Session->db;
+
+// Look-up maps for building custom product names
+$category_map = [];
+foreach (getRs("SELECT category_id, name FROM {$db}.category WHERE is_active = 1", []) as $r) {
+    $category_map[(int) $r['category_id']] = (string) $r['name'];
+}
+$brand_map = [];
+foreach (getRs("SELECT brand_id, name FROM {$db}.brand WHERE is_active = 1", []) as $r) {
+    $brand_map[(int) $r['brand_id']] = (string) $r['name'];
+}
 
 $disabled_count = 0;
 $added_count    = 0;
@@ -86,12 +97,40 @@ if (!empty($add_products)) {
 
     if ($direct_po_id) {
         foreach ($add_products as $item) {
-            $name = trim((string) ($item['name'] ?? ''));
-            if ($name === '') { continue; }
+            $strain_name = trim((string) ($item['name'] ?? ''));
+            if ($strain_name === '') { continue; }
 
             $brand_id    = isset($item['brand_id'])    && (int) $item['brand_id']    > 0 ? (int) $item['brand_id']    : null;
             $category_id = isset($item['category_id']) && (int) $item['category_id'] > 0 ? (int) $item['category_id'] : null;
             $price       = isset($item['price'])       && is_numeric($item['price'])      ? (float) $item['price']     : 0;
+
+            // Resolve brand name: prefer AI-provided brand_name, fall back to DB look-up
+            $brand_name = trim((string) ($item['brand_name'] ?? ''));
+            if ($brand_name === '' && $brand_id) {
+                $brand_name = $brand_map[$brand_id] ?? '';
+            }
+
+            // Resolve display category:
+            //   • Flowers category → always show "Flower" (singular)
+            //   • Otherwise use the menu section heading (product_type) if provided
+            //   • Fall back to DB category name
+            $category_name = $category_id ? ($category_map[$category_id] ?? '') : '';
+            $product_type  = trim((string) ($item['product_type'] ?? ''));
+            if (stripos($category_name, 'flower') === 0) {
+                $display_category = 'Flower';
+            } elseif ($product_type !== '') {
+                $display_category = $product_type;
+            } else {
+                $display_category = $category_name;
+            }
+
+            $weight_token = trim((string) ($item['weight_token'] ?? ''));
+
+            // Concatenate: "{Brand Name} {Strain Name} {displayCategory} {Weight}"
+            $name = implode(' ', array_filter(
+                [$brand_name, $strain_name, $display_category, $weight_token],
+                fn($p) => $p !== ''
+            ));
 
             $new_id = dbPut('po_product', [
                 'po_id'           => $direct_po_id,

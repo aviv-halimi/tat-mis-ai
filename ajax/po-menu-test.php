@@ -141,6 +141,8 @@ $category_translations = <<<TRANS
 - "FLOWER","EIGHTHS / 3.5 GRAMS","HALF OUNCE / 14 GRAMS","EIGHTHS","HALF OUNCE","3.5G","14G" → "Flowers"
 - "GUMMIS","EDIBLES","HASH ROSIN GUMMIS" → "Edibles"
 - "SINGLE JOINTS / 1 GRAM","PREROLL","JOINTS","DOINKS","PRE-ROLL" → "Pre-Rolls"
+- "PERSY DOINKS" → "Infused Prerolls"
+- "2 PERSY DOINKS" → "Infused Preroll Packs"
 TRANS;
 
 // ============================================================
@@ -155,10 +157,12 @@ $p1_schema = [
                 'type' => 'OBJECT',
                 'properties' => [
                     'name'         => ['type' => 'STRING'],
+                    'brand_name'   => ['type' => 'STRING',  'nullable' => true],
+                    'product_type' => ['type' => 'STRING',  'nullable' => true],
                     'price'        => ['type' => 'NUMBER'],
                     'brand_id'     => ['type' => 'INTEGER', 'nullable' => true],
                     'category_id'  => ['type' => 'INTEGER', 'nullable' => true],
-                    'weight_token' => ['type' => 'STRING', 'nullable' => true],
+                    'weight_token' => ['type' => 'STRING',  'nullable' => true],
                 ],
                 'required' => ['name', 'price'],
             ],
@@ -177,8 +181,11 @@ Read the attached PDF menu carefully. Extract EVERY product. For each product:
 
 Then map each product to brand_id (from AVAILABLE BRANDS) and category_id (from AVAILABLE CATEGORIES) using the CATEGORY TRANSLATION RULES.
 
-For the name field, concatenate as: "{Brand Name} {Strain Name} {Menu Category} {Weight}" (e.g. "710 Labs C. Chrome #27 Flower 3.5g"). Include weight only if shown.
-IMPORTANT: Use the brand's actual NAME text (e.g. "710 Labs"), NOT its brand_id number. Never start the name with a number like "121 ...".
+For the name field, provide ONLY the strain name exactly as written on the menu (e.g. "C. Chrome #27", "SB36 #1", "Marshmallow OG + Guava"). Do NOT include the brand name, category, or weight in this field.
+
+For the brand_name field, provide the brand's actual name text (e.g. "710 Labs"). Do NOT use the numeric brand_id here.
+
+For the product_type field, provide the menu section heading exactly as it appears on the menu (e.g. "EIGHTHS / 3.5 GRAMS", "HALF OUNCE / 14 GRAMS", "ALL IN ONE LIVE ROSIN VAPE 1G", "PERSY DOINKS", "2 PERSY DOINKS", "SINGLE JOINTS / 1 GRAM"). Set to null if not identifiable.
 
 For the weight_token field, extract the canonical weight abbreviation from the menu section heading:
 - "Eighths / 3.5 Grams", "3.5G", or any 3.5g flower section → weight_token = "3.5g"
@@ -186,6 +193,7 @@ For the weight_token field, extract the canonical weight abbreviation from the m
 - "Single Joints / 1 Gram", "DOINKS", "PRE-ROLL" or any 1g preroll section → weight_token = "1g"
 - "ALL IN ONE LIVE ROSIN VAPE 1G", "AIO", "ALL IN ONE" → weight_token = "1g"  ← AIO is always 1g
 - "PERSY POD / .5G", "SOLVENTLESS PODS .5G" or any .5g vape/pod section → weight_token = ".5g"
+- "PERSY DOINKS", "2 PERSY DOINKS" → weight_token = "1g"
 - If the item has no weight in its section heading → weight_token = null
 
 Return every menu item. Do not skip any.
@@ -264,22 +272,6 @@ if (!$p1_curl_err && $p1_raw && $p1_http === 200) {
         $p1_parsed = json_decode($p1_response_text, true);
         if (is_array($p1_parsed) && !empty($p1_parsed['menu_items'])) {
             $menu_items = $p1_parsed['menu_items'];
-            // Post-process: if Gemini put the brand_id number at the start of the name
-            // instead of the brand name text (e.g. "121 SB36 #1 ..." → "710 Labs SB36 #1 ..."),
-            // replace it with the actual brand name.
-            $brand_id_to_name = array_column($all_brands, 'name', 'brand_id');
-            foreach ($menu_items as &$item) {
-                $bid = isset($item['brand_id']) ? (int) $item['brand_id'] : 0;
-                if ($bid && isset($brand_id_to_name[$bid])) {
-                    $brand_name = $brand_id_to_name[$bid];
-                    // Replace leading "123 " with the actual brand name if it doesn't already start with it
-                    $name = (string) ($item['name'] ?? '');
-                    if (preg_match('/^\d+\s+/u', $name) && stripos($name, $brand_name) !== 0) {
-                        $item['name'] = $brand_name . ' ' . preg_replace('/^\d+\s+/u', '', $name);
-                    }
-                }
-            }
-            unset($item);
         } else {
             $p1_parse_error = json_last_error_msg();
         }
@@ -391,11 +383,13 @@ $disable_ids = array_values(array_filter($all_po_ids, fn($id) => !isset($found_s
 
 // add_products = unmatched menu items (become new custom products)
 $add_products = array_map(fn($item) => [
-    'name'        => $item['name'],
-    'price'       => $item['price'] ?? 0,
-    'brand_id'    => $item['brand_id'] ?? null,
-    'category_id' => $item['category_id'] ?? null,
-    'weight_token'=> $item['weight_token'] ?? null,
+    'name'         => $item['name'],           // strain name only (AI-provided)
+    'brand_name'   => $item['brand_name'] ?? null,
+    'product_type' => $item['product_type'] ?? null,
+    'price'        => $item['price'] ?? 0,
+    'brand_id'     => $item['brand_id'] ?? null,
+    'category_id'  => $item['category_id'] ?? null,
+    'weight_token' => $item['weight_token'] ?? null,
 ], $unmatched_items);
 
 $total_elapsed = round(microtime(true) - $p1_start, 3);
