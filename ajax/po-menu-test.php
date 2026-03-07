@@ -194,6 +194,7 @@ For the weight_token field, extract the canonical weight abbreviation from the m
 - "ALL IN ONE LIVE ROSIN VAPE 1G", "AIO", "ALL IN ONE" → weight_token = "1g"  ← AIO is always 1g
 - "PERSY POD / .5G", "SOLVENTLESS PODS .5G" or any .5g vape/pod section → weight_token = ".5g"
 - "PERSY DOINKS", "2 PERSY DOINKS" → weight_token = "1g"
+- Any combined weight like "1.5g F + .5g R", "1.5g + .5g", or similar split-weight formats → sum the parts and express as a single token (e.g. "1.5g F + .5g R" = 2g total → weight_token = "2g")
 - If the item has no weight in its section heading → weight_token = null
 
 Return every menu item. Do not skip any.
