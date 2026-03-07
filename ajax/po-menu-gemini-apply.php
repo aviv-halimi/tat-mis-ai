@@ -111,13 +111,16 @@ if (!empty($add_products)) {
             }
 
             // Resolve display category:
-            //   • Flowers category → always show "Flower" (singular)
+            //   • Flowers category → always "Flower" (singular)
+            //   • AIO category or product_type containing "all in one" → always "AIO"
             //   • Otherwise use the menu section heading (product_type) if provided
             //   • Fall back to DB category name
             $category_name = $category_id ? ($category_map[$category_id] ?? '') : '';
             $product_type  = trim((string) ($item['product_type'] ?? ''));
             if (stripos($category_name, 'flower') === 0) {
                 $display_category = 'Flower';
+            } elseif (strcasecmp($category_name, 'AIO') === 0 || stripos($product_type, 'all in one') !== false) {
+                $display_category = 'AIO';
             } elseif ($product_type !== '') {
                 $display_category = $product_type;
             } else {
@@ -125,6 +128,10 @@ if (!empty($add_products)) {
             }
 
             $weight_token = trim((string) ($item['weight_token'] ?? ''));
+            // Edibles with no weight listed default to 100mg
+            if ($weight_token === '' && stripos($category_name, 'edible') !== false) {
+                $weight_token = '100mg';
+            }
 
             // Concatenate: "{Brand Name} {Strain Name} {displayCategory} {Weight}"
             $name = implode(' ', array_filter(

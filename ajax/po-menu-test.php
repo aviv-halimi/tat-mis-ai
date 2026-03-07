@@ -185,7 +185,7 @@ For the name field, provide ONLY the strain name exactly as written on the menu 
 
 For the brand_name field, provide the brand's actual name text (e.g. "710 Labs"). Do NOT use the numeric brand_id here.
 
-For the product_type field, provide the menu section heading exactly as it appears on the menu (e.g. "EIGHTHS / 3.5 GRAMS", "HALF OUNCE / 14 GRAMS", "ALL IN ONE LIVE ROSIN VAPE 1G", "PERSY DOINKS", "2 PERSY DOINKS", "SINGLE JOINTS / 1 GRAM"). Set to null if not identifiable.
+For the product_type field, provide the menu section heading in proper/title case (e.g. "Eighths / 3.5 Grams", "Half Ounce / 14 Grams", "All In One Live Rosin Vape 1g", "Persy Doinks", "2 Persy Doinks", "Single Joints / 1 Gram", "Persy Rosin", "Persy Badder", "Half Ounce / 14 Grams"). Do NOT return it in ALL CAPS. Set to null if not identifiable.
 
 For the weight_token field, extract the canonical weight abbreviation from the menu section heading:
 - "Eighths / 3.5 Grams", "3.5G", or any 3.5g flower section → weight_token = "3.5g"
