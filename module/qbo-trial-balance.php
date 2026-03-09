@@ -2,6 +2,31 @@
 if (!isset($page_title)) $page_title = 'QBO Trial Balance';
 if (!isset($page_icon))  $page_icon  = '<i class="fa fa-balance-scale"></i>';
 
+$footer = '
+<script>
+$(document).ready(function () {
+    $(".btn-save-start-date").on("click", function () {
+        var $row = $(this).closest("tr");
+        var store_id = $row.data("store-id");
+        var start_date = $row.find(".start-date-input").val();
+        var $btn = $(this);
+        $btn.prop("disabled", true).html("<i class=\"fa fa-spinner fa-spin\"></i>");
+        $.post("/ajax/qbo-trial-balance-save-start-date.php", { store_id: store_id, start_date: start_date }, function (data) {
+            if (data.success) {
+                $btn.removeClass("btn-primary").addClass("btn-success").html("<i class=\"fa fa-check\"></i> Saved");
+                setTimeout(function () { $btn.removeClass("btn-success").addClass("btn-primary").html("<i class=\"fa fa-save\"></i> Save").prop("disabled", false); }, 2500);
+            } else {
+                alert("Error saving start date:\\n" + (data.error || "Unknown error"));
+                $btn.prop("disabled", false).html("<i class=\"fa fa-save\"></i> Save");
+            }
+        }, "json").fail(function () {
+            alert("Request failed. Please try again.");
+            $btn.prop("disabled", false).html("<i class=\"fa fa-save\"></i> Save");
+        });
+    });
+});
+</script>';
+
 require_once(BASE_PATH . 'inc/qbo.php');
 include_once('inc/header.php');
 
@@ -128,41 +153,5 @@ $stores = $has_start_date_col
         </div>
     </div>
 </div>
-
-<script>
-$(document).ready(function () {
-
-    $('.btn-save-start-date').on('click', function () {
-        var $row      = $(this).closest('tr');
-        var store_id  = $row.data('store-id');
-        var start_date = $row.find('.start-date-input').val();
-        var $btn      = $(this);
-
-        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
-
-        $.post('/ajax/qbo-trial-balance-save-start-date.php', {
-            store_id:   store_id,
-            start_date: start_date
-        }, function (data) {
-            if (data.success) {
-                $btn.removeClass('btn-primary').addClass('btn-success')
-                    .html('<i class="fa fa-check"></i> Saved');
-                setTimeout(function () {
-                    $btn.removeClass('btn-success').addClass('btn-primary')
-                        .html('<i class="fa fa-save"></i> Save')
-                        .prop('disabled', false);
-                }, 2500);
-            } else {
-                alert('Error saving start date:\n' + (data.error || 'Unknown error'));
-                $btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save');
-            }
-        }, 'json').fail(function () {
-            alert('Request failed. Please try again.');
-            $btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save');
-        });
-    });
-
-});
-</script>
 
 <?php include_once('inc/footer.php'); ?>
