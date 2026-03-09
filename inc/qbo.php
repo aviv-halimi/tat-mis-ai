@@ -987,6 +987,101 @@ function qbo_vendor_credit_url($vendor_credit_id) {
 }
 
 /**
+ * Fetch a Trial Balance report from QBO for a store via direct REST API call.
+ * @param int $store_id
+ * @param string $start_date YYYY-MM-DD
+ * @param string $end_date YYYY-MM-DD
+ * @return array { success, data: (raw QBO response array), error?, needs_authorization?, auth_url? }
+ */
+function qbo_get_trial_balance($store_id, $start_date, $end_date) {
+    $token = qbo_get_access_token($store_id);
+    if (!is_array($token) || empty($token['access_token'])) {
+        $err = isset($token['error']) ? $token['error'] : 'QBO not configured or token failed';
+        $out = array('success' => false, 'data' => null, 'error' => $err);
+        _qbo_forward_auth($out, $token);
+        return $out;
+    }
+    $realm_id = $token['realm_id'];
+    $url = 'https://quickbooks.api.intuit.com/v3/company/' . urlencode($realm_id) . '/reports/TrialBalance'
+        . '?start_date=' . urlencode($start_date)
+        . '&end_date=' . urlencode($end_date)
+        . '&minorversion=65';
+    $ch = curl_init($url);
+    curl_setopt_array($ch, array(
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => array(
+            'Authorization: Bearer ' . $token['access_token'],
+            'Accept: application/json',
+        ),
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_SSL_VERIFYPEER => true,
+    ));
+    $response = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curl_error = curl_error($ch);
+    curl_close($ch);
+    if ($curl_error) {
+        return array('success' => false, 'data' => null, 'error' => 'cURL error: ' . $curl_error);
+    }
+    if ($http_code !== 200) {
+        $msg = 'QBO API returned HTTP ' . $http_code;
+        $body = json_decode($response, true);
+        if (isset($body['Fault']['Error'][0]['Message'])) {
+            $msg .= ': ' . $body['Fault']['Error'][0]['Message'];
+        } elseif (isset($body['Fault']['Error'][0]['Detail'])) {
+            $msg .= ': ' . $body['Fault']['Error'][0]['Detail'];
+        }
+        return array('success' => false, 'data' => null, 'error' => $msg, 'http_code' => $http_code);
+    }
+    $data = json_decode($response, true);
+    if (!is_array($data)) {
+        return array('success' => false, 'data' => null, 'error' => 'Failed to parse QBO response as JSON');
+    }
+    return array('success' => true, 'data' => $data);
+}
+
+/**
+ * Recursively flatten QBO Trial Balance Rows into a simple list for Excel rendering.
+ * Each item: { type: 'section_header'|'data'|'section_summary'|'grand_total', depth, cols: [{value},...] }
+ * @param array $rows Raw rows array from QBO response
+ * @param int $depth Current nesting depth (0 = top-level section)
+ * @return array
+ */
+function qbo_tb_flatten_rows($rows, $depth = 0) {
+    $result = array();
+    if (!is_array($rows)) {
+        return $result;
+    }
+    foreach ($rows as $row) {
+        if (!isset($row['type'])) {
+            continue;
+        }
+        if ($row['type'] === 'Section') {
+            $header_val = isset($row['Header']['ColData'][0]['value']) ? trim($row['Header']['ColData'][0]['value']) : '';
+            if ($header_val !== '') {
+                $result[] = array('type' => 'section_header', 'depth' => $depth, 'cols' => $row['Header']['ColData']);
+            }
+            if (isset($row['Rows']['Row']) && is_array($row['Rows']['Row'])) {
+                $result = array_merge($result, qbo_tb_flatten_rows($row['Rows']['Row'], $depth + 1));
+            }
+            $summary_val = isset($row['Summary']['ColData'][0]['value']) ? trim($row['Summary']['ColData'][0]['value']) : '';
+            if ($summary_val !== '') {
+                $result[] = array('type' => 'section_summary', 'depth' => $depth, 'cols' => $row['Summary']['ColData']);
+            }
+        } elseif ($row['type'] === 'Data') {
+            if (isset($row['ColData'])) {
+                $result[] = array('type' => 'data', 'depth' => $depth, 'cols' => $row['ColData']);
+            }
+        } elseif ($row['type'] === 'GrandTotal') {
+            if (isset($row['ColData'])) {
+                $result[] = array('type' => 'grand_total', 'depth' => $depth, 'cols' => $row['ColData']);
+            }
+        }
+    }
+    return $result;
+}
+
+/**
  * Add a PO note (Files/Notes) when a QBO bill is created: Bill ID, invoice total, and link to bill if realm available.
  * @param int $po_id
  * @param string $bill_id QBO Bill Id
