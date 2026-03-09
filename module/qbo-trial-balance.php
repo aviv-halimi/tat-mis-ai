@@ -93,10 +93,10 @@ $stores = $has_start_date_col
                         </tr>
                     </thead>
                     <tbody>
-                        <?php
-                        $has_rows = false;
-                        while ($r = getRow($stores)):
-                            $has_rows = true;
+                        <?php if (empty($stores)): ?>
+                        <tr><td colspan="4" class="text-center text-muted">No stores found.</td></tr>
+                        <?php else: ?>
+                        <?php foreach ($stores as $r):
                             $qbo_ok   = !empty($r['qbo_realm_id']);
                             $start_dt = isset($r['qbo_tb_start_date']) ? $r['qbo_tb_start_date'] : '';
                         ?>
@@ -120,9 +120,7 @@ $stores = $has_start_date_col
                                 </button>
                             </td>
                         </tr>
-                        <?php endwhile; ?>
-                        <?php if (!$has_rows): ?>
-                        <tr><td colspan="4" class="text-center text-muted">No stores found.</td></tr>
+                        <?php endforeach; ?>
                         <?php endif; ?>
                     </tbody>
                 </table>

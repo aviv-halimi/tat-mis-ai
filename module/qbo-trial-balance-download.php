@@ -31,7 +31,7 @@ $stores_rs = getRs(
       WHERE " . is_enabled() . "
       ORDER BY store_name"
 );
-if (!$stores_rs) {
+if (empty($stores_rs)) {
     die('No stores found.');
 }
 
@@ -86,7 +86,7 @@ $generated = array();
 $errors    = array();
 
 // ── Loop through stores ──────────────────────────────────────────────────────
-while ($store = getRow($stores_rs)) {
+foreach ($stores_rs as $store) {
     $store_id   = (int)$store['store_id'];
     $store_name = $store['store_name'];
     $start_date = isset($store['qbo_tb_start_date']) ? trim($store['qbo_tb_start_date']) : '';
