@@ -288,12 +288,10 @@ if (!$p1_curl_err && $p1_raw && $p1_http === 200) {
             if ($p1_parse_error && $p1_finish_reason === 'MAX_TOKENS') {
                 $trimmed = trim($p1_response_text);
                 if (preg_match('/"menu_items"\s*:\s*\[/', $trimmed)) {
-                    $last_item_end = strrpos($trimmed, "}\n    },");
-                    if ($last_item_end === false) {
-                        $last_item_end = strrpos($trimmed, "}\n  },");
-                    }
-                    if ($last_item_end !== false) {
-                        $salvage = substr($trimmed, 0, $last_item_end + 1) . "\n  ]\n}";
+                    // Truncation left incomplete JSON; find last complete item (last "},") and close array/object
+                    $last_comma = strrpos($trimmed, '},');
+                    if ($last_comma !== false) {
+                        $salvage = substr($trimmed, 0, $last_comma) . ']}';
                         $p1_parsed = json_decode($salvage, true);
                         if (is_array($p1_parsed) && !empty($p1_parsed['menu_items'])) {
                             $menu_items = $p1_parsed['menu_items'];
