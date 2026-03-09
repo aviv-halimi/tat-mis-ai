@@ -5,12 +5,18 @@ if (!isset($page_icon))  $page_icon  = '<i class="fa fa-balance-scale"></i>';
 require_once(BASE_PATH . 'inc/qbo.php');
 include_once('inc/header.php');
 
-$stores = getRs(
-    "SELECT store_id, store_name, qbo_realm_id, qbo_tb_start_date
-       FROM store
-      WHERE " . is_enabled() . "
-      ORDER BY store_name"
-);
+// Check whether the qbo_tb_start_date column exists yet.
+$has_start_date_col = false;
+try {
+    getRs("SELECT qbo_tb_start_date FROM store LIMIT 1");
+    $has_start_date_col = true;
+} catch (Exception $e) {
+    // Column not added yet — show setup notice below.
+}
+
+$stores = $has_start_date_col
+    ? getRs("SELECT store_id, store_name, qbo_realm_id, qbo_tb_start_date FROM store WHERE " . is_enabled() . " ORDER BY store_name")
+    : getRs("SELECT store_id, store_name, qbo_realm_id, NULL AS qbo_tb_start_date FROM store WHERE " . is_enabled() . " ORDER BY store_name");
 ?>
 
 <style>
@@ -21,6 +27,16 @@ $stores = getRs(
 .panel-generate .panel-heading { background: #116066; color: #fff; }
 .panel-generate .panel-heading h4 { color: #fff; margin: 0; }
 </style>
+
+<?php if (!$has_start_date_col): ?>
+<div class="alert alert-warning alert-bordered">
+    <strong><i class="fa fa-exclamation-triangle mr-1"></i> Setup Required:</strong>
+    The <code>qbo_tb_start_date</code> column has not been added to the <code>store</code> table yet.
+    Run this SQL then refresh the page:
+    <pre class="m-t-10 m-b-0" style="background:#fff;padding:8px;border-radius:4px;">ALTER TABLE theartisttree.store
+  ADD COLUMN qbo_tb_start_date DATE NULL DEFAULT NULL;</pre>
+</div>
+<?php endif; ?>
 
 <div class="row">
     <div class="col-md-8 col-lg-6">
