@@ -1005,6 +1005,7 @@ function qbo_get_trial_balance($store_id, $start_date, $end_date) {
     $url = 'https://quickbooks.api.intuit.com/v3/company/' . urlencode($realm_id) . '/reports/TrialBalance'
         . '?start_date=' . urlencode($start_date)
         . '&end_date=' . urlencode($end_date)
+        . '&summarize_column_by=Month'
         . '&minorversion=65';
     $ch = curl_init($url);
     curl_setopt_array($ch, array(
@@ -1041,67 +1042,67 @@ function qbo_get_trial_balance($store_id, $start_date, $end_date) {
 }
 
 /**
- * Get list of months (start/end dates and label) between two dates.
- * @param string $start_date YYYY-MM-DD
- * @param string $end_date YYYY-MM-DD
- * @return array [ ['start' => 'YYYY-MM-DD', 'end' => 'YYYY-MM-DD', 'label' => 'Jan 2025'], ... ]
- */
-function qbo_tb_months_in_range($start_date, $end_date) {
-    $months = array();
-    $start = new DateTime($start_date);
-    $end   = new DateTime($end_date);
-    if ($start > $end) {
-        return $months;
-    }
-    $cur = new DateTime($start->format('Y-m-01'));
-    $endMonth = new DateTime($end->format('Y-m-t'));
-    while ($cur <= $endMonth) {
-        $month_start = $cur->format('Y-m-01');
-        $month_end   = $cur->format('Y-m-t');
-        if ($month_start < $start_date) {
-            $month_start = $start_date;
-        }
-        if ($month_end > $end_date) {
-            $month_end = $end_date;
-        }
-        $months[] = array(
-            'start' => $month_start,
-            'end'   => $month_end,
-            'label' => $cur->format('M Y'),
-        );
-        $cur->modify('+1 month');
-    }
-    return $months;
-}
-
-/**
- * Extract account-level data rows from a QBO Trial Balance report response.
- * Returns only type=Data rows with id (if present), name, debit, credit.
+ * Parse a QBO Trial Balance report response (single or summarize_column_by=Month) into columns and rows for Excel.
+ * Uses Header/Columns for column titles when present; otherwise derives from first row.
  * @param array $data Raw response from qbo_get_trial_balance
- * @return array [ ['id' => string|null, 'name' => string, 'debit' => float, 'credit' => float], ... ]
+ * @return array { 'columns' => [ 'Account', 'Jan 2026 Debit', ... ], 'rows' => [ [ val1, val2, ... ], ... ] }
  */
-function qbo_tb_extract_account_rows($data) {
-    $result = array();
+function qbo_tb_parse_report_to_flat($data) {
+    $columns = array();
+    $rows = array();
+
+    $colDefs = null;
+    if (isset($data['Columns']['Column']) && is_array($data['Columns']['Column'])) {
+        $colDefs = $data['Columns']['Column'];
+    } elseif (isset($data['Header']['Columns']['Column']) && is_array($data['Header']['Columns']['Column'])) {
+        $colDefs = $data['Header']['Columns']['Column'];
+    }
+    if ($colDefs) {
+        foreach ($colDefs as $col) {
+            $title = isset($col['ColTitle']) ? (is_array($col['ColTitle']) ? (isset($col['ColTitle']['value']) ? $col['ColTitle']['value'] : '') : (string)$col['ColTitle']) : '';
+            $columns[] = $title !== '' ? $title : ('Col ' . (count($columns) + 1));
+        }
+    }
+
     $top_rows = isset($data['Rows']['Row']) ? $data['Rows']['Row'] : array();
     $flat = qbo_tb_flatten_rows($top_rows, 0);
+
+    $maxCols = count($columns);
     foreach ($flat as $item) {
-        if ($item['type'] !== 'data' || empty($item['cols'])) {
+        if (empty($item['cols'])) {
             continue;
         }
-        $col0 = isset($item['cols'][0]) ? $item['cols'][0] : array();
-        $name = isset($col0['value']) ? trim((string)$col0['value']) : '';
-        if ($name === '') {
-            continue;
+        $row = array();
+        foreach ($item['cols'] as $c) {
+            $row[] = isset($c['value']) ? $c['value'] : '';
         }
-        $id = isset($col0['id']) ? trim((string)$col0['id']) : null;
-        if ($id === '') {
-            $id = null;
+        if (empty($columns) && !empty($row)) {
+            $columns = array_map(function ($i) { return 'Col ' . ($i + 1); }, array_keys($row));
+            $maxCols = count($columns);
         }
-        $debit  = isset($item['cols'][1]['value']) ? (float)$item['cols'][1]['value'] : 0.0;
-        $credit = isset($item['cols'][2]['value']) ? (float)$item['cols'][2]['value'] : 0.0;
-        $result[] = array('id' => $id, 'name' => $name, 'debit' => $debit, 'credit' => $credit);
+        if (count($row) > $maxCols) {
+            $maxCols = count($row);
+        }
+        $rows[] = array('type' => $item['type'], 'depth' => $item['depth'], 'values' => $row);
     }
-    return $result;
+
+    if (empty($columns) && !empty($rows)) {
+        $columns = array_map(function ($i) { return 'Col ' . ($i + 1); }, range(0, $maxCols - 1));
+    }
+    while (count($columns) < $maxCols) {
+        $columns[] = 'Col ' . (count($columns) + 1);
+    }
+
+    $num_cols = count($columns);
+    foreach ($rows as &$r) {
+        while (count($r['values']) < $num_cols) {
+            $r['values'][] = '';
+        }
+        $r['values'] = array_slice($r['values'], 0, $num_cols);
+    }
+    unset($r);
+
+    return array('columns' => $columns, 'rows' => $rows);
 }
 
 /**
