@@ -216,7 +216,7 @@ $p1_payload = [
     'contents' => [['parts' => array_merge($pdf_parts, [['text' => $p1_prompt]])]],
     'generationConfig' => [
         'temperature'      => 0.0,
-        'maxOutputTokens'  => 8192,
+        'maxOutputTokens'  => 16384,
         'responseMimeType' => 'application/json',
         'responseSchema'   => $p1_schema,
     ],
@@ -276,11 +276,34 @@ if (!$p1_curl_err && $p1_raw && $p1_http === 200) {
     $p1_response_text = $p1_data['candidates'][0]['content']['parts'][0]['text'] ?? '';
     $p1_finish_reason = $p1_data['candidates'][0]['finishReason'] ?? null;
     if ($p1_response_text !== '') {
+        // Strip control characters that cause JSON "Control character error"
+        $p1_response_text = preg_replace('/[\x00-\x1F]/', ' ', $p1_response_text);
         $p1_parsed = json_decode($p1_response_text, true);
-        if (is_array($p1_parsed) && !empty($p1_parsed['menu_items'])) {
-            $menu_items = $p1_parsed['menu_items'];
-        } else {
+        if (!is_array($p1_parsed) || empty($p1_parsed['menu_items'])) {
             $p1_parse_error = json_last_error_msg();
+            // If truncated (MAX_TOKENS), try to salvage partial JSON: close at last complete menu item
+            if ($p1_parse_error && $p1_finish_reason === 'MAX_TOKENS' && preg_match('/\}\s*,\s*$/', $p1_response_text)) {
+                $p1_parse_error = null;
+            }
+            if ($p1_parse_error && $p1_finish_reason === 'MAX_TOKENS') {
+                $trimmed = trim($p1_response_text);
+                if (preg_match('/"menu_items"\s*:\s*\[/', $trimmed)) {
+                    $last_item_end = strrpos($trimmed, "}\n    },");
+                    if ($last_item_end === false) {
+                        $last_item_end = strrpos($trimmed, "}\n  },");
+                    }
+                    if ($last_item_end !== false) {
+                        $salvage = substr($trimmed, 0, $last_item_end + 1) . "\n  ]\n}";
+                        $p1_parsed = json_decode($salvage, true);
+                        if (is_array($p1_parsed) && !empty($p1_parsed['menu_items'])) {
+                            $menu_items = $p1_parsed['menu_items'];
+                            $p1_parse_error = null;
+                        }
+                    }
+                }
+            }
+        } else {
+            $menu_items = $p1_parsed['menu_items'];
         }
     }
 }
