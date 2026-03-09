@@ -1078,8 +1078,12 @@ function initPushDailyDiscountReportQbo() {
       ddReportQboLog('Map vendors: updateDialog2 not found.');
       return;
     }
-    ddReportQboLog('Loading modal: QBO connection status c=' + brandId);
-    updateDialog2('daily-discount-report-qbo-connection-status', 'QBO connection status', null, brandId);
+    // Direct map-vendors click: open map-vendor modal immediately.
+    // Do NOT set _ddQboPushFlowBrandId so saving won't trigger the push flow.
+    window._ddQboPushFlowBrandId = null;
+    window._ddQboPushFlowFormat = null;
+    ddReportQboLog('Loading modal: map vendor c=' + brandId);
+    updateDialog2('daily-discount-report-qbo-map-vendor', 'Map brand to QBO vendor', null, brandId);
   });
   $(document).off('click', '.btn-push-dd-report-qbo').on('click', '.btn-push-dd-report-qbo', function(e) {
     e.preventDefault();
