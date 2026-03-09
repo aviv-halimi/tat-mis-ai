@@ -135,11 +135,12 @@ $brands_json     = json_encode($all_brands,     JSON_UNESCAPED_UNICODE);
 $categories_json = json_encode($all_categories, JSON_UNESCAPED_UNICODE);
 
 $category_translations = <<<TRANS
-- "PERSY BADDER","PERSY ROSIN","LIVE ROSIN","THUMB PRINT","SAUCE","BADDER","ROSIN" → "Solventless Extracts"
-- "PERSY POD / .5G","PERSY POD","SOLVENTLESS PODS" → "Vape Carts .5g"
-- "ALL IN ONE LIVE ROSIN VAPE 1G","ALL IN ONE","AIO" → "AIO"
-- "FLOWER","EIGHTHS / 3.5 GRAMS","HALF OUNCE / 14 GRAMS","EIGHTHS","HALF OUNCE","3.5G","14G" → "Flowers"
-- "GUMMIS","EDIBLES","HASH ROSIN GUMMIS" → "Edibles"
+- "FLOWER" (column header): use section sub-headers ("HALF OUNCE/14G", "EIGHTHS/3.5G", "SINGLE JOINTS/1G") to determine category; these map to "Flowers"
+- "PERSY BADDER","PERSY ROSIN","PERSY BADDER 1G","PERSY ROSIN 1G","LR BADDER 2.5G","LR BADDER 1G","LIVE ROSIN","THUMB PRINT","SAUCE","BADDER","ROSIN" → "Solventless Extracts"
+- "PERSY POD / .5G","PERSY POD","PERSY POD .5G","SOLVENTLESS PODS" → "Vape Carts .5g"
+- "ALL IN ONE LIVE ROSIN VAPE 1G","ALL IN ONE","AIO","LR VAPE 1G ALL-IN-ONE" → "AIO"
+- "FLOWER","EIGHTHS / 3.5 GRAMS","HALF OUNCE / 14 GRAMS","HALF OUNCE/14G","EIGHTHS/3.5G","EIGHTHS","HALF OUNCE","3.5G","14G","SINGLE JOINTS/1G" → "Flowers"
+- "GUMMIS","EDIBLES","HASH ROSIN GUMMIS","HASH ROSIN GUMMIS 100MG" → "Edibles"
 - "SINGLE JOINTS / 1 GRAM","PREROLL","JOINTS","DOINKS","PRE-ROLL" → "Pre-Rolls"
 - "PERSY DOINKS" → "Infused Prerolls"
 - "2 PERSY DOINKS" → "Infused Preroll Packs"
@@ -174,27 +175,32 @@ $p1_schema = [
 $p1_system_instr = <<<SYS
 You are a cannabis dispensary menu extraction assistant.
 
-Read the attached PDF menu carefully. Extract EVERY product. For each product:
-- Identify the strain name exactly as written
-- Identify the section heading (product type)
-- Record the price
+Read the attached PDF menu carefully. Extract EVERY product.
+
+## Table Extraction Logic (Persistence Rules)
+1. **Vertical Propagation**: Many columns only list a value in the first row of a section (e.g., PRODUCT TYPE, TIER, or PRICE). You MUST remember the last seen value for these fields and apply it to every subsequent row until a new value or section header appears.
+2. **Header vs. Type**: The header at the top of a column (e.g., "FLOWER", "SOLVENTLESS", "EDIBLES") is the Category. The sub-headers within the rows (e.g., "HALF OUNCE/14G", "PERSY BADDER 1G") are the product_type.
+3. **Price Priority**: Always use the "UNIT" column for the price field.
+4. **Genetic Filtering**: Ignore the "GENETICS" and "%" columns. Do not include their contents in the name field.
 
 Then map each product to brand_id (from AVAILABLE BRANDS) and category_id (from AVAILABLE CATEGORIES) using the CATEGORY TRANSLATION RULES.
 
-For the name field, provide ONLY the strain name exactly as written on the menu (e.g. "C. Chrome #27", "SB36 #1", "Marshmallow OG + Guava"). Do NOT include the brand name, category, or weight in this field.
+For the name field, provide ONLY the strain name exactly as written on the menu (e.g. "C. Chrome #27", "SB36 #1", "Marshmallow OG + Guava"). Do NOT include the brand name, category, weight, genetics, or percentage in this field.
 
 For the brand_name field, provide the brand's actual name text (e.g. "710 Labs"). Do NOT use the numeric brand_id here.
 
-For the product_type field, provide the menu section heading in proper/title case (e.g. "Eighths / 3.5 Grams", "Half Ounce / 14 Grams", "All In One Live Rosin Vape 1g", "Persy Doinks", "2 Persy Doinks", "Single Joints / 1 Gram", "Persy Rosin", "Persy Badder", "Half Ounce / 14 Grams"). Do NOT return it in ALL CAPS. Set to null if not identifiable.
+For the product_type field, provide the menu section or sub-header in proper/title case (e.g. "Half Ounce/14g", "Eighths/3.5g", "Persy Badder 1g", "LR Vape 1g All-In-One"). Do NOT return it in ALL CAPS. Set to null if not identifiable.
 
-For the weight_token field, extract the canonical weight abbreviation from the menu section heading:
-- "Eighths / 3.5 Grams", "3.5G", or any 3.5g flower section → weight_token = "3.5g"
-- "Half Ounce / 14 Grams", "14G", or any 14g section → weight_token = "14g"
-- "Single Joints / 1 Gram", "DOINKS", "PRE-ROLL" or any 1g preroll section → weight_token = "1g"
-- "ALL IN ONE LIVE ROSIN VAPE 1G", "AIO", "ALL IN ONE" → weight_token = "1g"  ← AIO is always 1g
-- "PERSY POD / .5G", "SOLVENTLESS PODS .5G" or any .5g vape/pod section → weight_token = ".5g"
+## Weight Token Logic
+- "HALF OUNCE/14G" or "Half Ounce/14g" → weight_token = "14g"
+- "EIGHTHS/3.5G" or "Eighths/3.5g" → weight_token = "3.5g"
+- "SINGLE JOINTS/1G" or "Single Joints/1g" → weight_token = "1g"
+- "PERSY BADDER 1G", "PERSY ROSIN 1G", "Persy Badder 1g", "Persy Rosin 1g" → weight_token = "1g"
+- "2.5G COLD CURE" or "2.5g Cold Cure" → weight_token = "2.5g"
+- "PERSY POD .5G" or "Persy Pod .5g" → weight_token = ".5g"
+- "LR VAPE 1G ALL-IN-ONE", "All In One", "AIO" → weight_token = "1g"
 - "PERSY DOINKS", "2 PERSY DOINKS" → weight_token = "1g"
-- Any combined weight like "1.5g F + .5g R", "1.5g + .5g", or similar split-weight formats → sum the parts and express as a single token (e.g. "1.5g F + .5g R" = 2g total → weight_token = "2g")
+- Any combined weight like "1.5g F + .5g R" → sum the parts (e.g. 2g total → weight_token = "2g")
 - If the item has no weight in its section heading → weight_token = null
 
 Return every menu item. Do not skip any.
