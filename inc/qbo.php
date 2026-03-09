@@ -1041,6 +1041,70 @@ function qbo_get_trial_balance($store_id, $start_date, $end_date) {
 }
 
 /**
+ * Get list of months (start/end dates and label) between two dates.
+ * @param string $start_date YYYY-MM-DD
+ * @param string $end_date YYYY-MM-DD
+ * @return array [ ['start' => 'YYYY-MM-DD', 'end' => 'YYYY-MM-DD', 'label' => 'Jan 2025'], ... ]
+ */
+function qbo_tb_months_in_range($start_date, $end_date) {
+    $months = array();
+    $start = new DateTime($start_date);
+    $end   = new DateTime($end_date);
+    if ($start > $end) {
+        return $months;
+    }
+    $cur = new DateTime($start->format('Y-m-01'));
+    $endMonth = new DateTime($end->format('Y-m-t'));
+    while ($cur <= $endMonth) {
+        $month_start = $cur->format('Y-m-01');
+        $month_end   = $cur->format('Y-m-t');
+        if ($month_start < $start_date) {
+            $month_start = $start_date;
+        }
+        if ($month_end > $end_date) {
+            $month_end = $end_date;
+        }
+        $months[] = array(
+            'start' => $month_start,
+            'end'   => $month_end,
+            'label' => $cur->format('M Y'),
+        );
+        $cur->modify('+1 month');
+    }
+    return $months;
+}
+
+/**
+ * Extract account-level data rows from a QBO Trial Balance report response.
+ * Returns only type=Data rows with id (if present), name, debit, credit.
+ * @param array $data Raw response from qbo_get_trial_balance
+ * @return array [ ['id' => string|null, 'name' => string, 'debit' => float, 'credit' => float], ... ]
+ */
+function qbo_tb_extract_account_rows($data) {
+    $result = array();
+    $top_rows = isset($data['Rows']['Row']) ? $data['Rows']['Row'] : array();
+    $flat = qbo_tb_flatten_rows($top_rows, 0);
+    foreach ($flat as $item) {
+        if ($item['type'] !== 'data' || empty($item['cols'])) {
+            continue;
+        }
+        $col0 = isset($item['cols'][0]) ? $item['cols'][0] : array();
+        $name = isset($col0['value']) ? trim((string)$col0['value']) : '';
+        if ($name === '') {
+            continue;
+        }
+        $id = isset($col0['id']) ? trim((string)$col0['id']) : null;
+        if ($id === '') {
+            $id = null;
+        }
+        $debit  = isset($item['cols'][1]['value']) ? (float)$item['cols'][1]['value'] : 0.0;
+        $credit = isset($item['cols'][2]['value']) ? (float)$item['cols'][2]['value'] : 0.0;
+        $result[] = array('id' => $id, 'name' => $name, 'debit' => $debit, 'credit' => $credit);
+    }
+    return $result;
+}
+
+/**
  * Recursively flatten QBO Trial Balance Rows into a simple list for Excel rendering.
  * Each item: { type: 'section_header'|'data'|'section_summary'|'grand_total', depth, cols: [{value},...] }
  * @param array $rows Raw rows array from QBO response

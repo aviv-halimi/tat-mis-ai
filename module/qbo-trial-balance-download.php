@@ -96,27 +96,75 @@ foreach ($stores_rs as $store) {
         continue;
     }
 
-    // Fetch Trial Balance from QBO
-    $result = qbo_get_trial_balance($store_id, $start_date, $end_date);
-    if (!$result['success']) {
-        $errors[] = $store_name . ': ' . (isset($result['error']) ? $result['error'] : 'Unknown QBO error');
+    $months = qbo_tb_months_in_range($start_date, $end_date);
+    if (empty($months)) {
+        $errors[] = $store_name . ': Invalid date range.';
         continue;
     }
 
-    // Generate Excel
+    // Fetch Trial Balance for each month
+    $by_month = array();
+    $first_month_accounts = array(); // preserve order from first report
+    $first_label = $months[0]['label'];
+    foreach ($months as $m) {
+        $result = qbo_get_trial_balance($store_id, $m['start'], $m['end']);
+        if (!$result['success']) {
+            $errors[] = $store_name . ' (' . $m['label'] . '): ' . (isset($result['error']) ? $result['error'] : 'Unknown QBO error');
+            continue 2;
+        }
+        $rows = qbo_tb_extract_account_rows($result['data']);
+        $by_month[$m['label']] = array();
+        foreach ($rows as $r) {
+            $key = $r['id'] !== null ? $r['id'] : $r['name'];
+            $by_month[$m['label']][$key] = array('name' => $r['name'], 'debit' => $r['debit'], 'credit' => $r['credit']);
+            if ($m['label'] === $first_label) {
+                $first_month_accounts[$key] = $r['name'];
+            }
+        }
+    }
+
+    // Full GL account list so we have a row for every account (including zero balance)
+    $all_accounts = array();
+    $acc_result = qbo_list_accounts($store_id, '');
+    if ($acc_result['success'] && !empty($acc_result['accounts'])) {
+        foreach ($acc_result['accounts'] as $a) {
+            $all_accounts[$a['id']] = array('name' => $a['Name'], 'type' => isset($a['AccountType']) ? $a['AccountType'] : '');
+        }
+    }
+
+    // Ordered list: first as in first month's TB, then any from full list (sorted by type, name)
+    $ordered = array();
+    foreach (array_keys($first_month_accounts) as $key) {
+        $ordered[$key] = isset($all_accounts[$key]) ? $all_accounts[$key]['name'] : $first_month_accounts[$key];
+    }
+    $from_tb_keys = array_flip(array_keys($first_month_accounts));
+    $only_list_ids = array_keys(array_diff_key($all_accounts, $from_tb_keys));
+    if (!empty($only_list_ids)) {
+        usort($only_list_ids, function ($a, $b) use ($all_accounts) {
+            $ta = isset($all_accounts[$a]['type']) ? $all_accounts[$a]['type'] : '';
+            $tb = isset($all_accounts[$b]['type']) ? $all_accounts[$b]['type'] : '';
+            if ($ta !== $tb) return strcmp($ta, $tb);
+            return strcmp($all_accounts[$a]['name'], $all_accounts[$b]['name']);
+        });
+        foreach ($only_list_ids as $id) {
+            $ordered[$id] = $all_accounts[$id]['name'];
+        }
+    }
+
+    // Generate Excel (multi-month: one row per account, Debit/Credit columns per month)
     $safe_name = preg_replace('/[^a-zA-Z0-9_\-]/', '_', $store_name);
     $filename  = $safe_name . '_TB_' . $start_date . '_to_' . $end_date . '.xlsx';
     $filepath  = $tmp_dir . DIRECTORY_SEPARATOR . $filename;
 
-    $ok = qbo_tb_write_excel(
-        $result['data'],
+    $ok = qbo_tb_write_excel_multimonths(
+        $ordered,
+        $by_month,
+        $months,
         $store_name,
         $start_date,
         $end_date,
         $filepath,
         $style_title, $style_subtitle, $style_col_headers,
-        $style_section_l0, $style_section_l1,
-        $style_summary_l0, $style_summary_l1,
         $style_grand_total, $currency_fmt
     );
 
@@ -172,14 +220,13 @@ foreach ($generated as $f) {
 exit;
 
 // ════════════════════════════════════════════════════════════════════════════
-// Helper: write a single store's Trial Balance to an Excel file.
+// Helper: write Trial Balance Excel with one row per GL account, Debit/Credit per month.
+// $ordered = [ account_key => account_name ] in display order
+// $by_month = [ month_label => [ account_key => [ name, debit, credit ], ... ], ... ]
 // ════════════════════════════════════════════════════════════════════════════
-function qbo_tb_write_excel(
-    $data, $store_name, $start_date, $end_date, $filepath,
-    $style_title, $style_subtitle, $style_col_headers,
-    $style_section_l0, $style_section_l1,
-    $style_summary_l0, $style_summary_l1,
-    $style_grand_total, $currency_fmt
+function qbo_tb_write_excel_multimonths(
+    $ordered, $by_month, $months, $store_name, $start_date, $end_date, $filepath,
+    $style_title, $style_subtitle, $style_col_headers, $style_grand_total, $currency_fmt
 ) {
     try {
         $spreadsheet = new Spreadsheet();
@@ -190,96 +237,101 @@ function qbo_tb_write_excel(
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Trial Balance');
 
-        // ── Title (row 1) ────────────────────────────────────────────────────
-        $sheet->setCellValue('A1', $store_name . ' — Trial Balance');
-        $sheet->mergeCells('A1:C1');
-        $sheet->getStyle('A1:C1')->applyFromArray($style_title);
-        $sheet->getRowDimension(1)->setRowHeight(28);
-
-        // ── Period subtitle (row 2) ──────────────────────────────────────────
         $start_fmt = date('F j, Y', strtotime($start_date));
         $end_fmt   = date('F j, Y', strtotime($end_date));
+
+        $sheet->setCellValue('A1', $store_name . ' — Trial Balance');
+        $sheet->getStyle('A1')->applyFromArray($style_title);
+        $sheet->getRowDimension(1)->setRowHeight(28);
+
         $sheet->setCellValue('A2', 'Period: ' . $start_fmt . ' — ' . $end_fmt);
-        $sheet->mergeCells('A2:C2');
-        $sheet->getStyle('A2:C2')->applyFromArray($style_subtitle);
+        $sheet->getStyle('A2')->applyFromArray($style_subtitle);
         $sheet->getRowDimension(2)->setRowHeight(18);
 
-        // ── Column headers (row 4) ───────────────────────────────────────────
-        $sheet->setCellValue('A4', 'Account');
-        $sheet->setCellValue('B4', 'Debit');
-        $sheet->setCellValue('C4', 'Credit');
-        $sheet->getStyle('A4:C4')->applyFromArray($style_col_headers);
-        $sheet->getStyle('B4:C4')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
-        $sheet->getRowDimension(4)->setRowHeight(18);
+        $num_months = count($months);
+        $last_col = 1 + $num_months * 2 + 2; // Account + (Debit,Credit)*months + Total Debit + Total Credit
+        $sheet->mergeCells('A1:' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($last_col) . '1');
+        $sheet->mergeCells('A2:' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($last_col) . '2');
 
-        // Freeze header rows
-        $sheet->freezePane('A5');
+        $headerRow = 4;
+        $col = 0;
+        $sheet->setCellValueByColumnAndRow(++$col, $headerRow, 'Account');
+        foreach ($months as $m) {
+            $sheet->setCellValueByColumnAndRow(++$col, $headerRow, $m['label'] . ' Debit');
+            $sheet->setCellValueByColumnAndRow(++$col, $headerRow, $m['label'] . ' Credit');
+        }
+        $sheet->setCellValueByColumnAndRow(++$col, $headerRow, 'Total Debit');
+        $sheet->setCellValueByColumnAndRow(++$col, $headerRow, 'Total Credit');
 
-        // ── Flatten rows ─────────────────────────────────────────────────────
-        $top_rows = isset($data['Rows']['Row']) ? $data['Rows']['Row'] : array();
-        $flat     = qbo_tb_flatten_rows($top_rows, 0);
+        $sheet->getStyle('A' . $headerRow . ':' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($last_col) . $headerRow)
+            ->applyFromArray($style_col_headers);
+        $sheet->getRowDimension($headerRow)->setRowHeight(18);
+        $sheet->freezePane('A' . ($headerRow + 1));
 
-        $row = 4;
-        foreach ($flat as $item) {
-            $row++;
-            $col0 = isset($item['cols'][0]['value']) ? $item['cols'][0]['value'] : '';
-            $col1 = isset($item['cols'][1]['value']) ? $item['cols'][1]['value'] : '';
-            $col2 = isset($item['cols'][2]['value']) ? $item['cols'][2]['value'] : '';
-
-            // Indent account name for nested levels
-            $indent = str_repeat('    ', max(0, $item['depth'] - 1));
-            $display_name = $indent . $col0;
-
-            $sheet->setCellValue('A' . $row, $display_name);
-            if ($col1 !== '') {
-                $sheet->setCellValue('B' . $row, (float)$col1);
-                $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode($currency_fmt);
-            }
-            if ($col2 !== '') {
-                $sheet->setCellValue('C' . $row, (float)$col2);
-                $sheet->getStyle('C' . $row)->getNumberFormat()->setFormatCode($currency_fmt);
-            }
-
-            // Right-align B & C
-            $sheet->getStyle('B' . $row . ':C' . $row)
-                  ->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
-
-            // Apply row style based on type and depth
-            switch ($item['type']) {
-                case 'section_header':
-                    $sty = ($item['depth'] === 0) ? $style_section_l0 : $style_section_l1;
-                    $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray($sty);
-                    // Merge + left-align section header across all columns
-                    $sheet->mergeCells('A' . $row . ':C' . $row);
-                    break;
-
-                case 'section_summary':
-                    $sty = ($item['depth'] === 0) ? $style_summary_l0 : $style_summary_l1;
-                    $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray($sty);
-                    // Add a blank separator row after each top-level summary
-                    if ($item['depth'] === 0) {
-                        $row++;
-                        $sheet->getRowDimension($row)->setRowHeight(8);
-                    }
-                    break;
-
-                case 'grand_total':
-                    $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray($style_grand_total);
-                    $sheet->getRowDimension($row)->setRowHeight(20);
-                    break;
-            }
+        $dataRow = $headerRow;
+        $grand_debit = 0;
+        $grand_credit = 0;
+        $month_totals = array();
+        foreach (array_keys($months) as $i) {
+            $month_totals[$i] = array('debit' => 0, 'credit' => 0);
         }
 
-        // ── Auto-size columns ────────────────────────────────────────────────
-        $sheet->getColumnDimension('A')->setAutoSize(true);
-        $sheet->getColumnDimension('B')->setWidth(18);
-        $sheet->getColumnDimension('C')->setWidth(18);
+        foreach ($ordered as $account_key => $account_name) {
+            $dataRow++;
+            $col = 0;
+            $sheet->setCellValueByColumnAndRow(++$col, $dataRow, $account_name);
+            $row_debit = 0;
+            $row_credit = 0;
+            $mi = 0;
+            foreach ($months as $m) {
+                $label = $m['label'];
+                $debit = 0;
+                $credit = 0;
+                if (isset($by_month[$label][$account_key])) {
+                    $debit  = (float)$by_month[$label][$account_key]['debit'];
+                    $credit = (float)$by_month[$label][$account_key]['credit'];
+                }
+                $sheet->setCellValueByColumnAndRow(++$col, $dataRow, $debit);
+                $sheet->setCellValueByColumnAndRow(++$col, $dataRow, $credit);
+                $row_debit += $debit;
+                $row_credit += $credit;
+                $month_totals[$mi]['debit'] += $debit;
+                $month_totals[$mi]['credit'] += $credit;
+                $mi++;
+            }
+            $sheet->setCellValueByColumnAndRow(++$col, $dataRow, $row_debit);
+            $sheet->setCellValueByColumnAndRow(++$col, $dataRow, $row_credit);
+            $grand_debit += $row_debit;
+            $grand_credit += $row_credit;
 
-        // ── Write file ───────────────────────────────────────────────────────
+            $numCols = $last_col;
+            $range = 'B' . $dataRow . ':' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($numCols) . $dataRow;
+            $sheet->getStyle($range)->getNumberFormat()->setFormatCode($currency_fmt);
+            $sheet->getStyle($range)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+        }
+
+        $dataRow++;
+        $col = 0;
+        $sheet->setCellValueByColumnAndRow(++$col, $dataRow, 'Total');
+        foreach ($month_totals as $tot) {
+            $sheet->setCellValueByColumnAndRow(++$col, $dataRow, $tot['debit']);
+            $sheet->setCellValueByColumnAndRow(++$col, $dataRow, $tot['credit']);
+        }
+        $sheet->setCellValueByColumnAndRow(++$col, $dataRow, $grand_debit);
+        $sheet->setCellValueByColumnAndRow(++$col, $dataRow, $grand_credit);
+        $sheet->getStyle('A' . $dataRow . ':' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($last_col) . $dataRow)
+            ->applyFromArray($style_grand_total);
+        $sheet->getStyle('B' . $dataRow . ':' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($last_col) . $dataRow)
+            ->getNumberFormat()->setFormatCode($currency_fmt);
+
+        $sheet->getColumnDimension('A')->setAutoSize(true);
+        for ($c = 2; $c <= $last_col; $c++) {
+            $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c))->setWidth(14);
+        }
+
         $writer = new Xlsx($spreadsheet);
         $writer->save($filepath);
         return true;
-
     } catch (Exception $e) {
         return false;
     }
