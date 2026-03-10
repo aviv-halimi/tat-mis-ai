@@ -156,13 +156,13 @@ $brands_json     = json_encode($all_brands,     JSON_UNESCAPED_UNICODE);
 $categories_json = json_encode($all_categories, JSON_UNESCAPED_UNICODE);
 
 $category_translations = <<<TRANS
-- "FLOWER" (column header): use section sub-headers ("HALF OUNCE/14G", "EIGHTHS/3.5G", "SINGLE JOINTS/1G") to determine category; these map to "Flowers"
+- If the product type or section is "SINGLE JOINTS / 1G", "SINGLE JOINTS/1G", "SINGLE JOINTS / 1 GRAM", "PREROLL", "JOINTS", "DOINKS", or "PRE-ROLL" → category is "Pre-Rolls" (Prerolls).
+- "FLOWER" (column header): use section sub-headers ("HALF OUNCE/14G", "EIGHTHS/3.5G") to determine category → "Flowers". Do NOT map SINGLE JOINTS/1G to Flowers — that is Prerolls.
 - "PERSY BADDER","PERSY ROSIN","PERSY BADDER 1G","PERSY ROSIN 1G","LR BADDER 2.5G","LR BADDER 1G","LIVE ROSIN","THUMB PRINT","SAUCE","BADDER","ROSIN" → "Solventless Extracts"
 - "PERSY POD / .5G","PERSY POD","PERSY POD .5G","SOLVENTLESS PODS" → "Vape Carts .5g"
 - "ALL IN ONE LIVE ROSIN VAPE 1G","ALL IN ONE","AIO","LR VAPE 1G ALL-IN-ONE" → "AIO"
-- "FLOWER","EIGHTHS / 3.5 GRAMS","HALF OUNCE / 14 GRAMS","HALF OUNCE/14G","EIGHTHS/3.5G","EIGHTHS","HALF OUNCE","3.5G","14G","SINGLE JOINTS/1G" → "Flowers"
+- "FLOWER","EIGHTHS / 3.5 GRAMS","HALF OUNCE / 14 GRAMS","HALF OUNCE/14G","EIGHTHS/3.5G","EIGHTHS","HALF OUNCE","3.5G","14G" → "Flowers"
 - "GUMMIS","EDIBLES","HASH ROSIN GUMMIS","HASH ROSIN GUMMIS 100MG" → "Edibles"
-- "SINGLE JOINTS / 1 GRAM","PREROLL","JOINTS","DOINKS","PRE-ROLL" → "Pre-Rolls"
 - "PERSY DOINKS" → "Infused Prerolls"
 - "2 PERSY DOINKS" → "Infused Preroll Packs"
 TRANS;
@@ -198,7 +198,7 @@ Read the attached PDF menu carefully. Extract EVERY product.
 
 ## Table Extraction Logic (Persistence Rules)
 1. **Vertical Propagation**: Many columns only list a value in the first row of a section (e.g., PRODUCT TYPE, TIER, or PRICE). You MUST remember the last seen value for these fields and apply it to every subsequent row until a new value or section header appears.
-2. **Category is in the HEADINGS above the strain names**: The category is the column or section HEADING (e.g. "FLOWER", "SOLVENTLESS", "EDIBLES") — the text above the list of products, not in each row. Map that heading to category_id using the CATEGORY TRANSLATION RULES and the AVAILABLE CATEGORIES table below. The sub-headers (e.g. "HALF OUNCE/14G", "PERSY BADDER 1G") are the product_type, not the category.
+2. **Category is in the HEADINGS above the strain names**: The category is the column or section HEADING (e.g. "FLOWER", "SOLVENTLESS", "EDIBLES") — the text above the list of products, not in each row. Map that heading to category_id using the CATEGORY TRANSLATION RULES and the AVAILABLE CATEGORIES table below. The sub-headers (e.g. "HALF OUNCE/14G", "PERSY BADDER 1G") are the product_type, not the category. **Important:** If the product type or section heading is "SINGLE JOINTS / 1G" (or "SINGLE JOINTS/1G", "SINGLE JOINTS / 1 GRAM", "PREROLL", "JOINTS", "DOINKS", "PRE-ROLL"), the category must be Prerolls (Pre-Rolls), not Flowers.
 3. **Brand is often at the top of the page and applies to everything on that page**: If the brand name appears once as a page or section heading (e.g. at the top of the menu), that brand applies to ALL products on that page/section. Use the same brand_id for every product on the page. Match the brand name to the AVAILABLE BRANDS table below and return its brand_id.
 4. **Price — use the UNIT column**: The price for each product is in the column named "UNIT". Always take the price value from the UNIT column. Price must be a number for every row; never return null for price. If the same price applies to multiple rows (e.g. only the first row shows it), propagate that value to every row in that section.
 5. **Genetic Filtering**: Ignore the "GENETICS" and "%" columns. Do not include their contents in the name field.
