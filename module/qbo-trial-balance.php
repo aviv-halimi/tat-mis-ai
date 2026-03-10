@@ -25,6 +25,26 @@ $(document).ready(function () {
         });
     });
 
+    $(".btn-save-extra-start-date").on("click", function () {
+        var $row = $(this).closest("tr");
+        var extra_entity_id = $row.data("extra-entity-id");
+        var start_date = $row.find(".extra-start-date-input").val();
+        var $btn = $(this);
+        $btn.prop("disabled", true).html("<i class=\"fa fa-spinner fa-spin\"></i>");
+        $.post("/ajax/qbo-trial-balance-save-extra-start-date.php", { extra_entity_id: extra_entity_id, start_date: start_date }, function (data) {
+            if (data.success) {
+                $btn.removeClass("btn-primary").addClass("btn-success").html("<i class=\"fa fa-check\"></i> Saved");
+                setTimeout(function () { $btn.removeClass("btn-success").addClass("btn-primary").html("<i class=\"fa fa-save\"></i> Save").prop("disabled", false); }, 2500);
+            } else {
+                alert("Error saving start date:\\n" + (data.error || "Unknown error"));
+                $btn.prop("disabled", false).html("<i class=\"fa fa-save\"></i> Save");
+            }
+        }, "json").fail(function () {
+            alert("Request failed. Please try again.");
+            $btn.prop("disabled", false).html("<i class=\"fa fa-save\"></i> Save");
+        });
+    });
+
     $(".btn-download-tb").on("click", function (e) {
         e.preventDefault();
         var $row = $(this).closest("tr");
@@ -107,8 +127,18 @@ try {
 }
 
 $stores = $has_start_date_col
-    ? getRs("SELECT store_id, store_name, qbo_realm_id, qbo_tb_start_date FROM store WHERE " . is_enabled() . " ORDER BY store_name")
-    : getRs("SELECT store_id, store_name, qbo_realm_id, NULL AS qbo_tb_start_date FROM store WHERE " . is_enabled() . " ORDER BY store_name");
+    ? getRs("SELECT store_id, store_name, qbo_realm_id, qbo_tb_start_date FROM store WHERE " . is_enabled() . " ORDER BY store_id")
+    : getRs("SELECT store_id, store_name, qbo_realm_id, NULL AS qbo_tb_start_date FROM store WHERE " . is_enabled() . " ORDER BY store_id");
+
+$extra_entities = array();
+try {
+    $extra_entities = getRs("SELECT id, entity_name, qbo_realm_id, qbo_refresh_token, qbo_tb_start_date FROM qbo_tb_extra_entity WHERE is_enabled = 1 ORDER BY sort_order, id");
+    if (!is_array($extra_entities)) {
+        $extra_entities = array();
+    }
+} catch (Exception $e) {
+    // Table may not exist yet.
+}
 ?>
 
 <style>
@@ -149,7 +179,7 @@ $stores = $has_start_date_col
                                    name="end_date"
                                    id="end_date"
                                    class="form-control"
-                                   value="<?php echo date('Y-m-d', strtotime('first day of this month -1 day')); ?>"
+                                   value="<?php echo date('Y-m-d', strtotime('last day of last month')); ?>"
                                    required
                                    style="width:160px;" />
                         </div>
@@ -228,5 +258,59 @@ $stores = $has_start_date_col
         </div>
     </div>
 </div>
+
+<?php if (!empty($extra_entities)): ?>
+<div class="row">
+    <div class="col-md-12">
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <h4 class="panel-title">
+                    <i class="fa fa-building-o mr-1"></i> Extra Entities (included in Download All)
+                </h4>
+            </div>
+            <div class="panel-body p-0">
+                <table class="table table-bordered table-hover m-b-0">
+                    <thead>
+                        <tr>
+                            <th>Entity</th>
+                            <th>QBO</th>
+                            <th>TB Start Date</th>
+                            <th class="tb-action-col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($extra_entities as $r):
+                            $qbo_ok = !empty(trim((string)$r['qbo_realm_id'])) && !empty(trim((string)$r['qbo_refresh_token']));
+                            $start_dt = isset($r['qbo_tb_start_date']) ? $r['qbo_tb_start_date'] : '';
+                        ?>
+                        <tr data-extra-entity-id="<?php echo (int)$r['id']; ?>">
+                            <td><?php echo htmlspecialchars($r['entity_name']); ?></td>
+                            <td>
+                                <?php if ($qbo_ok): ?>
+                                    <span class="label label-success tb-status-badge">Connected</span>
+                                <?php else: ?>
+                                    <span class="label label-warning tb-status-badge">Not connected</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <input type="date"
+                                       class="form-control input-sm tb-date-input extra-start-date-input"
+                                       value="<?php echo htmlspecialchars($start_dt); ?>" />
+                            </td>
+                            <td class="tb-action-col">
+                                <button class="btn btn-xs btn-primary btn-save-extra-start-date">
+                                    <i class="fa fa-save"></i> Save
+                                </button>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <p class="text-muted p-10 m-b-0" style="font-size:12px;">These entities are included when you click <strong>Download All Trial Balances</strong>. Set QBO credentials and TB Start Date in the database (<code>qbo_tb_extra_entity</code>).</p>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php include_once('inc/footer.php'); ?>
