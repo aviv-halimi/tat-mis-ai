@@ -1397,16 +1397,23 @@ function yesNoFormat($str, $hide_no = false) {
 }
 
 function getCurrentHost() {
+	if (php_sapi_name() === 'cli' || empty($_SERVER['SERVER_NAME'])) {
+		return '';
+	}
 	$url = ((!empty($_SERVER['HTTPS'])) ? 'https://'.$_SERVER['SERVER_NAME'] : 'http://'.$_SERVER['SERVER_NAME']) . '/';
 	//$url = 'https://'.$_SERVER['SERVER_NAME'] . '/';
 	return $url;
 }
 
 function getCurrentUrl() {
-	$request = parse_url($_SERVER['REQUEST_URI']);
-	$path = $request["path"];
-
-	$result = trim(str_replace(basename($_SERVER['SCRIPT_NAME']), '', $path), '/');
+	$uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+	if ($uri === '' || php_sapi_name() === 'cli') {
+		return '/';
+	}
+	$request = parse_url($uri);
+	$path = (is_array($request) && isset($request['path'])) ? $request['path'] : '';
+	$script_name = isset($_SERVER['SCRIPT_NAME']) ? basename($_SERVER['SCRIPT_NAME']) : '';
+	$result = trim($script_name !== '' ? str_replace($script_name, '', $path) : $path, '/');
 
 	$result = explode('/', $result);
 	$max_level = 2;
