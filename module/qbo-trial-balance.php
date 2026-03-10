@@ -84,7 +84,7 @@ $stores = $has_start_date_col
             </div>
             <div class="panel-body">
                 <p class="text-muted" style="margin-bottom:16px;">
-                    Downloads one Excel file per store, all packaged in a single ZIP.
+                    Downloads one Excel file with a tab for each store (tab name = store name).
                     Each store uses its own configured <strong>TB Start Date</strong> from the table below.
                 </p>
                 <form id="qbo-tb-form" method="get" action="/" target="_blank">
@@ -96,13 +96,13 @@ $stores = $has_start_date_col
                                    name="end_date"
                                    id="end_date"
                                    class="form-control"
-                                   value="<?php echo date('Y-m-d'); ?>"
+                                   value="<?php echo date('Y-m-d', strtotime('first day of this month -1 day')); ?>"
                                    required
                                    style="width:160px;" />
                         </div>
                         <div class="form-group">
                             <button type="submit" class="btn btn-success btn-lg">
-                                <i class="fa fa-file-archive-o mr-1"></i> Download All Trial Balances
+                                <i class="fa fa-file-excel-o mr-1"></i> Download All Trial Balances
                             </button>
                         </div>
                     </div>

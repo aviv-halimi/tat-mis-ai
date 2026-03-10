@@ -1105,24 +1105,41 @@ function qbo_tb_parse_report_to_flat($data) {
     }
     unset($r);
 
-    // Two-row header: row1 = month (merge over Debit/Credit pairs), row2 = Account | Debit | Credit | ...
+    // Two-row header: row1 = Account | month (merged over 2 cols) | month | ...; row2 = empty | Debit | Credit | Debit | Credit | ...
     $header_row1 = array();
     $header_row2 = array();
-    for ($i = 0; $i < count($columns); $i++) {
-        $title = $columns[$i];
+    $num_cols_parsed = count($columns);
+    for ($i = 0; $i < $num_cols_parsed; $i++) {
         if ($i === 0) {
             $header_row1[] = 'Account';
             $header_row2[] = '';
+        } elseif (($i % 2) === 0) {
+            // Second column of Debit/Credit pair — already added when we processed i-1
+            continue;
         } else {
-            if (preg_match('/^(.+)\s+(Debit|Credit)$/i', $title, $m)) {
-                $header_row1[] = trim($m[1]);
-                $header_row2[] = $m[2];
-            } else {
-                $header_row1[] = $title;
-                $header_row2[] = '';
+            // First of a pair (columns 1, 3, 5, ...): one month label spanning two cols, then "Debit" and "Credit"
+            $title = $columns[$i];
+            $month = $title;
+            if (preg_match('/^(.+)\s+Debit$/i', $title, $m)) {
+                $month = trim($m[1]);
+            } elseif (preg_match('/^(.+)\s+Credit$/i', $title, $m)) {
+                $month = trim($m[1]);
+            }
+            $header_row1[] = $month;
+            $header_row2[] = 'Debit';
+            if ($i + 1 < $num_cols_parsed) {
+                $header_row1[] = $month;
+                $header_row2[] = 'Credit';
             }
         }
     }
+    // If we skipped even indices (second of pair), we're short; backfill so lengths match $columns
+    while (count($header_row1) < $num_cols_parsed) {
+        $header_row1[] = isset($header_row1[count($header_row1) - 1]) ? $header_row1[count($header_row1) - 1] : '';
+        $header_row2[] = 'Credit';
+    }
+    $header_row1 = array_slice($header_row1, 0, $num_cols_parsed);
+    $header_row2 = array_slice($header_row2, 0, $num_cols_parsed);
 
     return array(
         'columns' => $columns,
