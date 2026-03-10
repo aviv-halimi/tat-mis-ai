@@ -22,11 +22,22 @@ if ($job_id !== $stored) {
     exit;
 }
 
-$path = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'qbo_tb_jobs' . DIRECTORY_SEPARATOR . $job_id . '.xlsx';
+$job_dir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'qbo_tb_jobs';
+$path = $job_dir . DIRECTORY_SEPARATOR . $job_id . '.xlsx';
+$log_path = $job_dir . DIRECTORY_SEPARATOR . $job_id . '.log';
+
+$progress = '';
+if (is_file($log_path) && is_readable($log_path)) {
+    $lines = @file($log_path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if (is_array($lines)) {
+        $progress = implode("\n", array_slice($lines, -80));
+    }
+}
+
 if (is_file($path) && is_readable($path)) {
     $url = '/ajax/qbo-trial-balance-download-all-file.php?job_id=' . $job_id;
-    echo json_encode(array('ready' => true, 'download_url' => $url));
+    echo json_encode(array('ready' => true, 'download_url' => $url, 'progress' => $progress));
 } else {
-    echo json_encode(array('ready' => false));
+    echo json_encode(array('ready' => false, 'progress' => $progress));
 }
 exit;

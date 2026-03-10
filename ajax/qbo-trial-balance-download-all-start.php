@@ -16,6 +16,7 @@ if (!$end_date || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $end_date)) {
 $job_id = bin2hex(random_bytes(16));
 $job_dir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'qbo_tb_jobs';
 $output_path = $job_dir . DIRECTORY_SEPARATOR . $job_id . '.xlsx';
+$log_path = $job_dir . DIRECTORY_SEPARATOR . $job_id . '.log';
 
 if (!is_dir($job_dir)) {
     @mkdir($job_dir, 0755, true);
@@ -49,11 +50,13 @@ if ($is_win) {
     $cmd = 'start /B "" ' . $phpBin . ' ' . escapeshellarg($script)
         . ' --end_date=' . escapeshellarg($end_date)
         . ' --output=' . escapeshellarg($output_path)
+        . ' --log=' . escapeshellarg($log_path)
         . ' > NUL 2>&1';
 } else {
     $cmd = $phpBin . ' ' . escapeshellarg($script)
         . ' --end_date=' . escapeshellarg($end_date)
         . ' --output=' . escapeshellarg($output_path)
+        . ' --log=' . escapeshellarg($log_path)
         . ' > /dev/null 2>&1 &';
 }
 @popen($cmd, 'r');

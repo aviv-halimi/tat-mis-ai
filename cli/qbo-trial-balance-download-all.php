@@ -2,8 +2,9 @@
 /**
  * CLI: Generate "Download All" Trial Balances (one Excel, one sheet per store).
  * No time limit; run from command line to avoid web timeout.
+ * Writes progress to --log= path so the UI can show live status.
  *
- * Usage: php cli/qbo-trial-balance-download-all.php --end_date=YYYY-MM-DD --output=/path/to/file.xlsx
+ * Usage: php cli/qbo-trial-balance-download-all.php --end_date=YYYY-MM-DD --output=/path/to/file.xlsx [--log=/path/to/file.log]
  *
  * Exit 0 on success, 1 on failure.
  */
@@ -19,11 +20,14 @@ require_once BASE_PATH . 'inc/qbo-trial-balance-excel.php';
 
 $end_date = null;
 $output = null;
+$log_path = null;
 foreach (array_slice($argv, 1) as $arg) {
     if (preg_match('/^--end_date=(.+)$/', $arg, $m)) {
         $end_date = trim($m[1]);
     } elseif (preg_match('/^--output=(.+)$/', $arg, $m)) {
         $output = trim($m[1]);
+    } elseif (preg_match('/^--log=(.+)$/', $arg, $m)) {
+        $log_path = trim($m[1]);
     }
 }
 
@@ -34,6 +38,12 @@ if (!$end_date || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $end_date)) {
 if (!$output) {
     fwrite(STDERR, "Missing --output path.\n");
     exit(1);
+}
+
+function qbo_tb_log($log_path, $msg) {
+    if ($log_path) {
+        @file_put_contents($log_path, '[' . date('H:i:s') . '] ' . $msg . "\n", FILE_APPEND | LOCK_EX);
+    }
 }
 
 $style_title = $qbo_tb_style_title;
@@ -57,26 +67,35 @@ if (empty($stores_rs)) {
     exit(1);
 }
 
+qbo_tb_log($log_path, 'Started. End date: ' . $end_date . ', stores: ' . count($stores_rs));
+
 $errors = array();
 $sheets_added = 0;
 $spreadsheet = null;
 $used_sheet_titles = array();
+$store_index = 0;
 
 foreach ($stores_rs as $store) {
+    $store_index++;
     $store_id   = (int)$store['store_id'];
     $store_name = $store['store_name'];
     $start_date = isset($store['qbo_tb_start_date']) ? trim($store['qbo_tb_start_date']) : '';
 
     if ($start_date === '' || $start_date === null) {
+        qbo_tb_log($log_path, $store_index . '/' . count($stores_rs) . ' ' . $store_name . ' — skipped (no TB start date)');
         $errors[] = $store_name . ': No TB Start Date — skipped.';
         continue;
     }
 
+    qbo_tb_log($log_path, $store_index . '/' . count($stores_rs) . ' ' . $store_name . ' — calling QBO...');
     $result = qbo_get_trial_balance($store_id, $start_date, $end_date);
     if (!$result['success']) {
-        $errors[] = $store_name . ': ' . (isset($result['error']) ? $result['error'] : 'QBO error');
+        $err = isset($result['error']) ? $result['error'] : 'QBO error';
+        qbo_tb_log($log_path, '  → QBO error: ' . $err);
+        $errors[] = $store_name . ': ' . $err;
         continue;
     }
+    qbo_tb_log($log_path, '  → Got response, adding sheet to workbook.');
 
     $parsed = qbo_tb_parse_report_to_flat($result['data']);
 
@@ -112,6 +131,7 @@ foreach ($stores_rs as $store) {
 }
 
 if ($sheets_added === 0) {
+    qbo_tb_log($log_path, 'Aborted: no sheets generated.');
     fwrite(STDERR, "No sheets generated. " . implode(' ', $errors) . "\n");
     exit(1);
 }
@@ -124,12 +144,15 @@ if (!is_dir($out_dir)) {
     }
 }
 
+qbo_tb_log($log_path, 'Writing Excel file...');
 try {
     $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
     $writer->save($output);
 } catch (Exception $e) {
+    qbo_tb_log($log_path, 'Failed: ' . $e->getMessage());
     fwrite(STDERR, "Failed to write Excel: " . $e->getMessage() . "\n");
     exit(1);
 }
+qbo_tb_log($log_path, 'Complete. File: ' . $output);
 
 exit(0);

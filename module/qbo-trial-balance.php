@@ -47,38 +47,47 @@ $(document).ready(function () {
         }
         var $btn = $(this).find("button[type=submit]");
         var $msg = $("#qbo-tb-download-all-msg");
+        var $log = $("#qbo-tb-download-all-log");
         $btn.prop("disabled", true).html("<i class=\"fa fa-spinner fa-spin mr-1\"></i> Starting...");
-        $msg.removeClass("alert-danger").addClass("alert-info").html("Starting generation...").show();
+        $msg.removeClass("alert-danger alert-success").addClass("alert-info").show();
+        $msg.find(".qbo-tb-status").html("Starting generation...");
+        $log.text("");
         $.post("/ajax/qbo-trial-balance-download-all-start.php", { end_date: endDate }, function (data) {
             if (!data.started) {
-                $msg.removeClass("alert-info").addClass("alert-danger").html(data.error || "Failed to start.");
+                $msg.removeClass("alert-info").addClass("alert-danger").find(".qbo-tb-status").html(data.error || "Failed to start.");
+                $log.text("");
                 $btn.prop("disabled", false).html("<i class=\"fa fa-file-excel-o mr-1\"></i> Download All Trial Balances");
                 return;
             }
             var jobId = data.job_id;
-            $msg.html("<i class=\"fa fa-spinner fa-spin mr-1\"></i> Generating your file... This may take a few minutes. Please wait.");
+            $msg.find(".qbo-tb-status").html("<i class=\"fa fa-spinner fa-spin mr-1\"></i> Generating your file... (see log below)");
             function poll() {
                 $.getJSON("/ajax/qbo-trial-balance-download-all-status.php?job_id=" + jobId, function (st) {
+                    if (st.progress) {
+                        $log.text(st.progress);
+                        $log.scrollTop($log[0].scrollHeight);
+                    }
                     if (st.ready && st.download_url) {
-                        $msg.removeClass("alert-info").addClass("alert-success").html("<i class=\"fa fa-check mr-1\"></i> Ready! Downloading...");
+                        $msg.removeClass("alert-info").addClass("alert-success").find(".qbo-tb-status").html("<i class=\"fa fa-check mr-1\"></i> Ready! Downloading...");
                         window.location.href = st.download_url;
                         $btn.prop("disabled", false).html("<i class=\"fa fa-file-excel-o mr-1\"></i> Download All Trial Balances");
                         return;
                     }
                     if (st.error) {
-                        $msg.removeClass("alert-info").addClass("alert-danger").html(st.error);
+                        $msg.removeClass("alert-info").addClass("alert-danger").find(".qbo-tb-status").html(st.error);
                         $btn.prop("disabled", false).html("<i class=\"fa fa-file-excel-o mr-1\"></i> Download All Trial Balances");
                         return;
                     }
-                    setTimeout(poll, 2500);
+                    setTimeout(poll, 2000);
                 }).fail(function () {
-                    $msg.removeClass("alert-info").addClass("alert-danger").html("Connection error. Please try again.");
+                    $msg.removeClass("alert-info").addClass("alert-danger").find(".qbo-tb-status").html("Connection error. Please try again.");
                     $btn.prop("disabled", false).html("<i class=\"fa fa-file-excel-o mr-1\"></i> Download All Trial Balances");
                 });
             }
-            setTimeout(poll, 2000);
+            setTimeout(poll, 1500);
         }, "json").fail(function () {
-            $msg.removeClass("alert-info").addClass("alert-danger").html("Failed to start. Please try again.");
+            $msg.removeClass("alert-info").addClass("alert-danger").find(".qbo-tb-status").html("Failed to start. Please try again.");
+            $log.text("");
             $btn.prop("disabled", false).html("<i class=\"fa fa-file-excel-o mr-1\"></i> Download All Trial Balances");
         });
     });
@@ -150,7 +159,10 @@ $stores = $has_start_date_col
                             </button>
                         </div>
                     </div>
-                    <div id="qbo-tb-download-all-msg" class="alert alert-info m-t-10" style="display:none;"></div>
+                    <div id="qbo-tb-download-all-msg" class="alert alert-info m-t-10" style="display:none;">
+                        <div class="qbo-tb-status font-bold m-b-5"></div>
+                        <pre id="qbo-tb-download-all-log" class="m-b-0 p-10 bg-white border rounded" style="max-height:220px; overflow:auto; font-size:12px; white-space:pre-wrap; word-break:break-all;"></pre>
+                    </div>
                 </form>
             </div>
         </div>
