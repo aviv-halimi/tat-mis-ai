@@ -89,16 +89,11 @@ foreach (getRs(
     ];
 }
 
-// Brands present on this PO
-$seen_brand_ids = [];
+// All active brands from the store DB (so Gemini can match any menu brand, not just those on the PO)
 $all_brands = [];
-foreach ($po_products as $p) {
-    if ($p['brand_id'] && !isset($seen_brand_ids[$p['brand_id']])) {
-        $seen_brand_ids[$p['brand_id']] = true;
-        $all_brands[] = ['brand_id' => $p['brand_id'], 'name' => $p['brand_name']];
-    }
+foreach (getRs("SELECT brand_id, name FROM {$db}.brand WHERE is_active = 1 ORDER BY name", []) as $r) {
+    $all_brands[] = ['brand_id' => (int) $r['brand_id'], 'name' => (string) $r['name']];
 }
-usort($all_brands, fn($a, $b) => strcmp($a['name'], $b['name']));
 
 // All active/enabled categories from the store DB
 $all_categories = [];
@@ -203,11 +198,12 @@ Read the attached PDF menu carefully. Extract EVERY product.
 
 ## Table Extraction Logic (Persistence Rules)
 1. **Vertical Propagation**: Many columns only list a value in the first row of a section (e.g., PRODUCT TYPE, TIER, or PRICE). You MUST remember the last seen value for these fields and apply it to every subsequent row until a new value or section header appears.
-2. **Header vs. Type**: The header at the top of a column (e.g., "FLOWER", "SOLVENTLESS", "EDIBLES") is the Category. The sub-headers within the rows (e.g., "HALF OUNCE/14G", "PERSY BADDER 1G") are the product_type.
-3. **Price — use the UNIT column**: The price for each product is in the column named "UNIT". Always take the price value from the UNIT column. Price must be a number for every row; never return null for price. If the same price applies to multiple rows (e.g. only the first row shows it), propagate that value to every row in that section.
-4. **Genetic Filtering**: Ignore the "GENETICS" and "%" columns. Do not include their contents in the name field.
+2. **Category is in the HEADINGS above the strain names**: The category is the column or section HEADING (e.g. "FLOWER", "SOLVENTLESS", "EDIBLES") — the text above the list of products, not in each row. Map that heading to category_id using the CATEGORY TRANSLATION RULES and the AVAILABLE CATEGORIES table below. The sub-headers (e.g. "HALF OUNCE/14G", "PERSY BADDER 1G") are the product_type, not the category.
+3. **Brand is often at the top of the page and applies to everything on that page**: If the brand name appears once as a page or section heading (e.g. at the top of the menu), that brand applies to ALL products on that page/section. Use the same brand_id for every product on the page. Match the brand name to the AVAILABLE BRANDS table below and return its brand_id.
+4. **Price — use the UNIT column**: The price for each product is in the column named "UNIT". Always take the price value from the UNIT column. Price must be a number for every row; never return null for price. If the same price applies to multiple rows (e.g. only the first row shows it), propagate that value to every row in that section.
+5. **Genetic Filtering**: Ignore the "GENETICS" and "%" columns. Do not include their contents in the name field.
 
-You MUST map each product to brand_id (from AVAILABLE BRANDS) and category_id (from AVAILABLE CATEGORIES) using the CATEGORY TRANSLATION RULES. Set brand_id and category_id for every row; use the numeric IDs from the provided lists. Only use null for brand_id or category_id when the product cannot be matched to any brand or category in the lists (e.g. unknown brand). Do not omit or leave blank — use the ID that best matches the menu section and brand.
+You MUST set brand_id and category_id for every row using the AVAILABLE BRANDS and AVAILABLE CATEGORIES tables provided in the prompt. Those tables list every valid brand_id and category_id — pick the numeric ID that matches the menu (category from the section heading, brand from the page/section brand heading). Only use null when the brand or category truly does not appear in the provided tables.
 
 For the name field, provide ONLY the strain name exactly as written on the menu (e.g. "C. Chrome #27", "SB36 #1", "Marshmallow OG + Guava"). Do NOT include the brand name, category, weight, genetics, or percentage in this field.
 
@@ -234,9 +230,10 @@ Example: {"columns":["name","price","brand_id","category_id","product_type","wei
 Return every menu item. Do not skip any.
 SYS;
 
-$p1_prompt_base = "AVAILABLE BRANDS (use brand_id in your response, or null):\n{$brands_json}"
-    . "\n\nAVAILABLE CATEGORIES (use category_id in your response, or null):\n{$categories_json}"
-    . "\n\nCATEGORY TRANSLATION RULES:\n{$category_translations}\n\n";
+$p1_prompt_base = "REFERENCE TABLES — use these to fill brand_id and category_id for every row. Return the numeric id from the matching row.\n\n"
+    . "AVAILABLE BRANDS (return brand_id from this list):\n{$brands_json}\n\n"
+    . "AVAILABLE CATEGORIES (return category_id from this list; map menu section headings using the rules below):\n{$categories_json}\n\n"
+    . "CATEGORY TRANSLATION RULES (map menu headings like FLOWER, SOLVENTLESS, EDIBLES to the category names in the table above):\n{$category_translations}\n\n";
 
 if ($extracted_text !== null) {
     $p1_prompt = $p1_prompt_base . "Below is the extracted text from the menu PDF(s). Extract all items.\n\n" . $extracted_text;
