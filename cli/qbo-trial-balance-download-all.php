@@ -13,6 +13,9 @@ if (php_sapi_name() !== 'cli') {
     exit(1);
 }
 
+// PhpSpreadsheet uses a lot of memory for multi-sheet workbooks; raise limit to avoid exhaustion
+@ini_set('memory_limit', '512M');
+
 // Parse args and write to log immediately so we know the process started (before any require)
 $end_date = null;
 $output = null;
