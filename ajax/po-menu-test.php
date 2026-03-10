@@ -175,14 +175,14 @@ TRANS;
 // ============================================================
 // PHASE 1 — Extract menu items from PDF (Gemini)
 // ============================================================
-// Compact format: columns + rows to save tokens (no repeated keys per item)
+// Compact format: columns + rows (no brand_name — we look it up from brand_id in PHP)
 $p1_schema = [
     'type' => 'OBJECT',
     'properties' => [
         'columns' => [
             'type' => 'ARRAY',
             'items' => ['type' => 'STRING'],
-            'description' => 'Field names in order: name, price, brand_id, brand_name, category_id, product_type, weight_token',
+            'description' => 'Field names in order: name, price, brand_id, category_id, product_type, weight_token',
         ],
         'rows' => [
             'type' => 'ARRAY',
@@ -190,7 +190,7 @@ $p1_schema = [
                 'type' => 'ARRAY',
                 'items' => ['type' => 'STRING', 'nullable' => true],
             ],
-            'description' => 'One array per menu item; values match column order. Use null for missing optional fields.',
+            'description' => 'One array per menu item; 6 values per row matching column order.',
         ],
     ],
     'required' => ['columns', 'rows'],
@@ -204,14 +204,12 @@ Read the attached PDF menu carefully. Extract EVERY product.
 ## Table Extraction Logic (Persistence Rules)
 1. **Vertical Propagation**: Many columns only list a value in the first row of a section (e.g., PRODUCT TYPE, TIER, or PRICE). You MUST remember the last seen value for these fields and apply it to every subsequent row until a new value or section header appears.
 2. **Header vs. Type**: The header at the top of a column (e.g., "FLOWER", "SOLVENTLESS", "EDIBLES") is the Category. The sub-headers within the rows (e.g., "HALF OUNCE/14G", "PERSY BADDER 1G") are the product_type.
-3. **Price Priority**: Always use the "UNIT" column for the price field.
+3. **Price — use the UNIT column**: The price for each product is in the column named "UNIT". Always take the price value from the UNIT column. Price must be a number for every row; never return null for price. If the same price applies to multiple rows (e.g. only the first row shows it), propagate that value to every row in that section.
 4. **Genetic Filtering**: Ignore the "GENETICS" and "%" columns. Do not include their contents in the name field.
 
-Then map each product to brand_id (from AVAILABLE BRANDS) and category_id (from AVAILABLE CATEGORIES) using the CATEGORY TRANSLATION RULES.
+You MUST map each product to brand_id (from AVAILABLE BRANDS) and category_id (from AVAILABLE CATEGORIES) using the CATEGORY TRANSLATION RULES. Set brand_id and category_id for every row; use the numeric IDs from the provided lists. Only use null for brand_id or category_id when the product cannot be matched to any brand or category in the lists (e.g. unknown brand). Do not omit or leave blank — use the ID that best matches the menu section and brand.
 
 For the name field, provide ONLY the strain name exactly as written on the menu (e.g. "C. Chrome #27", "SB36 #1", "Marshmallow OG + Guava"). Do NOT include the brand name, category, weight, genetics, or percentage in this field.
-
-For the brand_name field, provide the brand's actual name text (e.g. "710 Labs"). Do NOT use the numeric brand_id here.
 
 For the product_type field, provide the menu section or sub-header in proper/title case (e.g. "Half Ounce/14g", "Eighths/3.5g", "Persy Badder 1g", "LR Vape 1g All-In-One"). Do NOT return it in ALL CAPS. Set to null if not identifiable.
 
@@ -227,11 +225,11 @@ For the product_type field, provide the menu section or sub-header in proper/tit
 - Any combined weight like "1.5g F + .5g R" → sum the parts (e.g. 2g total → weight_token = "2g")
 - If the item has no weight in its section heading → weight_token = null
 
-**Output format (token-saving):** To ensure the full menu fits in one response, return a JSON object with "columns" and "rows" only. Do NOT return an array of objects (that repeats keys for every item).
-- "columns": an array of field names in this exact order: ["name", "price", "brand_id", "brand_name", "category_id", "product_type", "weight_token"]
-- "rows": an array of arrays; each inner array has exactly 7 values in the same order as columns. Use null for any missing optional value (e.g. brand_id, category_id, product_type, weight_token). Price must be a number.
+**Output format (token-saving):** Return a JSON object with "columns" and "rows" only. Do NOT include brand_name — we look it up from brand_id.
+- "columns": exactly ["name", "price", "brand_id", "category_id", "product_type", "weight_token"]
+- "rows": array of arrays; each inner array has exactly 6 values in that order. brand_id and category_id must be the numeric IDs from the provided lists (or null only if no match). price must be a number from the UNIT column — never null (use 0 only if the menu has no price).
 
-Example: {"columns":["name","price","brand_id","brand_name","category_id","product_type","weight_token"],"rows":[["Donny Burger",100,121,"710 Labs",7,"Half Ounce/14g","14g"],["C. Chrome #27",100,121,"710 Labs",7,"Half Ounce/14g","14g"]]}
+Example: {"columns":["name","price","brand_id","category_id","product_type","weight_token"],"rows":[["Donny Burger",100,121,7,"Half Ounce/14g","14g"],["C. Chrome #27",100,121,7,"Half Ounce/14g","14g"]]}
 
 Return every menu item. Do not skip any.
 SYS;
@@ -386,6 +384,15 @@ if (!$p1_curl_err && $p1_raw && $p1_http === 200) {
                 }
             }
         }
+        // Fill brand_name from brand_id (we no longer ask Gemini for brand_name to save tokens)
+        $brand_id_to_name = array_column($all_brands, 'name', 'brand_id');
+        foreach ($menu_items as &$item) {
+            if (!empty($item['brand_id']) && (string) ($item['brand_name'] ?? '') === '') {
+                $item['brand_name'] = $brand_id_to_name[(int) $item['brand_id']] ?? '';
+            }
+        }
+        unset($item);
+
         // Never accept partial results: if Gemini hit MAX_TOKENS, the menu was truncated and items are missing
         if ($p1_finish_reason === 'MAX_TOKENS' && !empty($menu_items)) {
             $menu_items = [];
