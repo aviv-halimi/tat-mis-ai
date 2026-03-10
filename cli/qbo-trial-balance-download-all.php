@@ -31,8 +31,16 @@ if ($log_path) {
     @file_put_contents($log_path, '[' . date('H:i:s') . '] CLI process started.' . "\n", FILE_APPEND | LOCK_EX);
     register_shutdown_function(function () use ($log_path) {
         $e = error_get_last();
-        if ($e && in_array($e['type'], array(E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR), true)) {
-            @file_put_contents($log_path, '[' . date('H:i:s') . '] FATAL: ' . $e['message'] . ' in ' . $e['file'] . ' on line ' . $e['line'] . "\n", FILE_APPEND | LOCK_EX);
+        if ($e) {
+            $type = $e['type'];
+            $name = 'Unknown';
+            if ($type === E_ERROR) $name = 'E_ERROR';
+            elseif ($type === E_PARSE) $name = 'E_PARSE';
+            elseif ($type === E_CORE_ERROR) $name = 'E_CORE_ERROR';
+            elseif ($type === E_COMPILE_ERROR) $name = 'E_COMPILE_ERROR';
+            elseif ($type === E_WARNING) $name = 'E_WARNING';
+            elseif ($type === E_NOTICE) $name = 'E_NOTICE';
+            @file_put_contents($log_path, '[' . date('H:i:s') . '] PHP ' . $name . ': ' . $e['message'] . ' in ' . basename($e['file']) . ' on line ' . $e['line'] . "\n", FILE_APPEND | LOCK_EX);
         }
     });
 }

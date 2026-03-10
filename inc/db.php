@@ -31,7 +31,12 @@ function getOffset() {
 
 function dbConnect($dbhost, $dbuser, $dbpass) {
 	global $dbconn;
-  $dbconn = new PDO($dbhost, $dbuser, $dbpass);
+	$options = array();
+	// CLI (e.g. trial balance download) may run where DB is unreachable; fail fast instead of hanging
+	if (php_sapi_name() === 'cli') {
+		$options[1002] = 10; // PDO::MYSQL_ATTR_CONNECT_TIMEOUT = 10 seconds
+	}
+	$dbconn = new PDO($dbhost, $dbuser, $dbpass, $options);
 	$dbconn->setAttribute( PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION );
 	$dbconn->exec("SET time_zone='" . getOffset() . "';");
 }
