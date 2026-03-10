@@ -1065,6 +1065,9 @@ function qbo_tb_parse_report_to_flat($data) {
     }
 
     $top_rows = isset($data['Rows']['Row']) ? $data['Rows']['Row'] : array();
+    if (!empty($top_rows) && !isset($top_rows[0])) {
+        $top_rows = array($top_rows);
+    }
     $flat = qbo_tb_flatten_rows($top_rows, 0);
 
     $maxCols = count($columns);
@@ -1102,7 +1105,31 @@ function qbo_tb_parse_report_to_flat($data) {
     }
     unset($r);
 
-    return array('columns' => $columns, 'rows' => $rows);
+    // Two-row header: row1 = month (merge over Debit/Credit pairs), row2 = Account | Debit | Credit | ...
+    $header_row1 = array();
+    $header_row2 = array();
+    for ($i = 0; $i < count($columns); $i++) {
+        $title = $columns[$i];
+        if ($i === 0) {
+            $header_row1[] = 'Account';
+            $header_row2[] = '';
+        } else {
+            if (preg_match('/^(.+)\s+(Debit|Credit)$/i', $title, $m)) {
+                $header_row1[] = trim($m[1]);
+                $header_row2[] = $m[2];
+            } else {
+                $header_row1[] = $title;
+                $header_row2[] = '';
+            }
+        }
+    }
+
+    return array(
+        'columns' => $columns,
+        'rows' => $rows,
+        'header_row1' => $header_row1,
+        'header_row2' => $header_row2,
+    );
 }
 
 /**
@@ -1118,28 +1145,37 @@ function qbo_tb_flatten_rows($rows, $depth = 0) {
         return $result;
     }
     foreach ($rows as $row) {
-        if (!isset($row['type'])) {
+        $type = isset($row['type']) ? $row['type'] : '';
+
+        // Always recurse into nested Rows (Section, Group, or any container) so we don't miss account rows
+        $nested = isset($row['Rows']['Row']) ? $row['Rows']['Row'] : null;
+        if ($nested !== null && is_array($nested)) {
+            if (!isset($nested[0])) {
+                $nested = array($nested);
+            }
+            if ($type === 'Section') {
+                $header_val = isset($row['Header']['ColData'][0]['value']) ? trim($row['Header']['ColData'][0]['value']) : '';
+                if ($header_val !== '') {
+                    $result[] = array('type' => 'section_header', 'depth' => $depth, 'cols' => $row['Header']['ColData']);
+                }
+            }
+            $result = array_merge($result, qbo_tb_flatten_rows($nested, $depth + 1));
+            if ($type === 'Section') {
+                $summary_val = isset($row['Summary']['ColData'][0]['value']) ? trim($row['Summary']['ColData'][0]['value']) : '';
+                if ($summary_val !== '') {
+                    $result[] = array('type' => 'section_summary', 'depth' => $depth, 'cols' => $row['Summary']['ColData']);
+                }
+            }
             continue;
         }
-        if ($row['type'] === 'Section') {
-            $header_val = isset($row['Header']['ColData'][0]['value']) ? trim($row['Header']['ColData'][0]['value']) : '';
-            if ($header_val !== '') {
-                $result[] = array('type' => 'section_header', 'depth' => $depth, 'cols' => $row['Header']['ColData']);
-            }
-            if (isset($row['Rows']['Row']) && is_array($row['Rows']['Row'])) {
-                $result = array_merge($result, qbo_tb_flatten_rows($row['Rows']['Row'], $depth + 1));
-            }
-            $summary_val = isset($row['Summary']['ColData'][0]['value']) ? trim($row['Summary']['ColData'][0]['value']) : '';
-            if ($summary_val !== '') {
-                $result[] = array('type' => 'section_summary', 'depth' => $depth, 'cols' => $row['Summary']['ColData']);
-            }
-        } elseif ($row['type'] === 'Data') {
-            if (isset($row['ColData'])) {
-                $result[] = array('type' => 'data', 'depth' => $depth, 'cols' => $row['ColData']);
-            }
-        } elseif ($row['type'] === 'GrandTotal') {
-            if (isset($row['ColData'])) {
+
+        // Rows without nested Rows: Data, GrandTotal, or any row with ColData (treat as data if unknown)
+        if (isset($row['ColData']) && is_array($row['ColData'])) {
+            if ($type === 'GrandTotal') {
                 $result[] = array('type' => 'grand_total', 'depth' => $depth, 'cols' => $row['ColData']);
+            } else {
+                // Data, Row, or any other type with ColData = include as data row (GL account or summary line)
+                $result[] = array('type' => 'data', 'depth' => $depth, 'cols' => $row['ColData']);
             }
         }
     }

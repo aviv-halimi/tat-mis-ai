@@ -110,6 +110,8 @@ foreach ($stores_rs as $store) {
     $ok = qbo_tb_write_excel_from_parsed(
         $parsed['columns'],
         $parsed['rows'],
+        isset($parsed['header_row1']) ? $parsed['header_row1'] : null,
+        isset($parsed['header_row2']) ? $parsed['header_row2'] : null,
         $store_name,
         $start_date,
         $end_date,
@@ -173,10 +175,10 @@ exit;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Helper: write Trial Balance Excel from parsed report (columns + rows from QBO).
-// $columns = [ 'Account', 'Jan 2026', ... ], $rows = [ [ 'type' => 'data', 'depth' => 1, 'values' => [...] ], ... ]
+// $header_row1 / $header_row2: when set, use two-row header (month merged over Debit/Credit).
 // ════════════════════════════════════════════════════════════════════════════
 function qbo_tb_write_excel_from_parsed(
-    $columns, $rows, $store_name, $start_date, $end_date, $filepath,
+    $columns, $rows, $header_row1, $header_row2, $store_name, $start_date, $end_date, $filepath,
     $style_title, $style_subtitle, $style_col_headers,
     $style_section_l0, $style_section_l1,
     $style_summary_l0, $style_summary_l1,
@@ -208,12 +210,46 @@ function qbo_tb_write_excel_from_parsed(
         $sheet->getRowDimension(2)->setRowHeight(18);
 
         $headerRow = 4;
-        foreach ($columns as $c => $title) {
-            $sheet->setCellValueByColumnAndRow($c + 1, $headerRow, $title);
+        $dataStartRow = $headerRow + 1;
+
+        if (!empty($header_row1) && !empty($header_row2) && count($header_row1) === $num_cols && count($header_row2) === $num_cols) {
+            // Two-row header: row1 = month (merge consecutive same), row2 = Debit/Credit
+            for ($c = 0; $c < $num_cols; $c++) {
+                $sheet->setCellValueByColumnAndRow($c + 1, $headerRow, isset($header_row1[$c]) ? $header_row1[$c] : '');
+            }
+            $sheet->getStyle('A' . $headerRow . ':' . $last_col_letter . $headerRow)->applyFromArray($style_col_headers);
+            $sheet->getRowDimension($headerRow)->setRowHeight(18);
+            // Merge consecutive same values in row 1 (e.g. "Jan 2026" over B and C)
+            for ($c = 0; $c < $num_cols; ) {
+                $val = isset($header_row1[$c]) ? $header_row1[$c] : '';
+                $end = $c;
+                while ($end + 1 < $num_cols && (isset($header_row1[$end + 1]) ? $header_row1[$end + 1] : '') === $val) {
+                    $end++;
+                }
+                if ($end > $c) {
+                    $startCell = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c + 1) . $headerRow;
+                    $endCell = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($end + 1) . $headerRow;
+                    $sheet->mergeCells($startCell . ':' . $endCell);
+                }
+                $c = $end + 1;
+            }
+            $headerRow++;
+            $dataStartRow = $headerRow + 1;
+            for ($c = 0; $c < $num_cols; $c++) {
+                $sheet->setCellValueByColumnAndRow($c + 1, $headerRow, isset($header_row2[$c]) ? $header_row2[$c] : '');
+            }
+            $sheet->getStyle('A' . $headerRow . ':' . $last_col_letter . $headerRow)->applyFromArray($style_col_headers);
+            $sheet->getRowDimension($headerRow)->setRowHeight(18);
+        } else {
+            // Single header row (fallback)
+            foreach ($columns as $c => $title) {
+                $sheet->setCellValueByColumnAndRow($c + 1, $headerRow, $title);
+            }
+            $sheet->getStyle('A' . $headerRow . ':' . $last_col_letter . $headerRow)->applyFromArray($style_col_headers);
+            $sheet->getRowDimension($headerRow)->setRowHeight(18);
         }
-        $sheet->getStyle('A' . $headerRow . ':' . $last_col_letter . $headerRow)->applyFromArray($style_col_headers);
-        $sheet->getRowDimension($headerRow)->setRowHeight(18);
-        $sheet->freezePane('A' . ($headerRow + 1));
+
+        $sheet->freezePane('A' . $dataStartRow);
 
         $excelRow = $headerRow;
         foreach ($rows as $r) {
