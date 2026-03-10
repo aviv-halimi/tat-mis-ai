@@ -32,15 +32,15 @@ if ($po_id <= 0) {
 
 $admin_id = $_Session->admin_id;
 $admin_name = '';
-$ra = getRs("SELECT admin_name, email FROM {$_Session->db}.admin WHERE admin_id = ?", array($admin_id));
+$ra = getRs("SELECT admin_name, email FROM theartisttree.admin WHERE admin_id = ?", array($admin_id));
 if ($r = getRow($ra)) {
 	$admin_name = (string) $r['admin_name'];
 }
 
 $rs = getRs("SELECT s.store_name, s.params, po.po_name, po.po_number, po.vendor_name, po.po_code, st.po_status_id, st.po_status_name
-	FROM {$_Session->db}.po
-	INNER JOIN {$_Session->db}.store s ON s.store_id = po.store_id
-	INNER JOIN {$_Session->db}.po_status st ON st.po_status_id = po.po_status_id
+	FROM theartisttree.po
+	INNER JOIN theartisttree.store s ON s.store_id = po.store_id
+	INNER JOIN theartisttree.po_status st ON st.po_status_id = po.po_status_id
 	WHERE po.po_id = ?", array($po_id));
 
 if (!($r = getRow($rs))) {
