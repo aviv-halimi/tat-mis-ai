@@ -4,7 +4,7 @@
  *
  * POST params:
  *   po_id        int
- *   disable_ids  JSON array of po_product_id ints  → set is_enabled = 0
+ *   disable_ids  JSON array of po_product_id ints  → delete those po_product records (and any child rows)
  *   add_products JSON array of {name, price, brand_id, category_id} → add as custom products
  */
 require_once dirname(__FILE__) . '/../_config.php';
@@ -163,7 +163,7 @@ if (!empty($add_products)) {
     }
 }
 
-$message = "Disabled {$disabled_count} product(s) not on menu. Added {$added_count} new product(s) from menu.";
+$message = "Deleted {$deleted_count} product(s) not on menu. Added {$added_count} new product(s) from menu.";
 if (!empty($errors)) {
     $message .= ' Errors (' . count($errors) . '): ' . implode('; ', array_slice($errors, 0, 5));
     if (count($errors) > 5) { $message .= ' (+ ' . (count($errors) - 5) . ' more)'; }
@@ -171,7 +171,7 @@ if (!empty($errors)) {
 
 echo json_encode([
     'success'        => true,
-    'disabled_count' => $disabled_count,
+    'deleted_count'  => $deleted_count,
     'added_count'    => $added_count,
     'errors'         => $errors,
     'message'        => $message,
