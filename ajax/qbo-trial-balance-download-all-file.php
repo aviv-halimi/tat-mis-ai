@@ -40,5 +40,9 @@ header('Pragma: no-cache');
 readfile($path);
 
 @unlink($path);
+$env_path = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'qbo_tb_jobs' . DIRECTORY_SEPARATOR . $job_id . '.env';
+if (is_file($env_path)) {
+    @unlink($env_path);
+}
 unset($_SESSION['qbo_tb_job_id'], $_SESSION['qbo_tb_job_end_date']);
 exit;

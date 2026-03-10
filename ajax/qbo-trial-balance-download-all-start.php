@@ -26,8 +26,26 @@ if (!is_dir($job_dir) || !is_writable($job_dir)) {
     exit;
 }
 
+// QBO credentials: web process has them (Apache SetEnv); CLI does not inherit them, so pass via env file
+$qbo_client_id = (defined('QBO_CLIENT_ID') && QBO_CLIENT_ID !== '') ? QBO_CLIENT_ID : (getenv('QBO_CLIENT_ID') ?: '');
+$qbo_client_secret = (defined('QBO_CLIENT_SECRET') && QBO_CLIENT_SECRET !== '') ? QBO_CLIENT_SECRET : (getenv('QBO_CLIENT_SECRET') ?: '');
+$qbo_client_id = is_string($qbo_client_id) ? trim($qbo_client_id) : '';
+$qbo_client_secret = is_string($qbo_client_secret) ? trim($qbo_client_secret) : '';
+if ($qbo_client_id === '' || $qbo_client_secret === '') {
+    echo json_encode(array('started' => false, 'error' => 'QBO client credentials not set. Set QBO_CLIENT_ID and QBO_CLIENT_SECRET in Apache/env or _config.php.'));
+    exit;
+}
+$env_file = $job_dir . DIRECTORY_SEPARATOR . $job_id . '.env';
+$env_content = 'QBO_CLIENT_ID=' . $qbo_client_id . "\n" . 'QBO_CLIENT_SECRET=' . $qbo_client_secret . "\n";
+if (@file_put_contents($env_file, $env_content, LOCK_EX) === false) {
+    echo json_encode(array('started' => false, 'error' => 'Could not write credentials file.'));
+    exit;
+}
+@chmod($env_file, 0600);
+
 $script = BASE_PATH . 'cli' . DIRECTORY_SEPARATOR . 'qbo-trial-balance-download-all.php';
 if (!is_file($script)) {
+    @unlink($env_file);
     echo json_encode(array('started' => false, 'error' => 'CLI script not found.'));
     exit;
 }
@@ -69,17 +87,18 @@ $log_line = '[' . date('H:i:s') . '] Web: spawning CLI (PHP: ' . $phpBin . '). I
 
 $is_win = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
 if ($is_win) {
-    // Use full path to script; start /B runs in background
     $cmd = 'start /B "" ' . escapeshellarg($phpBin) . ' ' . escapeshellarg($script)
         . ' --end_date=' . escapeshellarg($end_date)
         . ' --output=' . escapeshellarg($output_path)
         . ' --log=' . escapeshellarg($log_path)
+        . ' --env_file=' . escapeshellarg($env_file)
         . ' > NUL 2>&1';
 } else {
     $cmd = $phpBin . ' ' . escapeshellarg($script)
         . ' --end_date=' . escapeshellarg($end_date)
         . ' --output=' . escapeshellarg($output_path)
         . ' --log=' . escapeshellarg($log_path)
+        . ' --env_file=' . escapeshellarg($env_file)
         . ' > /dev/null 2>&1 &';
 }
 @popen($cmd, 'r');

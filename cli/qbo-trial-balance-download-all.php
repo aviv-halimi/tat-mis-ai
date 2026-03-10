@@ -17,6 +17,7 @@ if (php_sapi_name() !== 'cli') {
 $end_date = null;
 $output = null;
 $log_path = null;
+$env_file = null;
 foreach (array_slice($argv, 1) as $arg) {
     if (preg_match('/^--end_date=(.+)$/', $arg, $m)) {
         $end_date = trim($m[1]);
@@ -24,7 +25,23 @@ foreach (array_slice($argv, 1) as $arg) {
         $output = trim($m[1]);
     } elseif (preg_match('/^--log=(.+)$/', $arg, $m)) {
         $log_path = trim($m[1]);
+    } elseif (preg_match('/^--env_file=(.+)$/', $arg, $m)) {
+        $env_file = trim($m[1]);
     }
+}
+
+// Load QBO credentials from env file (web process passes them; CLI does not inherit Apache SetEnv)
+if ($env_file && is_file($env_file) && is_readable($env_file)) {
+    $lines = @file($env_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if (is_array($lines)) {
+        foreach ($lines as $line) {
+            if (preg_match('/^([A-Za-z0-9_]+)=(.*)$/', $line, $m)) {
+                putenv($m[1] . '=' . $m[2]);
+                $_ENV[$m[1]] = $m[2];
+            }
+        }
+    }
+    @unlink($env_file);
 }
 
 if ($log_path) {
