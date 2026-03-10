@@ -186,17 +186,25 @@ function runInvoiceValidationForPO($po_id, $check_only = false)
         return array('matched' => false, 'ai_total' => null, 'r_total' => null, 'payment_terms' => null, 'debug_log' => array());
     }
     $rs = getRs(
-        "SELECT po.po_id, po.invoice_number, po.vendor_id, (po.r_total - COALESCE(SUM(pd.discount_amount), 0)) AS r_total, po.invoice_filename, v.name AS vendor_name
+        "SELECT po.po_id, po.invoice_number, po.vendor_id, po.store_id, (po.r_total - COALESCE(SUM(pd.discount_amount), 0)) AS r_total, po.invoice_filename
          FROM po
          LEFT JOIN po_discount pd ON pd.po_id = po.po_id AND pd.is_receiving = 1 AND pd.is_enabled = 1 AND pd.is_active = 1
-         LEFT JOIN vendor v ON v.vendor_id = po.vendor_id AND " . is_enabled('v') . "
          WHERE " . is_enabled('po') . " AND po.po_id = ? AND LENGTH(po.invoice_filename) > 0 AND po.r_total > 0
-         GROUP BY po.po_id, po.invoice_number, po.vendor_id, po.r_total, po.invoice_filename, v.name",
+         GROUP BY po.po_id, po.invoice_number, po.vendor_id, po.store_id, po.r_total, po.invoice_filename",
         array($po_id)
     );
     $r = getRow($rs);
     if (!$r) {
         return array('matched' => false, 'ai_total' => null, 'r_total' => null, 'payment_terms' => null, 'debug_log' => array());
+    }
+    $is_nabis_vendor = false;
+    if (!empty($r['store_id']) && !empty($r['vendor_id'])) {
+        $store_row = getRow(getRs("SELECT db, params FROM store WHERE store_id = ?", array($r['store_id'])));
+        if (!empty($store_row['params'])) {
+            $params = json_decode($store_row['params'], true);
+            $nabis_vendor_id = isset($params['nabis_vendor_id']) ? $params['nabis_vendor_id'] : null;
+            $is_nabis_vendor = ($nabis_vendor_id !== null && (int) $r['vendor_id'] === (int) $nabis_vendor_id);
+        }
     }
     $r_total = (float) $r['r_total'];
     $po_invoice_number = isset($r['invoice_number']) ? trim((string) $r['invoice_number']) : '';
@@ -223,8 +231,7 @@ function runInvoiceValidationForPO($po_id, $check_only = false)
         $contact = null;
     }
 
-    $vendor_name = isset($r['vendor_name']) ? trim((string) $r['vendor_name']) : '';
-    if (stripos($vendor_name, 'Nabis') !== false && $contact !== null && $contact !== '' && $ai_invoice_number !== null && $ai_invoice_number !== '') {
+    if ($is_nabis_vendor && $contact !== null && $contact !== '' && $ai_invoice_number !== null && $ai_invoice_number !== '') {
         $inv_num = $ai_invoice_number;
         $max_len = 21;
         $dash_len = 1;
