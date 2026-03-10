@@ -175,27 +175,25 @@ TRANS;
 // ============================================================
 // PHASE 1 — Extract menu items from PDF (Gemini)
 // ============================================================
+// Compact format: columns + rows to save tokens (no repeated keys per item)
 $p1_schema = [
     'type' => 'OBJECT',
     'properties' => [
-        'menu_items' => [
+        'columns' => [
+            'type' => 'ARRAY',
+            'items' => ['type' => 'STRING'],
+            'description' => 'Field names in order: name, price, brand_id, brand_name, category_id, product_type, weight_token',
+        ],
+        'rows' => [
             'type' => 'ARRAY',
             'items' => [
-                'type' => 'OBJECT',
-                'properties' => [
-                    'name'         => ['type' => 'STRING'],
-                    'brand_name'   => ['type' => 'STRING',  'nullable' => true],
-                    'product_type' => ['type' => 'STRING',  'nullable' => true],
-                    'price'        => ['type' => 'NUMBER'],
-                    'brand_id'     => ['type' => 'INTEGER', 'nullable' => true],
-                    'category_id'  => ['type' => 'INTEGER', 'nullable' => true],
-                    'weight_token' => ['type' => 'STRING',  'nullable' => true],
-                ],
-                'required' => ['name', 'price'],
+                'type' => 'ARRAY',
+                'items' => ['type' => 'STRING', 'nullable' => true],
             ],
+            'description' => 'One array per menu item; values match column order. Use null for missing optional fields.',
         ],
     ],
-    'required' => ['menu_items'],
+    'required' => ['columns', 'rows'],
 ];
 
 $p1_system_instr = <<<SYS
@@ -228,6 +226,12 @@ For the product_type field, provide the menu section or sub-header in proper/tit
 - "PERSY DOINKS", "2 PERSY DOINKS" → weight_token = "1g"
 - Any combined weight like "1.5g F + .5g R" → sum the parts (e.g. 2g total → weight_token = "2g")
 - If the item has no weight in its section heading → weight_token = null
+
+**Output format (token-saving):** To ensure the full menu fits in one response, return a JSON object with "columns" and "rows" only. Do NOT return an array of objects (that repeats keys for every item).
+- "columns": an array of field names in this exact order: ["name", "price", "brand_id", "brand_name", "category_id", "product_type", "weight_token"]
+- "rows": an array of arrays; each inner array has exactly 7 values in the same order as columns. Use null for any missing optional value (e.g. brand_id, category_id, product_type, weight_token). Price must be a number.
+
+Example: {"columns":["name","price","brand_id","brand_name","category_id","product_type","weight_token"],"rows":[["Donny Burger",100,121,"710 Labs",7,"Half Ounce/14g","14g"],["C. Chrome #27",100,121,"710 Labs",7,"Half Ounce/14g","14g"]]}
 
 Return every menu item. Do not skip any.
 SYS;
@@ -277,7 +281,7 @@ if ($is_dry_run) {
         'matching'                  => 'PHP (deterministic — no Phase 2 Gemini call)',
         'summary' => [
             'total_products'   => count($po_products),
-            'pdf_count'        => count($pdf_parts),
+            'pdf_count'        => count($pdf_summary),
             'pdf_files'        => implode(', ', $pdf_summary),
             'brands_count'     => count($all_brands),
             'categories_count' => count($all_categories),
@@ -304,6 +308,36 @@ $p1_http     = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 $p1_elapsed = round(microtime(true) - $p1_start, 3);
 
+// Expand compact columns+rows into array of objects for downstream use
+function _po_menu_compact_to_items(array $parsed): array {
+    $cols = $parsed['columns'] ?? null;
+    $rows = $parsed['rows'] ?? null;
+    if (!is_array($cols) || !is_array($rows)) {
+        return [];
+    }
+    $items = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $obj = [];
+        foreach ($cols as $i => $key) {
+            $v = array_key_exists($i, $row) ? $row[$i] : null;
+            if ($v === null && $key !== 'name') {
+                $obj[$key] = null;
+            } elseif ($key === 'price') {
+                $obj[$key] = is_numeric($v) ? (float) $v : 0;
+            } elseif ($key === 'brand_id' || $key === 'category_id') {
+                $obj[$key] = ($v !== null && $v !== '') ? (int) $v : null;
+            } else {
+                $obj[$key] = $v !== null ? (string) $v : null;
+            }
+        }
+        $items[] = $obj;
+    }
+    return $items;
+}
+
 $menu_items = [];
 $p1_response_text = $p1_finish_reason = $p1_parse_error = null;
 if (!$p1_curl_err && $p1_raw && $p1_http === 200) {
@@ -316,11 +350,31 @@ if (!$p1_curl_err && $p1_raw && $p1_http === 200) {
         // Strip control characters in inner JSON that cause "Control character error"
         $p1_response_text = preg_replace('/[\x00-\x1F]/', ' ', $p1_response_text);
         $p1_parsed = json_decode($p1_response_text, true);
-        if (!is_array($p1_parsed) || empty($p1_parsed['menu_items'])) {
-            $p1_parse_error = json_last_error_msg();
-            // Salvage truncated JSON: close at last complete menu item (works for MAX_TOKENS or any truncation)
+        if (is_array($p1_parsed)) {
+            if (!empty($p1_parsed['columns']) && isset($p1_parsed['rows'])) {
+                $menu_items = _po_menu_compact_to_items($p1_parsed);
+            } elseif (!empty($p1_parsed['menu_items'])) {
+                $menu_items = $p1_parsed['menu_items'];
+            }
+        }
+        if (empty($menu_items)) {
+            $p1_parse_error = json_last_error_msg() ?: 'Missing columns/rows or menu_items';
+            // Salvage truncated JSON: compact format — find last complete row and close
             $trimmed = trim($p1_response_text);
-            if (preg_match('/"menu_items"\s*:\s*\[/', $trimmed) && !preg_match('/\}\s*]\s*}\s*$/', $trimmed)) {
+            if (preg_match('/"rows"\s*:\s*\[/', $trimmed) && !preg_match('/\]\s*]\s*}\s*$/', $trimmed)) {
+                $last_row_end = strrpos($trimmed, '],');
+                if ($last_row_end !== false) {
+                    $salvage = substr($trimmed, 0, $last_row_end + 1) . ']]}';
+                    $p1_parsed = json_decode($salvage, true);
+                    if (is_array($p1_parsed) && !empty($p1_parsed['columns']) && isset($p1_parsed['rows'])) {
+                        $menu_items = _po_menu_compact_to_items($p1_parsed);
+                        if (!empty($menu_items)) {
+                            $p1_parse_error = null;
+                        }
+                    }
+                }
+            }
+            if (empty($menu_items) && preg_match('/"menu_items"\s*:\s*\[/', $trimmed)) {
                 $last_brace_comma = strrpos($trimmed, '},');
                 if ($last_brace_comma !== false) {
                     $salvage = substr($trimmed, 0, $last_brace_comma + 1) . ']}';
@@ -331,8 +385,6 @@ if (!$p1_curl_err && $p1_raw && $p1_http === 200) {
                     }
                 }
             }
-        } else {
-            $menu_items = $p1_parsed['menu_items'];
         }
         // Never accept partial results: if Gemini hit MAX_TOKENS, the menu was truncated and items are missing
         if ($p1_finish_reason === 'MAX_TOKENS' && !empty($menu_items)) {
