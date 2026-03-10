@@ -24,6 +24,19 @@ $(document).ready(function () {
             $btn.prop("disabled", false).html("<i class=\"fa fa-save\"></i> Save");
         });
     });
+
+    $(".btn-download-tb").on("click", function (e) {
+        e.preventDefault();
+        var $row = $(this).closest("tr");
+        var store_id = $row.data("store-id");
+        var endDate = $("#end_date").val();
+        if (!endDate || !/^\\d{4}-\\d{2}-\\d{2}$/.test(endDate)) {
+            alert("Please set a valid End Date above (YYYY-MM-DD) before downloading.");
+            return;
+        }
+        var url = "/ajax/qbo-trial-balance-download-one.php?store_id=" + store_id + "&end_date=" + encodeURIComponent(endDate);
+        window.open(url, "_blank");
+    });
 });
 </script>';
 
@@ -47,7 +60,7 @@ $stores = $has_start_date_col
 <style>
 .tb-status-badge { font-size: 11px; }
 .tb-date-input   { max-width: 160px; display: inline-block; }
-.tb-action-col   { width: 80px; white-space: nowrap; }
+.tb-action-col   { width: 140px; white-space: nowrap; }
 .panel-generate  { border-top: 3px solid #116066; }
 .panel-generate .panel-heading { background: #116066; color: #fff; }
 .panel-generate .panel-heading h4 { color: #fff; margin: 0; }
@@ -114,7 +127,7 @@ $stores = $has_start_date_col
                             <th>Store</th>
                             <th>QBO</th>
                             <th>TB Start Date</th>
-                            <th class="tb-action-col">&nbsp;</th>
+                            <th class="tb-action-col">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -140,6 +153,11 @@ $stores = $has_start_date_col
                                        value="<?php echo htmlspecialchars($start_dt); ?>" />
                             </td>
                             <td class="tb-action-col">
+                                <?php if ($qbo_ok && $start_dt !== ''): ?>
+                                <a href="#" class="btn btn-xs btn-success btn-download-tb mr-1" title="Download this store&apos;s Trial Balance (uses End Date above)">
+                                    <i class="fa fa-download"></i> Download
+                                </a>
+                                <?php endif; ?>
                                 <button class="btn btn-xs btn-primary btn-save-start-date">
                                     <i class="fa fa-save"></i> Save
                                 </button>
