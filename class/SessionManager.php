@@ -56,7 +56,8 @@ class SessionManager {
 
 		global $_SERVER;
 
-		if (strpos($_SERVER['REQUEST_URI'], 'db/') !== false) return;
+		$uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+		if ($uri !== '' && strpos($uri, 'db/') !== false) return;
 
 		if (isset($_SESSION['admin_id']) && is_numeric($_SESSION['admin_id']) ) {
 			$rs = getRs("SELECT s.params AS store_settings, a.*, g.module_ids, CONCAT('/media/admin/sm/', CASE WHEN LENGTH(a.image) THEN a.image ELSE 'no.png' END) AS image_url, s.db, s.api_url, s.auth_code, s.partner_key, g.dashboard FROM store s RIGHT JOIN (admin a LEFT JOIN admin_group g ON g.admin_group_id = a.admin_group_id AND " . is_enabled('g') . ") ON s.store_id = a.store_id WHERE (a.is_superadmin = 1 OR ((a.date_start IS NULL OR a.date_start <= CURDATE()) AND (a.date_end IS NULL OR a.date_start >= CURDATE()))) AND " . is_enabled('a') . " AND a.admin_id = ?", array($_SESSION['admin_id']));
