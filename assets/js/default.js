@@ -897,6 +897,17 @@ function initAssets(select2) {
       });
     });
   });
+  $(document).off('click', '.btn-ai-invoice-apply').on('click', '.btn-ai-invoice-apply', function(e) {
+    e.preventDefault();
+    var btn = $(this);
+    var c = btn.data('po-code');
+    var v = btn.data('ai-invoice-number');
+    if (!c || v === undefined) return;
+    showStatus('status', 'Updating Invoice #...', 'info');
+    postAjax('po-data', {c: c, f: 'invoice_number', v: v}, 'status', function() {
+      location.reload();
+    });
+  });
   $('.po-data #invoice_filename').off('change').on('change', function(e) {
     postAjax('po-data', {c: $('#po_code').val(), f: 'invoice_filename', v: $(this).val()}, 'status');
   });

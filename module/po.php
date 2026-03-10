@@ -781,6 +781,17 @@ if (isset($t['po_status_id']) && (int)$t['po_status_id'] >= 5 && !empty($t['stor
 if ($t['po_status_id'] > 3) {
   $_inv_num = isset($t['invoice_number']) && $t['invoice_number'] !== null && (string)$t['invoice_number'] !== '' ? $t['invoice_number'] : '—';
   $_ai_inv_num = isset($t['ai_invoice_number']) && $t['ai_invoice_number'] !== null && (string)$t['ai_invoice_number'] !== '' ? $t['ai_invoice_number'] : '—';
+  $_ai_inv_match = false;
+  if ($_inv_num !== '—' && $_ai_inv_num !== '—') {
+    $__inv = trim((string)$_inv_num);
+    $__ai = trim((string)$_ai_inv_num);
+    $_ai_inv_match = (stripos($__inv, $__ai) !== false || $__inv === $__ai);
+  }
+  $_ai_inv_icon = $_ai_inv_num !== '—' ? ($_ai_inv_match ? '<i class="fa fa-check text-success ml-1" title="Matches Invoice #"></i>' : '<i class="fa fa-times text-danger ml-1" title="Does not match Invoice #"></i>') : '';
+  $_ai_inv_clickable = ($_ai_inv_num !== '—');
+  $_ai_inv_display = $_ai_inv_clickable
+    ? '<span class="btn-ai-invoice-apply text-primary" style="cursor:pointer;" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '" data-ai-invoice-number="' . htmlspecialchars($_ai_inv_num, ENT_QUOTES, 'UTF-8') . '" title="Click to set Invoice # to this value"><b>' . htmlspecialchars($_ai_inv_num) . '</b></span>'
+    : '<b>' . htmlspecialchars($_ai_inv_num) . '</b>';
   $_ai_validation = (isset($t['invoice_validated']) && (int)$t['invoice_validated'] === 1) ? '<span class="badge badge-success">Match</span>' : '<span class="badge badge-warning">No match</span>';
   $_qbo_bill = ($t['po_status_id'] >= 5 && $qbo_bill_id !== '') ? ($qbo_bill_url !== '' ? '<a href="' . htmlspecialchars($qbo_bill_url) . '" target="_blank" rel="noopener">#' . htmlspecialchars($qbo_bill_id) . '</a>' : '#' . htmlspecialchars($qbo_bill_id)) : ($t['po_status_id'] >= 5 ? '<span class="text-muted">(Not pushed to QBO)</span>' : '—');
   $_qbo_term = $t['po_status_id'] >= 5 ? htmlspecialchars($qbo_term_display) : '—';
@@ -815,7 +826,7 @@ echo '
       </div>
       <div class="col-md-4">
         <div class="row form-input-flat mb-2">
-          <div class="col-sm-12 col-form-label">AI Invoice #: <b>' . htmlspecialchars($_ai_inv_num) . '</b></div>
+          <div class="col-sm-12 col-form-label">AI Invoice #: ' . $_ai_inv_display . $_ai_inv_icon . '</div>
         </div>
       </div>
       <div class="col-md-4">
