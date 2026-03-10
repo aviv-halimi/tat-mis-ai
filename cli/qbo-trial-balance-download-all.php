@@ -29,6 +29,12 @@ foreach (array_slice($argv, 1) as $arg) {
 
 if ($log_path) {
     @file_put_contents($log_path, '[' . date('H:i:s') . '] CLI process started.' . "\n", FILE_APPEND | LOCK_EX);
+    register_shutdown_function(function () use ($log_path) {
+        $e = error_get_last();
+        if ($e && in_array($e['type'], array(E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR), true)) {
+            @file_put_contents($log_path, '[' . date('H:i:s') . '] FATAL: ' . $e['message'] . ' in ' . $e['file'] . ' on line ' . $e['line'] . "\n", FILE_APPEND | LOCK_EX);
+        }
+    });
 }
 
 if (!$end_date || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $end_date)) {
@@ -47,10 +53,18 @@ if (!$output) {
 }
 
 $base = dirname(__DIR__);
+if ($log_path) {
+    @file_put_contents($log_path, '[' . date('H:i:s') . '] Loading _config.php...' . "\n", FILE_APPEND | LOCK_EX);
+}
 require_once $base . DIRECTORY_SEPARATOR . '_config.php';
+if ($log_path) {
+    @file_put_contents($log_path, '[' . date('H:i:s') . '] Loading inc/qbo.php...' . "\n", FILE_APPEND | LOCK_EX);
+}
 require_once BASE_PATH . 'inc/qbo.php';
+if ($log_path) {
+    @file_put_contents($log_path, '[' . date('H:i:s') . '] Loading qbo-trial-balance-excel.php...' . "\n", FILE_APPEND | LOCK_EX);
+}
 require_once BASE_PATH . 'inc/qbo-trial-balance-excel.php';
-
 if ($log_path) {
     @file_put_contents($log_path, '[' . date('H:i:s') . '] Config and includes loaded.' . "\n", FILE_APPEND | LOCK_EX);
 }
