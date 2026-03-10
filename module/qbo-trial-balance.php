@@ -37,6 +37,51 @@ $(document).ready(function () {
         var url = "/ajax/qbo-trial-balance-download-one.php?store_id=" + store_id + "&end_date=" + encodeURIComponent(endDate);
         window.open(url, "_blank");
     });
+
+    $("#qbo-tb-form").on("submit", function (e) {
+        e.preventDefault();
+        var endDate = $("#end_date").val();
+        if (!endDate || !/^\\d{4}-\\d{2}-\\d{2}$/.test(endDate)) {
+            alert("Please set a valid End Date (YYYY-MM-DD).");
+            return;
+        }
+        var $btn = $(this).find("button[type=submit]");
+        var $msg = $("#qbo-tb-download-all-msg");
+        $btn.prop("disabled", true).html("<i class=\"fa fa-spinner fa-spin mr-1\"></i> Starting...");
+        $msg.removeClass("alert-danger").addClass("alert-info").html("Starting generation...").show();
+        $.post("/ajax/qbo-trial-balance-download-all-start.php", { end_date: endDate }, function (data) {
+            if (!data.started) {
+                $msg.removeClass("alert-info").addClass("alert-danger").html(data.error || "Failed to start.");
+                $btn.prop("disabled", false).html("<i class=\"fa fa-file-excel-o mr-1\"></i> Download All Trial Balances");
+                return;
+            }
+            var jobId = data.job_id;
+            $msg.html("<i class=\"fa fa-spinner fa-spin mr-1\"></i> Generating your file... This may take a few minutes. Please wait.");
+            function poll() {
+                $.getJSON("/ajax/qbo-trial-balance-download-all-status.php?job_id=" + jobId, function (st) {
+                    if (st.ready && st.download_url) {
+                        $msg.removeClass("alert-info").addClass("alert-success").html("<i class=\"fa fa-check mr-1\"></i> Ready! Downloading...");
+                        window.location.href = st.download_url;
+                        $btn.prop("disabled", false).html("<i class=\"fa fa-file-excel-o mr-1\"></i> Download All Trial Balances");
+                        return;
+                    }
+                    if (st.error) {
+                        $msg.removeClass("alert-info").addClass("alert-danger").html(st.error);
+                        $btn.prop("disabled", false).html("<i class=\"fa fa-file-excel-o mr-1\"></i> Download All Trial Balances");
+                        return;
+                    }
+                    setTimeout(poll, 2500);
+                }).fail(function () {
+                    $msg.removeClass("alert-info").addClass("alert-danger").html("Connection error. Please try again.");
+                    $btn.prop("disabled", false).html("<i class=\"fa fa-file-excel-o mr-1\"></i> Download All Trial Balances");
+                });
+            }
+            setTimeout(poll, 2000);
+        }, "json").fail(function () {
+            $msg.removeClass("alert-info").addClass("alert-danger").html("Failed to start. Please try again.");
+            $btn.prop("disabled", false).html("<i class=\"fa fa-file-excel-o mr-1\"></i> Download All Trial Balances");
+        });
+    });
 });
 </script>';
 
@@ -87,8 +132,7 @@ $stores = $has_start_date_col
                     Downloads one Excel file with a tab for each store (tab name = store name).
                     Each store uses its own configured <strong>TB Start Date</strong> from the table below.
                 </p>
-                <form id="qbo-tb-form" method="get" action="/" target="_blank">
-                    <input type="hidden" name="_module_code" value="qbo-trial-balance-download" />
+                <form id="qbo-tb-form" method="get" action="/">
                     <div class="form-inline" style="align-items:flex-end; gap:12px; display:flex; flex-wrap:wrap;">
                         <div class="form-group">
                             <label class="control-label mr-2" for="end_date"><strong>End Date</strong></label>
@@ -106,6 +150,7 @@ $stores = $has_start_date_col
                             </button>
                         </div>
                     </div>
+                    <div id="qbo-tb-download-all-msg" class="alert alert-info m-t-10" style="display:none;"></div>
                 </form>
             </div>
         </div>
