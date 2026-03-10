@@ -1,4 +1,19 @@
 <?php
+register_shutdown_function(function () {
+	$err = error_get_last();
+	if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+		if (!headers_sent()) {
+			header('Content-Type: application/json');
+		}
+		echo json_encode([
+			'success' => false,
+			'error'   => 'Server error: ' . $err['message'],
+			'file'    => basename($err['file']),
+			'line'    => $err['line']
+		]);
+	}
+});
+
 require_once('../_config.php');
 
 header('Cache-Control: no-cache, must-revalidate');
@@ -54,7 +69,7 @@ try {
 }
 
 $note = 'Notify Andrew: ' . $admin_name . ' sent an email notification to Andrew.';
-setRs("INSERT INTO {$_Session->db}.file (re_tbl, re_id, admin_id, description, is_auto) VALUES ('po', ?, ?, ?, 0)", array($po_id, $admin_id, $note));
+setRs("INSERT INTO file (re_tbl, re_id, admin_id, description, is_auto) VALUES ('po', ?, ?, ?, 0)", array($po_id, $admin_id, $note));
 
 echo json_encode(array('success' => true, 'message' => 'Email sent to Andrew.'));
 exit();
