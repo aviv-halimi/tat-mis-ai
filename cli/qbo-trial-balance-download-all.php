@@ -51,6 +51,10 @@ require_once $base . DIRECTORY_SEPARATOR . '_config.php';
 require_once BASE_PATH . 'inc/qbo.php';
 require_once BASE_PATH . 'inc/qbo-trial-balance-excel.php';
 
+if ($log_path) {
+    @file_put_contents($log_path, '[' . date('H:i:s') . '] Config and includes loaded.' . "\n", FILE_APPEND | LOCK_EX);
+}
+
 function qbo_tb_log($log_path, $msg) {
     if ($log_path) {
         @file_put_contents($log_path, '[' . date('H:i:s') . '] ' . $msg . "\n", FILE_APPEND | LOCK_EX);
@@ -67,6 +71,7 @@ $style_summary_l1 = $qbo_tb_style_summary_l1;
 $style_grand_total = $qbo_tb_style_grand_total;
 $currency_fmt = $qbo_tb_currency_fmt;
 
+qbo_tb_log($log_path, 'Fetching store list from database...');
 $stores_rs = getRs(
     "SELECT store_id, store_name, qbo_tb_start_date
        FROM store
