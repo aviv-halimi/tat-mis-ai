@@ -13,11 +13,7 @@ if (php_sapi_name() !== 'cli') {
     exit(1);
 }
 
-$base = dirname(__DIR__);
-require_once $base . DIRECTORY_SEPARATOR . '_config.php';
-require_once BASE_PATH . 'inc/qbo.php';
-require_once BASE_PATH . 'inc/qbo-trial-balance-excel.php';
-
+// Parse args and write to log immediately so we know the process started (before any require)
 $end_date = null;
 $output = null;
 $log_path = null;
@@ -31,14 +27,29 @@ foreach (array_slice($argv, 1) as $arg) {
     }
 }
 
+if ($log_path) {
+    @file_put_contents($log_path, '[' . date('H:i:s') . '] CLI process started.' . "\n", FILE_APPEND | LOCK_EX);
+}
+
 if (!$end_date || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $end_date)) {
+    if ($log_path) {
+        @file_put_contents($log_path, '[' . date('H:i:s') . '] Error: missing or invalid --end_date.' . "\n", FILE_APPEND | LOCK_EX);
+    }
     fwrite(STDERR, "Missing or invalid --end_date (use YYYY-MM-DD).\n");
     exit(1);
 }
 if (!$output) {
+    if ($log_path) {
+        @file_put_contents($log_path, '[' . date('H:i:s') . '] Error: missing --output.' . "\n", FILE_APPEND | LOCK_EX);
+    }
     fwrite(STDERR, "Missing --output path.\n");
     exit(1);
 }
+
+$base = dirname(__DIR__);
+require_once $base . DIRECTORY_SEPARATOR . '_config.php';
+require_once BASE_PATH . 'inc/qbo.php';
+require_once BASE_PATH . 'inc/qbo-trial-balance-excel.php';
 
 function qbo_tb_log($log_path, $msg) {
     if ($log_path) {

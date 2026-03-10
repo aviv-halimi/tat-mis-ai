@@ -43,11 +43,34 @@ if (defined('INVOICE_VALIDATE_PHP_CLI') && INVOICE_VALIDATE_PHP_CLI !== '' && fi
             break;
         }
     }
+} else {
+    // Windows: try common PHP locations so background process can find it
+    $try = array();
+    if (defined('PHP_BINDIR') && PHP_BINDIR !== '') {
+        $try[] = PHP_BINDIR . DIRECTORY_SEPARATOR . 'php.exe';
+    }
+    $try = array_merge($try, array(
+        'C:\\php\\php.exe',
+        'C:\\xampp\\php\\php.exe',
+        'C:\\wamp64\\bin\\php\\php8.2\\php.exe',
+        'C:\\wamp\\bin\\php\\php8.2\\php.exe',
+    ));
+    foreach ($try as $path) {
+        if ($path && file_exists($path)) {
+            $phpBin = $path;
+            break;
+        }
+    }
 }
+
+// Write to log immediately so first status poll shows something; helps debug if CLI never starts
+$log_line = '[' . date('H:i:s') . '] Web: spawning CLI (PHP: ' . $phpBin . '). If no "CLI process started" below, the background process did not start—check that PHP CLI is installed and in PATH or set INVOICE_VALIDATE_PHP_CLI in _config.php.' . "\n";
+@file_put_contents($log_path, $log_line, LOCK_EX);
 
 $is_win = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
 if ($is_win) {
-    $cmd = 'start /B "" ' . $phpBin . ' ' . escapeshellarg($script)
+    // Use full path to script; start /B runs in background
+    $cmd = 'start /B "" ' . escapeshellarg($phpBin) . ' ' . escapeshellarg($script)
         . ' --end_date=' . escapeshellarg($end_date)
         . ' --output=' . escapeshellarg($output_path)
         . ' --log=' . escapeshellarg($log_path)
