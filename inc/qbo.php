@@ -1105,26 +1105,38 @@ function qbo_tb_parse_report_to_flat($data) {
     }
     unset($r);
 
-    // Two-row header: row1 = Account | month (merged over 2 cols) | month | ...; row2 = empty | Debit | Credit | Debit | Credit | ...
+    // Two-row header: row1 = Account | month (merged over 2 cols) | month | ...; row2 = empty | Debit | Credit | ...
+    // Use consecutive months from the first pair's label so we don't show skipped months (QBO sometimes labels every other month).
     $header_row1 = array();
     $header_row2 = array();
     $num_cols_parsed = count($columns);
+    $num_pairs = $num_cols_parsed > 0 ? (int) (($num_cols_parsed - 1) / 2) : 0;
+    $month_labels = array();
+    if ($num_pairs > 0 && isset($columns[1])) {
+        $first_title = $columns[1];
+        $first_month = $first_title;
+        if (preg_match('/^(.+)\s+Debit$/i', $first_title, $m)) {
+            $first_month = trim($m[1]);
+        } elseif (preg_match('/^(.+)\s+Credit$/i', $first_title, $m)) {
+            $first_month = trim($m[1]);
+        }
+        $base_ts = @strtotime('first day of ' . $first_month);
+        if ($base_ts === false) {
+            $base_ts = strtotime('first day of this month');
+        }
+        for ($p = 0; $p < $num_pairs; $p++) {
+            $month_labels[] = date('M Y', strtotime('+' . $p . ' months', $base_ts));
+        }
+    }
     for ($i = 0; $i < $num_cols_parsed; $i++) {
         if ($i === 0) {
             $header_row1[] = 'Account';
             $header_row2[] = '';
         } elseif (($i % 2) === 0) {
-            // Second column of Debit/Credit pair — already added when we processed i-1
             continue;
         } else {
-            // First of a pair (columns 1, 3, 5, ...): one month label spanning two cols, then "Debit" and "Credit"
-            $title = $columns[$i];
-            $month = $title;
-            if (preg_match('/^(.+)\s+Debit$/i', $title, $m)) {
-                $month = trim($m[1]);
-            } elseif (preg_match('/^(.+)\s+Credit$/i', $title, $m)) {
-                $month = trim($m[1]);
-            }
+            $pair_index = (int) (($i - 1) / 2);
+            $month = isset($month_labels[$pair_index]) ? $month_labels[$pair_index] : (isset($columns[$i]) ? $columns[$i] : '');
             $header_row1[] = $month;
             $header_row2[] = 'Debit';
             if ($i + 1 < $num_cols_parsed) {
@@ -1133,7 +1145,6 @@ function qbo_tb_parse_report_to_flat($data) {
             }
         }
     }
-    // If we skipped even indices (second of pair), we're short; backfill so lengths match $columns
     while (count($header_row1) < $num_cols_parsed) {
         $header_row1[] = isset($header_row1[count($header_row1) - 1]) ? $header_row1[count($header_row1) - 1] : '';
         $header_row2[] = 'Credit';
