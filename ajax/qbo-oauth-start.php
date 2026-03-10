@@ -1,7 +1,7 @@
 <?php
 /**
  * Start QBO OAuth2: redirects the user to Intuit's authorization page.
- * GET store_id (required). User must be logged in; store_id is passed as state and used after callback.
+ * GET store_id (for a store) OR extra_entity_id (for qbo_tb_extra_entity). State is used after callback.
  *
  * If Intuit shows "Sorry, but undefined didn't connect": set your app's display name in the
  * Intuit Developer Portal (developer.intuit.com) → Your app → App settings → App name / Company name.
@@ -9,22 +9,34 @@
 require_once dirname(__FILE__) . '/../_config.php';
 
 $store_id = isset($_GET['store_id']) ? (int)$_GET['store_id'] : 0;
-if ($store_id <= 0) {
-    header('Content-Type: text/html; charset=utf-8');
-    echo '<!DOCTYPE html><html><body><p>Missing store_id.</p></body></html>';
-    exit;
-}
+$extra_entity_id = isset($_GET['extra_entity_id']) ? (int)$_GET['extra_entity_id'] : 0;
 
 $status6_row = getRow(getRs("SELECT module_code FROM po_status WHERE po_status_id = 6"));
 if (!$status6_row || !$_Session->HasModulePermission($status6_row['module_code'])) {
     header('Content-Type: text/html; charset=utf-8');
-    echo '<!DOCTYPE html><html><body><p>You do not have permission to connect QuickBooks for this store.</p></body></html>';
+    echo '<!DOCTYPE html><html><body><p>You do not have permission to connect QuickBooks.</p></body></html>';
     exit;
 }
-$rs = getRs("SELECT store_id FROM store WHERE store_id = ? AND " . is_enabled(), array($store_id));
-if (!$rs || !getRow($rs)) {
+
+if ($extra_entity_id > 0) {
+    $rs = getRs("SELECT id, entity_name FROM qbo_tb_extra_entity WHERE id = ? AND is_enabled = 1", array($extra_entity_id));
+    if (!$rs || !getRow($rs)) {
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!DOCTYPE html><html><body><p>Extra entity not found.</p></body></html>';
+        exit;
+    }
+    $state = 'extra_' . $extra_entity_id;
+} elseif ($store_id > 0) {
+    $rs = getRs("SELECT store_id FROM store WHERE store_id = ? AND " . is_enabled(), array($store_id));
+    if (!$rs || !getRow($rs)) {
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!DOCTYPE html><html><body><p>Store not found.</p></body></html>';
+        exit;
+    }
+    $state = (string)$store_id;
+} else {
     header('Content-Type: text/html; charset=utf-8');
-    echo '<!DOCTYPE html><html><body><p>Store not found.</p></body></html>';
+    echo '<!DOCTYPE html><html><body><p>Missing store_id or extra_entity_id.</p></body></html>';
     exit;
 }
 
@@ -46,8 +58,6 @@ if (!class_exists('QuickBooksOnline\API\Core\OAuth\OAuth2\OAuth2LoginHelper', fa
 }
 
 $scope = 'com.intuit.quickbooks.accounting';
-$state = (string)$store_id;
-
 $oauth2Helper = new \QuickBooksOnline\API\Core\OAuth\OAuth2\OAuth2LoginHelper($client_id, $client_secret, $redirect_uri, $scope, $state);
 $authUrl = $oauth2Helper->getAuthorizationCodeURL();
 header('Location: ' . $authUrl);

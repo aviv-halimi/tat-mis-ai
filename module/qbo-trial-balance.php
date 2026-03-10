@@ -58,6 +58,19 @@ $(document).ready(function () {
         window.open(url, "_blank");
     });
 
+    $(".btn-connect-qbo-extra").on("click", function (e) {
+        e.preventDefault();
+        var url = $(this).attr("href");
+        var w = window.open(url, "qbo_extra_connect", "width=600,height=700,scrollbars=yes,resizable=yes");
+        if (w) w.focus();
+    });
+
+    window.addEventListener("message", function (ev) {
+        if (ev.data === "qbo-auth-done") {
+            window.location.reload();
+        }
+    });
+
     $("#qbo-tb-form").on("submit", function (e) {
         e.preventDefault();
         var endDate = $("#end_date").val();
@@ -298,6 +311,13 @@ try {
                                        value="<?php echo htmlspecialchars($start_dt); ?>" />
                             </td>
                             <td class="tb-action-col">
+                                <a href="<?php echo htmlspecialchars(BASE_URL . 'ajax/qbo-oauth-start.php?extra_entity_id=' . (int)$r['id']); ?>"
+                                   class="btn btn-xs btn-info btn-connect-qbo-extra mr-1"
+                                   target="_blank"
+                                   rel="noopener"
+                                   title="Connect this entity to QuickBooks Online (opens popup)">
+                                    <i class="fa fa-link"></i> <?php echo $qbo_ok ? 'Reconnect' : 'Connect to QBO'; ?>
+                                </a>
                                 <button class="btn btn-xs btn-primary btn-save-extra-start-date">
                                     <i class="fa fa-save"></i> Save
                                 </button>
@@ -306,7 +326,7 @@ try {
                         <?php endforeach; ?>
                     </tbody>
                 </table>
-                <p class="text-muted p-10 m-b-0" style="font-size:12px;">These entities are included when you click <strong>Download All Trial Balances</strong>. Set QBO credentials and TB Start Date in the database (<code>qbo_tb_extra_entity</code>).</p>
+                <p class="text-muted p-10 m-b-0" style="font-size:12px;">These entities are included when you click <strong>Download All Trial Balances</strong>. Use <strong>Connect to QBO</strong> to authorize each company; then set TB Start Date and Save.</p>
             </div>
         </div>
     </div>

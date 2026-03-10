@@ -17,12 +17,6 @@ if ($code === '' || $state === '' || $realmId === '') {
     exit;
 }
 
-$store_id = (int)$state;
-if ($store_id <= 0) {
-    echo '<!DOCTYPE html><html><head><title>QBO Connect</title></head><body><p>Invalid state.</p></body></html>';
-    exit;
-}
-
 $client_id     = defined('QBO_CLIENT_ID') ? QBO_CLIENT_ID : (getenv('QBO_CLIENT_ID') ?: '');
 $client_secret = defined('QBO_CLIENT_SECRET') ? QBO_CLIENT_SECRET : (getenv('QBO_CLIENT_SECRET') ?: '');
 $redirect_uri  = trim(defined('QBO_REDIRECT_URI') ? QBO_REDIRECT_URI : (getenv('QBO_REDIRECT_URI') ?: ''));
@@ -32,10 +26,26 @@ if ($client_id === '' || $client_secret === '' || $redirect_uri === '') {
     exit;
 }
 
-$rs = getRs("SELECT store_id FROM store WHERE store_id = ? AND " . is_enabled(), array($store_id));
-if (!$rs || !getRow($rs)) {
-    echo '<!DOCTYPE html><html><head><title>QBO Connect</title></head><body><p>Store not found.</p></body></html>';
-    exit;
+$is_extra = (strpos($state, 'extra_') === 0);
+$extra_entity_id = $is_extra ? (int)substr($state, 6) : 0;
+$store_id = $is_extra ? 0 : (int)$state;
+
+if ($is_extra) {
+    $rs = getRs("SELECT id FROM qbo_tb_extra_entity WHERE id = ? AND is_enabled = 1", array($extra_entity_id));
+    if (!$rs || !getRow($rs)) {
+        echo '<!DOCTYPE html><html><head><title>QBO Connect</title></head><body><p>Extra entity not found.</p></body></html>';
+        exit;
+    }
+} else {
+    if ($store_id <= 0) {
+        echo '<!DOCTYPE html><html><head><title>QBO Connect</title></head><body><p>Invalid state.</p></body></html>';
+        exit;
+    }
+    $rs = getRs("SELECT store_id FROM store WHERE store_id = ? AND " . is_enabled(), array($store_id));
+    if (!$rs || !getRow($rs)) {
+        echo '<!DOCTYPE html><html><head><title>QBO Connect</title></head><body><p>Store not found.</p></body></html>';
+        exit;
+    }
 }
 
 try {
@@ -49,7 +59,11 @@ try {
     if ($refresh_token === '' || $refresh_token === null) {
         throw new \Exception('No refresh token in response');
     }
-    qbo_save_tokens($store_id, $refresh_token, $realm_id);
+    if ($is_extra) {
+        dbUpdate('qbo_tb_extra_entity', array('qbo_realm_id' => $realm_id, 'qbo_refresh_token' => $refresh_token), $extra_entity_id, 'id');
+    } else {
+        qbo_save_tokens($store_id, $refresh_token, $realm_id);
+    }
 } catch (\Exception $e) {
     echo '<!DOCTYPE html><html><head><title>QBO Connect</title></head><body><p>Error: ' . htmlspecialchars($e->getMessage()) . '</p><p>Please try again from the app.</p></body></html>';
     exit;
