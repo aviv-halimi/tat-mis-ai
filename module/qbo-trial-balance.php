@@ -153,7 +153,7 @@ $stores = $has_start_date_col
                                        value="<?php echo htmlspecialchars($start_dt); ?>" />
                             </td>
                             <td class="tb-action-col">
-                                <?php if ($qbo_ok && $start_dt !== ''): ?>
+                                <?php if ($qbo_ok): ?>
                                 <a href="#" class="btn btn-xs btn-success btn-download-tb mr-1" title="Download this store&apos;s Trial Balance (uses End Date above)">
                                     <i class="fa fa-download"></i> Download
                                 </a>
