@@ -128,39 +128,91 @@ $stores_rs = getRs(
     "SELECT store_id, store_name, qbo_tb_start_date
        FROM store
       WHERE " . is_enabled() . "
-      ORDER BY store_name"
+      ORDER BY store_id"
 );
-if (empty($stores_rs)) {
-    fwrite(STDERR, "No stores found.\n");
+
+$extra_entities = array();
+$extra_rs = getRs(
+    "SELECT entity_name, qbo_realm_id, qbo_refresh_token, qbo_tb_start_date
+       FROM qbo_tb_extra_entity
+      WHERE is_enabled = 1
+        AND TRIM(COALESCE(qbo_realm_id, '')) != ''
+        AND TRIM(COALESCE(qbo_refresh_token, '')) != ''
+        AND qbo_tb_start_date IS NOT NULL
+      ORDER BY sort_order, id"
+);
+if (is_array($extra_rs)) {
+    foreach ($extra_rs as $r) {
+        $extra_entities[] = array(
+            'name' => trim((string)$r['entity_name']),
+            'realm_id' => trim((string)$r['qbo_realm_id']),
+            'refresh_token' => trim((string)$r['qbo_refresh_token']),
+            'tb_start_date' => $r['qbo_tb_start_date'] ? trim((string)$r['qbo_tb_start_date']) : '',
+        );
+    }
+}
+
+$items = array();
+foreach ($stores_rs as $store) {
+    $items[] = array(
+        'type' => 'store',
+        'store_id' => (int)$store['store_id'],
+        'name' => $store['store_name'],
+        'start_date' => isset($store['qbo_tb_start_date']) ? trim($store['qbo_tb_start_date']) : '',
+    );
+}
+foreach ($extra_entities as $e) {
+    $items[] = array(
+        'type' => 'extra',
+        'name' => trim($e['name']),
+        'realm_id' => trim($e['realm_id']),
+        'refresh_token' => trim($e['refresh_token']),
+        'start_date' => trim($e['tb_start_date']),
+    );
+}
+
+if (empty($items)) {
+    fwrite(STDERR, "No stores or entities to process.\n");
     exit(1);
 }
 
-qbo_tb_log($log_path, 'Started. End date: ' . $end_date . ', stores: ' . count($stores_rs));
+$total = count($items);
+qbo_tb_log($log_path, 'Started. End date: ' . $end_date . ', entities: ' . $total . ' (' . count($stores_rs) . ' stores, ' . count($extra_entities) . ' extra)');
 
 $errors = array();
 $sheets_added = 0;
 $spreadsheet = null;
 $used_sheet_titles = array();
-$store_index = 0;
+$index = 0;
 
-foreach ($stores_rs as $store) {
-    $store_index++;
-    $store_id   = (int)$store['store_id'];
-    $store_name = $store['store_name'];
-    $start_date = isset($store['qbo_tb_start_date']) ? trim($store['qbo_tb_start_date']) : '';
+foreach ($items as $item) {
+    $index++;
+    $name = $item['name'];
+    $start_date = $item['start_date'];
 
     if ($start_date === '' || $start_date === null) {
-        qbo_tb_log($log_path, $store_index . '/' . count($stores_rs) . ' ' . $store_name . ' — skipped (no TB start date)');
-        $errors[] = $store_name . ': No TB Start Date — skipped.';
+        qbo_tb_log($log_path, $index . '/' . $total . ' ' . $name . ' — skipped (no TB start date)');
+        $errors[] = $name . ': No TB Start Date — skipped.';
         continue;
     }
 
-    qbo_tb_log($log_path, $store_index . '/' . count($stores_rs) . ' ' . $store_name . ' — calling QBO...');
-    $result = qbo_get_trial_balance($store_id, $start_date, $end_date);
+    qbo_tb_log($log_path, $index . '/' . $total . ' ' . $name . ' — calling QBO...');
+    if ($item['type'] === 'store') {
+        $result = qbo_get_trial_balance($item['store_id'], $start_date, $end_date);
+    } else {
+        $token = qbo_refresh_access_token_for_entity($item['realm_id'], $item['refresh_token']);
+        if (!is_array($token) || empty($token['access_token'])) {
+            $err = isset($token['error']) ? $token['error'] : 'QBO token failed';
+            qbo_tb_log($log_path, '  → QBO error: ' . $err);
+            $errors[] = $name . ': ' . $err;
+            continue;
+        }
+        $result = qbo_get_trial_balance_with_token($token, $start_date, $end_date);
+    }
     if (!$result['success']) {
         $err = isset($result['error']) ? $result['error'] : 'QBO error';
         qbo_tb_log($log_path, '  → QBO error: ' . $err);
-        $errors[] = $store_name . ': ' . $err;
+        $errors[] = $name . ': ' . $err;
         continue;
     }
     qbo_tb_log($log_path, '  → Got response, adding sheet to workbook.');
@@ -173,10 +225,10 @@ foreach ($stores_rs as $store) {
             ->setCreator('The Artist Tree')
             ->setTitle('Trial Balances — ' . $end_date);
         $sheet = $spreadsheet->getActiveSheet();
-        $sheet_title = qbo_tb_sheet_title($store_name, $used_sheet_titles);
+        $sheet_title = qbo_tb_sheet_title($name, $used_sheet_titles);
         $sheet->setTitle($sheet_title);
     } else {
-        $sheet_title = qbo_tb_sheet_title($store_name, $used_sheet_titles);
+        $sheet_title = qbo_tb_sheet_title($name, $used_sheet_titles);
         $sheet = new \PhpOffice\PhpSpreadsheet\Worksheet\Worksheet($spreadsheet, $sheet_title);
         $spreadsheet->addSheet($sheet);
     }
@@ -187,7 +239,7 @@ foreach ($stores_rs as $store) {
         $parsed['rows'],
         isset($parsed['header_row1']) ? $parsed['header_row1'] : null,
         isset($parsed['header_row2']) ? $parsed['header_row2'] : null,
-        $store_name,
+        $name,
         $start_date,
         $end_date,
         $style_title, $style_subtitle, $style_col_headers,

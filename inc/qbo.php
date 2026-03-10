@@ -987,19 +987,49 @@ function qbo_vendor_credit_url($vendor_credit_id) {
 }
 
 /**
- * Fetch a Trial Balance report from QBO for a store via direct REST API call.
- * @param int $store_id
+ * Refresh OAuth access token for an entity that is not a store (e.g. extra QBO company for Trial Balance).
+ * Uses same client credentials; does not read or update store table.
+ * @param string $realm_id QBO company/realm ID
+ * @param string $refresh_token Refresh token for that company
+ * @return array Success: { access_token, realm_id, refresh_token }. Failure: { success => false, error => string }
+ */
+function qbo_refresh_access_token_for_entity($realm_id, $refresh_token) {
+    $realm_id = trim((string)$realm_id);
+    $refresh_token = trim((string)$refresh_token);
+    if ($realm_id === '' || $refresh_token === '') {
+        return array('success' => false, 'error' => 'realm_id and refresh_token required');
+    }
+    $client_id = defined('QBO_CLIENT_ID') ? QBO_CLIENT_ID : (getenv('QBO_CLIENT_ID') ?: '');
+    $client_secret = defined('QBO_CLIENT_SECRET') ? QBO_CLIENT_SECRET : (getenv('QBO_CLIENT_SECRET') ?: '');
+    if ($client_id === '' || $client_secret === '') {
+        return array('success' => false, 'error' => 'QBO client credentials not set');
+    }
+    try {
+        $oauth2Helper = new \QuickBooksOnline\API\Core\OAuth\OAuth2\OAuth2LoginHelper($client_id, $client_secret);
+        $accessTokenObj = $oauth2Helper->refreshAccessTokenWithRefreshToken($refresh_token);
+        $access_token = $accessTokenObj->getAccessToken();
+        $new_refresh = $accessTokenObj->getRefreshToken();
+        $effective_refresh = ($new_refresh !== '' ? $new_refresh : $refresh_token);
+        return array(
+            'access_token' => $access_token,
+            'refresh_token' => $effective_refresh,
+            'realm_id' => $realm_id,
+        );
+    } catch (\Exception $e) {
+        return array('success' => false, 'error' => 'OAuth refresh failed: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Fetch Trial Balance report from QBO using a token array (e.g. from qbo_get_access_token or qbo_refresh_access_token_for_entity).
+ * @param array $token Must contain access_token, realm_id
  * @param string $start_date YYYY-MM-DD
  * @param string $end_date YYYY-MM-DD
- * @return array { success, data: (raw QBO response array), error?, needs_authorization?, auth_url? }
+ * @return array { success, data: (raw QBO response array), error? }
  */
-function qbo_get_trial_balance($store_id, $start_date, $end_date) {
-    $token = qbo_get_access_token($store_id);
-    if (!is_array($token) || empty($token['access_token'])) {
-        $err = isset($token['error']) ? $token['error'] : 'QBO not configured or token failed';
-        $out = array('success' => false, 'data' => null, 'error' => $err);
-        _qbo_forward_auth($out, $token);
-        return $out;
+function qbo_get_trial_balance_with_token($token, $start_date, $end_date) {
+    if (!is_array($token) || empty($token['access_token']) || empty($token['realm_id'])) {
+        return array('success' => false, 'data' => null, 'error' => 'Invalid token (access_token and realm_id required)');
     }
     $realm_id = $token['realm_id'];
     $url = 'https://quickbooks.api.intuit.com/v3/company/' . urlencode($realm_id) . '/reports/TrialBalance'
@@ -1039,6 +1069,28 @@ function qbo_get_trial_balance($store_id, $start_date, $end_date) {
         return array('success' => false, 'data' => null, 'error' => 'Failed to parse QBO response as JSON');
     }
     return array('success' => true, 'data' => $data);
+}
+
+/**
+ * Fetch a Trial Balance report from QBO for a store via direct REST API call.
+ * @param int $store_id
+ * @param string $start_date YYYY-MM-DD
+ * @param string $end_date YYYY-MM-DD
+ * @return array { success, data: (raw QBO response array), error?, needs_authorization?, auth_url? }
+ */
+function qbo_get_trial_balance($store_id, $start_date, $end_date) {
+    $token = qbo_get_access_token($store_id);
+    if (!is_array($token) || empty($token['access_token'])) {
+        $err = isset($token['error']) ? $token['error'] : 'QBO not configured or token failed';
+        $out = array('success' => false, 'data' => null, 'error' => $err);
+        _qbo_forward_auth($out, $token);
+        return $out;
+    }
+    $out = qbo_get_trial_balance_with_token($token, $start_date, $end_date);
+    if (!$out['success'] && is_array($token)) {
+        _qbo_forward_auth($out, $token);
+    }
+    return $out;
 }
 
 /**
