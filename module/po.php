@@ -37,8 +37,9 @@ $(document).ready(function(e) {
     var btn = $(this);
     var poId = btn.data("po-id");
     if (!poId) return;
+    var statusEl = "status_po_notify";
     btn.prop("disabled", true).find(".fa").addClass("fa-spin");
-    showStatus("status", "Sending notification to Andrew...", "info");
+    showStatus(statusEl, "Sending notification to Andrew...", "info");
     $.ajax({
       url: "/ajax/po-notify-andrew.php",
       type: "POST",
@@ -47,14 +48,14 @@ $(document).ready(function(e) {
     }).done(function(res) {
       btn.prop("disabled", false).find(".fa").removeClass("fa-spin");
       if (res && res.success) {
-        showStatus("status", res.message || "Email sent to Andrew.", "ok", true);
+        showStatus(statusEl, res.message || "Email sent to Andrew.", "ok", true);
         setTimeout(function() { location.reload(); }, 800);
       } else {
-        showStatus("status", (res && res.error) ? res.error : "Notification failed.", "error", true);
+        showStatus(statusEl, (res && res.error) ? res.error : "Notification failed.", "error", true);
       }
     }).fail(function(xhr, status, err) {
       btn.prop("disabled", false).find(".fa").removeClass("fa-spin");
-      showStatus("status", "Request failed: " + (err || status), "error", true);
+      showStatus(statusEl, "Request failed: " + (err || status), "error", true);
     });
   });
   function _esc(s) {
@@ -881,7 +882,8 @@ if (in_array($_Session->admin_group_id,array(1,3,11,12,15))) {
   </div>
   <div class="btn-group m-b-5 m-r-5">
   <a href="javascript:;" class="btn btn-info btn-po-notify-andrew" data-po-id="' . (int)$_po_id . '"><i class="fa fa-file"></i> Notify Andrew </a>
-  </div>';
+  </div>
+  <div id="status_po_notify" class="status d-inline-block align-middle ml-2" style="min-height:1.5em;"></div>';
 }
 echo '
 <div class="btn-group m-b-5 m-r-5">
