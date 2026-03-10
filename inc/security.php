@@ -38,12 +38,17 @@ if ($goToLogin == true and $page_name != 'blocked') {
   exit();
 }
 
-$request = parse_url($_SERVER['REQUEST_URI']);
-$path = $request["path"];
-
-$result = strtolower(trim(str_replace(basename($_SERVER['SCRIPT_NAME']), '', $path), '/'));
-$a__path = explode('/', $result);
-if ($a__path[0] == 'api') {
+$uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+if (php_sapi_name() === 'cli' || $uri === '') {
+	$a__path = array();
+} else {
+	$request = parse_url($uri);
+	$path = (is_array($request) && isset($request['path'])) ? $request['path'] : '';
+	$script_name = isset($_SERVER['SCRIPT_NAME']) ? basename($_SERVER['SCRIPT_NAME']) : '';
+	$result = strtolower(trim($script_name !== '' ? str_replace($script_name, '', $path) : $path, '/'));
+	$a__path = $result !== '' ? explode('/', $result) : array();
+}
+if (!empty($a__path[0]) && $a__path[0] == 'api') {
 	if (!in_array($IP, array('18.215.197.194', '197.242.141.74', '197.242.130.10', '127.0.0.1', '41.223.213.86', '212.60.74.90', '100.20.209.199','76.50.144.94','76.174.149.62','99.95.100.34'))) {
 		echo 'Unauthorized access. IP logged: ' . $IP;
 		exit();
