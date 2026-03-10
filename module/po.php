@@ -55,7 +55,7 @@ $(document).ready(function(e) {
         btn.html(\'<i class="fa fa-spinner fa-spin mr-1"></i>Extracting menu…\');
         $.ajax({
           url: "/ajax/po-menu-test", type: "POST",
-          data: { po_id: poId, run: 1, _r: Math.random() },
+          data: { po_id: poId, run: 1, parse_pdf_locally: $("#po-parse-pdf-locally").is(":checked") ? 1 : 0, _r: Math.random() },
           dataType: "json", timeout: 200000
         }).done(function(res) {
           if (!res || !res.success) { showErr("Extraction failed: " + _esc((res && res.error) || "Unknown error")); return; }
@@ -606,6 +606,13 @@ if ($_po_id && $_po_status_id == 1) {
       <input type="hidden" name="f" value="menu_filenames" />
       ' . $_upload_widget . '
     </form>
+    <div class="mt-2">
+      <label class="form-check form-check-inline mb-0">
+        <input type="checkbox" class="form-check-input" id="po-parse-pdf-locally" name="parse_pdf_locally" value="1" />
+        <span class="form-check-label">Parse PDF locally</span>
+      </label>
+      <small class="text-muted ml-1">Extract text on server and send text to AI (smaller payload; requires pdftotext)</small>
+    </div>
     <div id="po-menu-status" class="alert mt-2" style="display:none;"><span id="po-menu-status-text"></span></div>
   </div>
 

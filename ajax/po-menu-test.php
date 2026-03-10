@@ -62,7 +62,8 @@ if (empty($pdf_paths)) {
 $log_dir     = defined('BASE_PATH') ? BASE_PATH . 'log' : dirname(__FILE__) . '/../log';
 $result_file = $log_dir . '/po-menu-test-' . $po_id . '.json';
 
-$is_dry_run = !$is_cli && !empty($_POST['dry_run']);
+$is_dry_run       = !$is_cli && !empty($_POST['dry_run']);
+$parse_pdf_locally = !$is_cli && !empty($_POST['parse_pdf_locally']);
 
 // ---- Load data ----
 $db = $_Session->db;
@@ -108,17 +109,42 @@ foreach (getRs(
     $all_categories[] = ['category_id' => (int) $r['category_id'], 'name' => (string) $r['name']];
 }
 
-// Load PDFs as base64 inline parts for Gemini (native PDF understanding)
-$pdf_parts   = [];
-$pdf_summary = [];
-foreach ($pdf_paths as $path) {
-    $bytes = @file_get_contents($path);
-    if ($bytes !== false && strlen($bytes) > 0) {
-        $pdf_parts[]   = ['inlineData' => ['mimeType' => 'application/pdf', 'data' => base64_encode($bytes)]];
-        $pdf_summary[] = basename($path) . ' (' . round(strlen($bytes) / 1024, 1) . ' KB)';
+// Load PDFs: either as base64 for Gemini (native PDF) or extract text locally
+$pdf_parts    = [];
+$pdf_summary  = [];
+$extracted_text = null; // when parse_pdf_locally: full text to send to Gemini
+
+if ($parse_pdf_locally) {
+    $text_chunks = [];
+    foreach ($pdf_paths as $path) {
+        $cmd = "pdftotext -layout -enc UTF-8 " . escapeshellarg($path) . " - 2>/dev/null";
+        $out = @shell_exec($cmd);
+        if ($out === null || trim($out) === '') {
+            if (!function_exists('shell_exec') || ini_get('disable_functions') !== '') {
+                $err = 'Parse PDF locally is selected but pdftotext is not available (shell_exec may be disabled). Install poppler-utils (e.g. apt-get install poppler-utils) or uncheck the option.';
+            } else {
+                $err = 'Parse PDF locally: could not extract text from ' . basename($path) . '. Is pdftotext installed? (e.g. apt-get install poppler-utils)';
+            }
+            if (!is_dir($log_dir)) { @mkdir($log_dir, 0755, true); }
+            @file_put_contents($result_file, json_encode(['status' => 'failed', 'error' => $err]), LOCK_EX);
+            if (!$is_cli) echo json_encode(['success' => false, 'error' => $err]);
+            exit($is_cli ? 1 : 0);
+        }
+        $text_chunks[] = "--- " . basename($path) . " ---\n" . $out;
+        $pdf_summary[] = basename($path) . " (text)";
+    }
+    $extracted_text = implode("\n\n", $text_chunks);
+} else {
+    foreach ($pdf_paths as $path) {
+        $bytes = @file_get_contents($path);
+        if ($bytes !== false && strlen($bytes) > 0) {
+            $pdf_parts[]   = ['inlineData' => ['mimeType' => 'application/pdf', 'data' => base64_encode($bytes)]];
+            $pdf_summary[] = basename($path) . ' (' . round(strlen($bytes) / 1024, 1) . ' KB)';
+        }
     }
 }
-if (empty($pdf_parts)) {
+
+if (!$parse_pdf_locally && empty($pdf_parts)) {
     $err = 'Could not read any PDF files.';
     if (!is_dir($log_dir)) { @mkdir($log_dir, 0755, true); }
     @file_put_contents($result_file, json_encode(['status' => 'failed', 'error' => $err]), LOCK_EX);
@@ -206,17 +232,26 @@ For the product_type field, provide the menu section or sub-header in proper/tit
 Return every menu item. Do not skip any.
 SYS;
 
-$p1_prompt = "AVAILABLE BRANDS (use brand_id in your response, or null):\n{$brands_json}"
+$p1_prompt_base = "AVAILABLE BRANDS (use brand_id in your response, or null):\n{$brands_json}"
     . "\n\nAVAILABLE CATEGORIES (use category_id in your response, or null):\n{$categories_json}"
-    . "\n\nCATEGORY TRANSLATION RULES:\n{$category_translations}"
-    . "\n\n[The menu PDF(s) are attached above. Extract all items.]";
+    . "\n\nCATEGORY TRANSLATION RULES:\n{$category_translations}\n\n";
+
+if ($extracted_text !== null) {
+    $p1_prompt = $p1_prompt_base . "Below is the extracted text from the menu PDF(s). Extract all items.\n\n" . $extracted_text;
+} else {
+    $p1_prompt = $p1_prompt_base . "[The menu PDF(s) are attached above. Extract all items.]";
+}
+
+$content_parts = ($extracted_text !== null)
+    ? [['text' => $p1_prompt]]
+    : array_merge($pdf_parts, [['text' => $p1_prompt]]);
 
 $p1_payload = [
     'system_instruction' => ['parts' => [['text' => $p1_system_instr]]],
-    'contents' => [['parts' => array_merge($pdf_parts, [['text' => $p1_prompt]])]],
+    'contents' => [['parts' => $content_parts]],
     'generationConfig' => [
         'temperature'      => 0.0,
-        'maxOutputTokens'  => 16384,
+        'maxOutputTokens'  => 32768,
         'responseMimeType' => 'application/json',
         'responseSchema'   => $p1_schema,
     ],
@@ -299,14 +334,21 @@ if (!$p1_curl_err && $p1_raw && $p1_http === 200) {
         } else {
             $menu_items = $p1_parsed['menu_items'];
         }
+        // Never accept partial results: if Gemini hit MAX_TOKENS, the menu was truncated and items are missing
+        if ($p1_finish_reason === 'MAX_TOKENS' && !empty($menu_items)) {
+            $menu_items = [];
+            $p1_parse_error = 'Response was truncated (MAX_TOKENS). Some menu items were not returned. No partial results are used.';
+        }
     }
 }
 
 if (empty($menu_items)) {
-    $err = 'Phase 1 failed: could not extract menu items from PDF.'
-        . ($p1_curl_err ? ' cURL: ' . $p1_curl_err : '')
-        . ($p1_http !== 200 ? ' HTTP ' . $p1_http : '')
-        . ($p1_parse_error ? ' Parse: ' . $p1_parse_error : '');
+    $err = ($p1_parse_error && strpos($p1_parse_error, 'MAX_TOKENS') !== false)
+        ? 'Menu extraction stopped because the response was truncated (output limit reached). The full menu did not fit in one response, so no items were applied. Try splitting the menu into smaller PDFs or use a shorter menu.'
+        : ('Phase 1 failed: could not extract menu items from PDF.'
+            . ($p1_curl_err ? ' cURL: ' . $p1_curl_err : '')
+            . ($p1_http !== 200 ? ' HTTP ' . $p1_http : '')
+            . ($p1_parse_error ? ' Parse: ' . $p1_parse_error : ''));
     if (!is_dir($log_dir)) { @mkdir($log_dir, 0755, true); }
     @file_put_contents($result_file, json_encode([
         'status' => 'failed', 'error' => $err,
@@ -445,6 +487,7 @@ $result = [
     'phase1_system_instr'  => $p1_system_instr,
     'phase1_prompt'        => $p1_prompt,
     // Context
+    'parse_pdf_locally'    => $parse_pdf_locally,
     'pdf_files'            => $pdf_summary,
     'brands_array'         => $all_brands,
     'categories_array'     => $all_categories,
@@ -461,7 +504,7 @@ $result = [
         'total_duration_s'     => $total_elapsed,
         'p1_payload_kb'        => round(strlen($p1_payload_json) / 1024, 1),
         'p1_model'             => $p1_model,
-        'pdf_count'            => count($pdf_parts),
+        'pdf_count'            => count($pdf_summary),
         'pdf_files'            => implode(', ', $pdf_summary),
     ],
 ];
