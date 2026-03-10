@@ -1193,7 +1193,10 @@ function redirectTo($url) {
 //*************************************************
 
 function getScriptName() {
-  $p = $_SERVER["SCRIPT_NAME"];
+	$p = isset($_SERVER['SCRIPT_NAME']) ? $_SERVER['SCRIPT_NAME'] : '';
+	if ($p === '' || php_sapi_name() === 'cli') {
+		return 'cli';
+	}
 	$arr = explode("/", $p);
 	return getFilename($arr[sizeof($arr) - 1]);
 }

@@ -61,8 +61,18 @@ if (!$output) {
 }
 
 $base = dirname(__DIR__);
+// Same as cron/push_dd.php and cron/trigger-dd.php: skip auth so security.php doesn't redirect or use REQUEST_URI
+define('SkipAuth', true);
 if ($log_path) {
     @file_put_contents($log_path, '[' . date('H:i:s') . '] Loading _config.php...' . "\n", FILE_APPEND | LOCK_EX);
+    $GLOBALS['qbo_tb_log_path'] = $log_path;
+    if (!function_exists('qbo_tb_cli_log')) {
+        function qbo_tb_cli_log($msg) {
+            if (!empty($GLOBALS['qbo_tb_log_path'])) {
+                @file_put_contents($GLOBALS['qbo_tb_log_path'], '[' . date('H:i:s') . '] ' . $msg . "\n", FILE_APPEND | LOCK_EX);
+            }
+        }
+    }
 }
 require_once $base . DIRECTORY_SEPARATOR . '_config.php';
 if ($log_path) {
