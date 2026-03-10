@@ -5,8 +5,8 @@ header('Cache-Control: no-cache, must-revalidate');
 header('Expires: ' . date('r', time() + (86400 * 365)));
 header('Content-type: application/json');
 
-$po_id = getVarInt('po_id', 0);
-if (!$po_id) {
+$po_id = (int) getVar('po_id');
+if ($po_id <= 0) {
 	echo json_encode(array('success' => false, 'error' => 'PO ID is required.'));
 	exit();
 }
