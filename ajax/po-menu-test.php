@@ -67,6 +67,8 @@ $parse_pdf_locally = !$is_cli && !empty($_POST['parse_pdf_locally']);
 
 // ---- Load data ----
 $db = $_Session->db;
+// ai_prompts table lives in the main app DB (theartisttree), not the session store DB
+$ai_db = (defined('dbhost') && preg_match('/dbname=([^;]+)/', dbhost, $m)) ? trim($m[1]) : 'theartisttree';
 
 $po_products = [];
 foreach (getRs(
@@ -236,7 +238,7 @@ Example: {"columns":["name","price","brand_id","category_id","product_type","wei
 Return every menu item. Do not skip any.
 SYS;
 // Override from DB if ai_prompts table exists and has content (see module AI Prompts)
-$rs_sys = @getRs("SELECT content FROM {$db}.ai_prompts WHERE prompt_key = 'po_menu_system_instruction' LIMIT 1", []);
+$rs_sys = @getRs("SELECT content FROM `{$ai_db}`.ai_prompts WHERE prompt_key = 'po_menu_system_instruction' LIMIT 1", []);
 if ($rs_sys && ($row_sys = getRow($rs_sys)) && (string) $row_sys['content'] !== '') {
     $p1_system_instr = $row_sys['content'];
 }
