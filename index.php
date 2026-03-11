@@ -96,8 +96,14 @@ if ($r = getRow($rs)) {
     $_breadcrumb = $_Session->GetBreadCrumb($r['module_id'], $r['module_name']);
 
     if (file_exists('module/' . $module_code . '.php') && $embed_page) {
-      include_once('module/' . $module_code . '.php');
-      exit();
+      if ($module_code === 'ai-prompts') {
+        ob_start();
+        include_once('module/' . $module_code . '.php');
+        $_content = ob_get_clean();
+      } else {
+        include_once('module/' . $module_code . '.php');
+        exit();
+      }
     }
     else {
 

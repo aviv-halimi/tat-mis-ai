@@ -2,11 +2,8 @@
 /**
  * AI Prompts — edit prompt text used by modules (e.g. PO menu extraction).
  * Requires ai_prompts table; see doc/ai_prompts-table.sql.
+ * Header/footer are added by index.php; this file outputs only the page content.
  */
-$page_title = 'AI Prompts';
-require_once dirname(__FILE__) . '/../_config.php';
-include_once dirname(__FILE__) . '/../inc/header.php';
-
 $footer = '
 <script>
 $(document).ready(function() {
@@ -69,7 +66,6 @@ $(document).ready(function() {
 });
 </script>
 ';
-
 ?>
 <div class="row">
   <div class="col-12">
@@ -85,4 +81,3 @@ $(document).ready(function() {
     </div>
   </div>
 </div>
-<?php include_once dirname(__FILE__) . '/../inc/footer.php'; ?>
