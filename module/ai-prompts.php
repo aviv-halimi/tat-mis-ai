@@ -32,7 +32,11 @@ $(document).ready(function() {
       });
       $("#ai-prompts-container").html(html || "<p class=\"text-muted\">No prompts defined. Run doc/ai_prompts-table.sql to create the table and seed rows.</p>");
     }).fail(function(xhr, status, err) {
-      showStatus(statusEl, "Request failed: " + (err || status), "error", true);
+      var msg = "Could not load prompts.";
+      if (xhr && xhr.status) msg += " (HTTP " + xhr.status + ")";
+      if (xhr && xhr.responseText && xhr.responseText.length < 200) msg += " " + xhr.responseText;
+      showStatus(statusEl, msg, "error", true);
+      $("#ai-prompts-container").html("<p class=\"text-muted\">Ensure the <code>ai_prompts</code> table exists — run <code>doc/ai_prompts-table.sql</code> and <code>doc/ai_prompts-module-insert.sql</code>.</p>");
     });
   }
 
@@ -72,7 +76,7 @@ $(document).ready(function() {
     <div class="card shadow-base">
       <div class="card-header tx-medium"><b>AI Prompts</b></div>
       <div class="card-body">
-        <p class="text-muted">Edit the prompt text sent to the AI for PO menu extraction (category mappings and system instruction). Changes apply the next time you run "Extract menu" on a PO. Leave a field empty to use the default from code.</p>
+        <p class="text-muted">Edit the prompt text sent to the AI for PO menu extraction (category mappings and system instruction). Changes apply the next time you run &quot;Extract menu&quot; on a PO. Leave a field empty to use the default from code.</p>
         <div id="status_ai_prompts" class="status mb-2"></div>
         <div id="ai-prompts-container">
           <p class="text-muted">Loading…</p>

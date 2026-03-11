@@ -10,9 +10,15 @@ header('Content-type: application/json');
 $key = isset($_GET['key']) ? trim((string) $_GET['key']) : '';
 $db  = $_Session->db;
 
+$rs = @getRs("SELECT prompt_key, prompt_label, content, date_updated FROM `{$db}`.ai_prompts ORDER BY prompt_key", []);
+if ($rs === false) {
+    echo json_encode(['success' => false, 'error' => 'Table ai_prompts not found or not accessible. Run doc/ai_prompts-table.sql.']);
+    exit;
+}
+
 if ($key !== '') {
     $row = getRow(getRs(
-        "SELECT prompt_key, prompt_label, content, date_updated FROM {$db}.ai_prompts WHERE prompt_key = ? LIMIT 1",
+        "SELECT prompt_key, prompt_label, content, date_updated FROM `{$db}`.ai_prompts WHERE prompt_key = ? LIMIT 1",
         [$key]
     ));
     if (!$row) {
@@ -28,14 +34,13 @@ if ($key !== '') {
     ]);
 } else {
     $list = [];
-    $rs = getRs("SELECT prompt_key, prompt_label, content, date_updated FROM {$db}.ai_prompts ORDER BY prompt_key", []);
     if ($rs) {
         while ($r = getRow($rs)) {
             $list[] = [
                 'prompt_key'   => $r['prompt_key'],
                 'prompt_label' => $r['prompt_label'],
-                'content'       => $r['content'],
-                'date_updated'  => $r['date_updated'],
+                'content'      => $r['content'],
+                'date_updated' => $r['date_updated'],
             ];
         }
     }
