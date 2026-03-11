@@ -15,15 +15,16 @@ if ($key === '') {
     exit;
 }
 
-$db = $_Session->db;
+// ai_prompts lives in the main app DB (theartisttree), not the session store DB
+$ai_db = (defined('dbhost') && preg_match('/dbname=([^;]+)/', dbhost, $m)) ? trim($m[1]) : 'theartisttree';
 
-$exists = getRow(getRs("SELECT id FROM {$db}.ai_prompts WHERE prompt_key = ? LIMIT 1", [$key]));
+$exists = getRow(getRs("SELECT id FROM `{$ai_db}`.ai_prompts WHERE prompt_key = ? LIMIT 1", [$key]));
 if (!$exists) {
     echo json_encode(['success' => false, 'error' => 'Unknown prompt_key. Add the key to the ai_prompts table first.']);
     exit;
 }
 
-setRs("UPDATE {$db}.ai_prompts SET content = ?, date_updated = NOW() WHERE prompt_key = ?", [$content, $key]);
+setRs("UPDATE `{$ai_db}`.ai_prompts SET content = ?, date_updated = NOW() WHERE prompt_key = ?", [$content, $key]);
 
 echo json_encode([
     'success' => true,

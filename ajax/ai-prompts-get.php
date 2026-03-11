@@ -8,9 +8,10 @@ header('Cache-Control: no-cache');
 header('Content-type: application/json');
 
 $key = isset($_GET['key']) ? trim((string) $_GET['key']) : '';
-$db  = $_Session->db;
+// ai_prompts lives in the main app DB (theartisttree), not the session store DB
+$ai_db = (defined('dbhost') && preg_match('/dbname=([^;]+)/', dbhost, $m)) ? trim($m[1]) : 'theartisttree';
 
-$rs = @getRs("SELECT prompt_key, prompt_label, content, date_updated FROM `{$db}`.ai_prompts ORDER BY prompt_key", []);
+$rs = @getRs("SELECT prompt_key, prompt_label, content, date_updated FROM `{$ai_db}`.ai_prompts ORDER BY prompt_key", []);
 if ($rs === false) {
     echo json_encode(['success' => false, 'error' => 'Table ai_prompts not found or not accessible. Run doc/ai_prompts-table.sql.']);
     exit;
@@ -18,7 +19,7 @@ if ($rs === false) {
 
 if ($key !== '') {
     $row = getRow(getRs(
-        "SELECT prompt_key, prompt_label, content, date_updated FROM `{$db}`.ai_prompts WHERE prompt_key = ? LIMIT 1",
+        "SELECT prompt_key, prompt_label, content, date_updated FROM `{$ai_db}`.ai_prompts WHERE prompt_key = ? LIMIT 1",
         [$key]
     ));
     if (!$row) {
@@ -34,8 +35,8 @@ if ($key !== '') {
     ]);
 } else {
     $list = [];
-    if ($rs) {
-        while ($r = getRow($rs)) {
+    if (is_array($rs)) {
+        foreach ($rs as $r) {
             $list[] = [
                 'prompt_key'   => $r['prompt_key'],
                 'prompt_label' => $r['prompt_label'],
