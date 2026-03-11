@@ -169,7 +169,7 @@ $category_translations = <<<TRANS
 - "2 PERSY DOINKS" → "Infused Preroll Packs"
 TRANS;
 // Override from DB if ai_prompts table exists and has content (see module AI Prompts)
-$rs_ct = @getRs("SELECT content FROM {$db}.ai_prompts WHERE prompt_key = 'po_menu_category_translations' LIMIT 1", []);
+$rs_ct = @getRs("SELECT content FROM `{$ai_db}`.ai_prompts WHERE prompt_key = 'po_menu_category_translations' LIMIT 1", []);
 if ($rs_ct && ($row_ct = getRow($rs_ct)) && (string) $row_ct['content'] !== '') {
     $category_translations = $row_ct['content'];
 }
