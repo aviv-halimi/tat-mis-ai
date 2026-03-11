@@ -166,6 +166,11 @@ $category_translations = <<<TRANS
 - "PERSY DOINKS" → "Infused Prerolls"
 - "2 PERSY DOINKS" → "Infused Preroll Packs"
 TRANS;
+// Override from DB if ai_prompts table exists and has content (see module AI Prompts)
+$rs_ct = @getRs("SELECT content FROM {$db}.ai_prompts WHERE prompt_key = 'po_menu_category_translations' LIMIT 1", []);
+if ($rs_ct && ($row_ct = getRow($rs_ct)) && (string) $row_ct['content'] !== '') {
+    $category_translations = $row_ct['content'];
+}
 
 // ============================================================
 // PHASE 1 — Extract menu items from PDF (Gemini)
@@ -230,6 +235,11 @@ Example: {"columns":["name","price","brand_id","category_id","product_type","wei
 
 Return every menu item. Do not skip any.
 SYS;
+// Override from DB if ai_prompts table exists and has content (see module AI Prompts)
+$rs_sys = @getRs("SELECT content FROM {$db}.ai_prompts WHERE prompt_key = 'po_menu_system_instruction' LIMIT 1", []);
+if ($rs_sys && ($row_sys = getRow($rs_sys)) && (string) $row_sys['content'] !== '') {
+    $p1_system_instr = $row_sys['content'];
+}
 
 $p1_prompt_base = "REFERENCE TABLES — use these to fill brand_id and category_id for every row. Return the numeric id from the matching row.\n\n"
     . "AVAILABLE BRANDS (return brand_id from this list):\n{$brands_json}\n\n"
