@@ -248,14 +248,32 @@ $success = !$curlErr && $httpCode >= 200 && $httpCode < 300;
 // ---- If product was created and we have an asset, attach it via PUT ----
 $debug_asset_attach = null;
 if ($success && !empty($blaze_response_decoded['id']) && !empty($debug_image['asset_raw']['id'])) {
-    $product_id     = $blaze_response_decoded['id'];
-    $asset_obj      = $debug_image['asset_raw'];
-    $put_url        = $api_url . 'products/' . urlencode($product_id);
+    $product_id  = $blaze_response_decoded['id'];
+    $asset_obj   = $debug_image['asset_raw'];
+    $put_url     = $api_url . 'products/' . urlencode($product_id);
 
-    // Merge the existing product with the assets array containing our uploaded asset
-    $put_payload    = array_merge($blaze_response_decoded, [
-        'assets' => [['id' => $asset_obj['id']]],
-    ]);
+    // Send a minimal PartnerProductUpdateRequest — only the fields we need to change.
+    // Do NOT echo back the full GET response: its nested objects (e.g. category.sourceMap)
+    // have array-vs-map type mismatches with the update schema.
+    $put_payload = [
+        'id'          => $product_id,
+        'name'        => $product_name,
+        'description' => $description,
+        'price'       => $price,
+        'active'      => true,
+        'assets'      => [[
+            'id'        => $asset_obj['id'],
+            'key'       => $asset_obj['key'],
+            'type'      => 'Photo',
+            'active'    => true,
+            'priority'  => 0,
+            'secured'   => false,
+        ]],
+    ];
+    if ($blaze_brand_id)    $put_payload['brandId']    = $blaze_brand_id;
+    if ($blaze_category_id) $put_payload['categoryId'] = $blaze_category_id;
+    if ($blaze_vendor_id)   $put_payload['vendorId']   = $blaze_vendor_id;
+
     $put_body = json_encode($put_payload);
 
     $put_ch = curl_init($put_url);
