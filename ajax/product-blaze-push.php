@@ -86,17 +86,26 @@ if ($category_id > 0 && $store_db !== '') {
     }
 }
 
-// ---- Resolve vendor: store vendor_id → {store_db}.vendor.id (Blaze ObjectId) ----
+// ---- Resolve vendor: {store_db}.vendor.vendor_id → master_vendor_id → blaze1.vendor.id ----
 $blaze_vendor_id = null;
 $debug_vendor    = ['input_vendor_id' => $vendor_id, 'store_db' => $store_db];
 
 if ($vendor_id > 0 && $store_db !== '') {
     $vendor_row = getRow(getRs(
-        "SELECT id FROM `{$store_db}`.vendor WHERE vendor_id = ? LIMIT 1",
+        "SELECT master_vendor_id FROM `{$store_db}`.vendor WHERE vendor_id = ? LIMIT 1",
         [$vendor_id]
     ));
-    $blaze_vendor_id           = $vendor_row['id'] ?? null;
-    $debug_vendor['store_db_id'] = $blaze_vendor_id;
+    $debug_vendor['master_vendor_id'] = $vendor_row['master_vendor_id'] ?? null;
+
+    if (!empty($vendor_row['master_vendor_id'])) {
+        $master_vendor_id = (int) $vendor_row['master_vendor_id'];
+        $store1_vendor    = getRow(getRs(
+            "SELECT id FROM `{$store1_db}`.vendor WHERE master_vendor_id = ? AND is_active = 1 LIMIT 1",
+            [$master_vendor_id]
+        ));
+        $blaze_vendor_id              = $store1_vendor['id'] ?? null;
+        $debug_vendor['store1_id']    = $blaze_vendor_id;
+    }
 }
 
 // ---- Build Blaze ProductAddRequest payload ----
