@@ -140,12 +140,11 @@ function tat_enrich_discover_images($product_name, $brand_name, $category_name, 
         return [];
     }
 
-    $brandPart    = trim((string) $brand_name);
     $categoryPart = trim((string) $category_name);
 
     // --- Attempt 1: trusted industry sources ---
     $trusted_q = '(site:weedmaps.com OR site:leafly.com OR site:dutchie.com) "' .
-                 trim(implode(' ', array_filter([$brandPart, $cleanName, $categoryPart]))) . '"';
+                 trim(implode(' ', array_filter([$cleanName, $categoryPart]))) . '"';
     $urls = tat_serper_image_search($trusted_q, $apiKey, 10);
 
     if (!empty($urls)) {
@@ -155,7 +154,7 @@ function tat_enrich_discover_images($product_name, $brand_name, $category_name, 
     }
 
     // --- Attempt 2: general web, excluding Pinterest ---
-    $web_q = '"' . trim(implode(' ', array_filter([$brandPart, $cleanName, $categoryPart]))) .
+    $web_q = '"' . trim(implode(' ', array_filter([$cleanName, $categoryPart]))) .
              '" cannabis product packaging -site:pinterest.com';
     $urls = tat_serper_image_search($web_q, $apiKey, 10);
 
