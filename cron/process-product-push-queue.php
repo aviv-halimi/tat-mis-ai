@@ -61,50 +61,24 @@ foreach ($queue as $q) {
     $store_search_log = []; // debug: what each store returned
 
     foreach ($store_map as $store_id => $store) {
-        // GET /api/v1/partner/products?search={sku} — returns a list of matching products
+        // GET /api/v1/partner/products/sku/{sku} — returns a single product by SKU
         $search_json = fetchApi(
-            'products',
+            'products/sku/' . rawurlencode($sku),
             $store['api_url'],
             $store['auth_code'],
-            $store['partner_key'],
-            'search=' . urlencode($sku)
+            $store['partner_key']
         );
 
         $blaze_id = null;
 
         if ($search_json) {
-            $search_data = json_decode($search_json, true);
+            $product_data = json_decode($search_json, true);
 
-            // Response may be a plain array or wrapped in a key; handle both
-            $items = null;
-            if (is_array($search_data)) {
-                if (isset($search_data[0])) {
-                    $items = $search_data;
-                }
-                foreach (['values', 'data', 'products', 'result', 'items'] as $key) {
-                    if (isset($search_data[$key]) && is_array($search_data[$key])) {
-                        $items = $search_data[$key];
-                        break;
-                    }
-                }
-            }
-
-            if ($items) {
-                foreach ($items as $item) {
-                    if (
-                        (!empty($item['sku'])  && $item['sku']  === $sku) ||
-                        (!empty($item['name']) && $product_name && $item['name'] === $product_name)
-                    ) {
-                        $blaze_id = $item['id'] ?? null;
-                        break;
-                    }
-                }
-                $store_search_log[$store_id] = $blaze_id
-                    ? "FOUND:{$blaze_id}"
-                    : "NO_MATCH (got " . count($items) . " items, first_sku=" . ($items[0]['sku'] ?? 'n/a') . ")";
+            if (!empty($product_data['id'])) {
+                $blaze_id = $product_data['id'];
+                $store_search_log[$store_id] = "FOUND:{$blaze_id}";
             } else {
-                // Log raw response (truncated) so we can see the actual structure
-                $store_search_log[$store_id] = "NO_ITEMS raw=" . substr(json_encode($search_data), 0, 200);
+                $store_search_log[$store_id] = "NOT_FOUND raw=" . substr($search_json, 0, 200);
             }
         } else {
             $store_search_log[$store_id] = "EMPTY_RESPONSE";
