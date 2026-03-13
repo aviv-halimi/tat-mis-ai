@@ -208,7 +208,7 @@ if ($image_url !== '') {
 $product_payload = [
     'name'        => $product_name,
     'description' => $description,
-    'price'       => $price,
+    'unitPrice'   => $price,
     'active'      => true,
 ];
 
