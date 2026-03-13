@@ -110,7 +110,10 @@ function tat_enrich_discover_image($product_name, $brand_name, &$source_found, &
     // Step B2: Google Custom Search (image search).
     $apiKey = getenv('GOOGLE_SEARCH_API_KEY');
     if ($apiKey === false || $apiKey === '') {
-        $warning = 'Google Search API key is not configured; image search skipped.';
+        $apiKey = defined('GOOGLE_SEARCH_API_KEY') && GOOGLE_SEARCH_API_KEY !== '' ? GOOGLE_SEARCH_API_KEY : '';
+    }
+    if ($apiKey === '') {
+        $warning = 'Google Search API key (GOOGLE_SEARCH_API_KEY) is not configured; image search skipped.';
         return null;
     }
 
@@ -123,14 +126,14 @@ function tat_enrich_discover_image($product_name, $brand_name, &$source_found, &
         }
     }
 
-    $queryParts = [];
-    if ($brand_name !== '') {
-        $queryParts[] = $brand_name;
+    // Use only the product name for search: strip parenthetical content and collapse spaces.
+    $search_name = preg_replace('/\s*\([^)]*\)\s*/', ' ', (string) $product_name);
+    $search_name = trim(preg_replace('/\s+/', ' ', $search_name));
+    if ($search_name === '') {
+        $warning = 'Product name is empty after cleaning; image search skipped.';
+        return null;
     }
-    if ($product_name !== '') {
-        $queryParts[] = $product_name;
-    }
-    $query = 'site:weedmaps.com "' . implode(' ', $queryParts) . '"';
+    $query = 'site:weedmaps.com "' . $search_name . '"';
 
     $params = [
         'key'        => $apiKey,
