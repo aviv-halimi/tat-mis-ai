@@ -21,7 +21,8 @@ if ($_po_status_id) array_push($params, $_po_status_id);
 
 
 $rs = getRs("
-	SELECT s.store_name, p.po_product_id, p.po_product_name, p.is_created, p.is_transferred, po.po_code, po.vendor_name, po.vendor_id, po.date_ordered, t.po_status_name, IFNULL(coalesce(p.paid, p.price, p.cost),0) AS unitPrice, p.category_id, s.db, p.brand_id, s.params, po.date_po_event_scheduled as sch_date
+	SELECT s.store_name, p.po_product_id, p.po_product_name, p.is_created, p.is_transferred, po.po_code, po.vendor_name, po.vendor_id, po.date_ordered, t.po_status_name, IFNULL(coalesce(p.paid, p.price, p.cost),0) AS unitPrice, p.category_id, s.db, p.brand_id, s.params, po.date_po_event_scheduled as sch_date,
+		(SELECT ppq.status FROM product_push_queue ppq WHERE ppq.po_product_id = p.po_product_id ORDER BY ppq.pushed_at DESC LIMIT 1) AS push_status
 		FROM store s 
 		RIGHT JOIN (po_status t 
 		RIGHT JOIN (po 
@@ -312,8 +313,19 @@ if (sizeof($rs)) {
         <label for="disaggregate_1"><span></span></label></span></td>
         <td style="text-align:center;"  data-sort="' . $r['is_transferred'] .'"><span class="nowrap po-product-transferred"><input data-type="transferred" data-id="' . $r['po_product_id'] . '" type="checkbox" value="' . $r['po_product_id'] . '" id="transferred_' . $r['po_product_id'] . '" name="disaggregate_ids[]" data-render="switchery" data-theme="info"' . iif($r['is_transferred'], ' checked') .' />
         <label for="disaggregate_1"><span></span></label></span></td>
-        <td style="text-align:center;">
-            <button 
+        <td style="text-align:center;">';
+
+        // Sync status badge
+        $pushStatus = $r['push_status'] ?? null;
+        if ($pushStatus === 'pending' || $pushStatus === 'processing') {
+            echo '<span class="label label-warning" id="push-badge-' . (int)$r['po_product_id'] . '" title="Waiting for Blaze to propagate to all stores">&#8987; Syncing&hellip;</span><br>';
+        } elseif ($pushStatus === 'done') {
+            echo '<span class="label label-success" id="push-badge-' . (int)$r['po_product_id'] . '">&#10003; Live</span><br>';
+        } elseif ($pushStatus === 'failed') {
+            echo '<span class="label label-danger" id="push-badge-' . (int)$r['po_product_id'] . '" title="Sync failed — check product_push_queue">&#10007; Sync Failed</span><br>';
+        }
+
+        echo '<button 
                 type="button" 
                 class="btn btn-xs btn-primary btn-enrich"
                 data-id="' . (int)$r['po_product_id'] . '"
@@ -526,10 +538,13 @@ window.addEventListener('load', function() {
 
     /* store IDs so Push to Blaze can use them */
     $('#enrichModal')
-      .data('brand_id',    brandId)
-      .data('category_id', catId)
-      .data('store_db',   storeDb)
-      .data('vendor_id',  vendorId);
+      .data('brand_id',      brandId)
+      .data('category_id',   catId)
+      .data('store_db',      storeDb)
+      .data('vendor_id',     vendorId)
+      .data('po_product_id', id)
+      .data('davis_price',   davPrice)
+      .data('dixon_price',   dixPrice);
 
     /* reset modal */
     $('#enrichLoadingOverlay').show();
@@ -635,14 +650,17 @@ window.addEventListener('load', function() {
 
   /* ---- Push to Blaze ---- */
   $(document).on('click', '#enrichBtnPushBlaze', function() {
-    var $modal      = $('#enrichModal');
-    var brandId     = $('#enrichBrandSelect').val()    || $modal.data('brand_id')    || 0;
-    var categoryId  = $('#enrichCategorySelect').val() || $modal.data('category_id') || 0;
-    var storeDb    = $modal.data('store_db')  || '';
-    var vendorId   = $modal.data('vendor_id') || 0;
-    var name        = $('#enrichProductName').val().trim();
-    var description = $('#enrichDescription').val().trim();
-    var price       = parseFloat($('#enrichDefaultPrice').val()) || 0;
+    var $modal       = $('#enrichModal');
+    var brandId      = $('#enrichBrandSelect').val()    || $modal.data('brand_id')    || 0;
+    var categoryId   = $('#enrichCategorySelect').val() || $modal.data('category_id') || 0;
+    var storeDb      = $modal.data('store_db')      || '';
+    var vendorId     = $modal.data('vendor_id')     || 0;
+    var poProductId  = $modal.data('po_product_id') || 0;
+    var davisPrice   = parseFloat($modal.data('davis_price')) || 0;
+    var dixonPrice   = parseFloat($modal.data('dixon_price')) || 0;
+    var name         = $('#enrichProductName').val().trim();
+    var description  = $('#enrichDescription').val().trim();
+    var price        = parseFloat($('#enrichDefaultPrice').val()) || 0;
 
     if (!name) { alert('Product name is required before pushing to Blaze.'); return; }
 
@@ -655,14 +673,17 @@ window.addEventListener('load', function() {
       method: 'POST',
       dataType: 'json',
       data: {
-        name:        name,
-        description: description,
-        price:       price,
-        brand_id:    brandId,
-        category_id: categoryId,
-        store_db:   storeDb,
-        vendor_id:  vendorId,
-        image_url:  enrichImages.length ? enrichImages[enrichImgIdx] : ''
+        name:          name,
+        description:   description,
+        price:         price,
+        davis_price:   davisPrice,
+        dixon_price:   dixonPrice,
+        brand_id:      brandId,
+        category_id:   categoryId,
+        store_db:      storeDb,
+        vendor_id:     vendorId,
+        po_product_id: poProductId,
+        image_url:     enrichImages.length ? enrichImages[enrichImgIdx] : ''
       }
     }).done(function(resp) {
       $('#enrichBtnPushBlaze').prop('disabled', false).html('<i class="fa fa-cloud-upload"></i> Push to Blaze');
@@ -672,7 +693,21 @@ window.addEventListener('load', function() {
       $('#enrichBlazeResponseArea').show();
 
       if (resp && resp.success) {
-        $('#enrichBlazeStatus').text('✓ Pushed successfully to Blaze.').css('color', '#3c763d');
+        $('#enrichBlazeStatus').text('✓ Pushed successfully to Blaze. Propagation queued.').css('color', '#3c763d');
+        // Update the sync badge in the table row
+        if (poProductId) {
+          var $badge = $('#push-badge-' + poProductId);
+          if ($badge.length) {
+            $badge.removeClass('label-success label-danger label-default')
+                  .addClass('label-warning')
+                  .html('&#8987; Syncing&hellip;');
+          } else {
+            // Badge didn't exist yet (first push) — inject it before the Enrich button
+            $('[data-id="' + poProductId + '"].btn-enrich').before(
+              '<span class="label label-warning" id="push-badge-' + poProductId + '">&#8987; Syncing&hellip;</span><br>'
+            );
+          }
+        }
       } else {
         var errMsg = (resp && resp.curl_error) ? resp.curl_error
                    : (resp && resp.blaze_response && resp.blaze_response.message) ? resp.blaze_response.message

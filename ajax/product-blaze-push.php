@@ -27,14 +27,17 @@ register_shutdown_function(function() {
     }
 });
 
-$product_name = trim((string) ($_POST['name']        ?? ''));
-$description  = trim((string) ($_POST['description'] ?? ''));
-$price        = isset($_POST['price']) && is_numeric($_POST['price']) ? (float) $_POST['price'] : 0;
-$brand_id     = (int) ($_POST['brand_id']    ?? 0);
-$category_id  = (int) ($_POST['category_id'] ?? 0);
-$store_db     = preg_replace('/[^a-zA-Z0-9_]/', '', trim((string) ($_POST['store_db']    ?? '')));
-$vendor_id    = (int) ($_POST['vendor_id'] ?? 0);
-$image_url    = trim((string) ($_POST['image_url'] ?? ''));
+$product_name  = trim((string) ($_POST['name']          ?? ''));
+$description   = trim((string) ($_POST['description']   ?? ''));
+$price         = isset($_POST['price'])       && is_numeric($_POST['price'])       ? (float) $_POST['price']       : 0;
+$davis_price   = isset($_POST['davis_price']) && is_numeric($_POST['davis_price']) ? (float) $_POST['davis_price'] : null;
+$dixon_price   = isset($_POST['dixon_price']) && is_numeric($_POST['dixon_price']) ? (float) $_POST['dixon_price'] : null;
+$brand_id      = (int) ($_POST['brand_id']     ?? 0);
+$category_id   = (int) ($_POST['category_id']  ?? 0);
+$store_db      = preg_replace('/[^a-zA-Z0-9_]/', '', trim((string) ($_POST['store_db']  ?? '')));
+$vendor_id     = (int) ($_POST['vendor_id']    ?? 0);
+$po_product_id = (int) ($_POST['po_product_id'] ?? 0);
+$image_url     = trim((string) ($_POST['image_url'] ?? ''));
 
 if ($product_name === '') {
     echo json_encode(['success' => false, 'error' => 'Missing product name.']);
@@ -201,7 +204,7 @@ if ($image_url !== '') {
     }
 }
 
-// ---- Build Blaze ProductAddRequest payload (asset already uploaded above) ----
+// ---- Build Blaze ProductAddRequest payload ----
 $product_payload = [
     'name'        => $product_name,
     'description' => $description,
@@ -213,20 +216,7 @@ if ($blaze_brand_id)    $product_payload['brandId']   = $blaze_brand_id;
 if ($blaze_category_id) $product_payload['categoryId'] = $blaze_category_id;
 if ($blaze_vendor_id)   $product_payload['vendorId']   = $blaze_vendor_id;
 
-// Include asset in the initial POST — avoids a separate PUT entirely.
-if (!empty($debug_image['asset_raw']['id'])) {
-    $asset_obj = $debug_image['asset_raw'];
-    $product_payload['assets'] = [[
-        'id'       => $asset_obj['id'],
-        'key'      => $asset_obj['key'],
-        'type'     => 'Photo',
-        'active'   => true,
-        'priority' => 0,
-        'secured'  => false,
-    ]];
-}
-
-// ---- POST to Blaze API ----
+// ---- POST to create the product ----
 $blaze_endpoint = $api_url . 'products';
 $json_body      = json_encode($product_payload);
 
@@ -256,8 +246,98 @@ if ($response && isJson($response)) {
     $blaze_response_decoded = json_decode($response, true);
 }
 
-$success            = !$curlErr && $httpCode >= 200 && $httpCode < 300;
-$debug_asset_attach = null; // no longer used — asset sent in initial POST
+$success = !$curlErr && $httpCode >= 200 && $httpCode < 300;
+
+// ---- Attach asset via GET-then-PUT (round-trip the server's own object) ----
+// Strategy: GET the freshly-created product, inject the asset, PUT back the same
+// full structure — avoids NullPointerException from sending a partial payload.
+$debug_asset_attach = null;
+if ($success && !empty($blaze_response_decoded['id']) && !empty($debug_image['asset_raw']['id'])) {
+    $product_id = $blaze_response_decoded['id'];
+    $asset_obj  = $debug_image['asset_raw'];
+    $get_url    = $api_url . 'products/' . urlencode($product_id);
+
+    // Step 1: GET the product back from Blaze
+    $get_ch = curl_init($get_url);
+    curl_setopt_array($get_ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPGET        => true,
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: ' . $auth_code,
+            'X-API-KEY: '     . $partner_key,
+        ],
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_SSL_VERIFYPEER => false,
+    ]);
+    $get_resp = curl_exec($get_ch);
+    $get_err  = curl_error($get_ch);
+    $get_code = (int) curl_getinfo($get_ch, CURLINFO_HTTP_CODE);
+    curl_close($get_ch);
+
+    $debug_asset_attach = ['get_http' => $get_code, 'get_err' => $get_err ?: null];
+
+    if (!$get_err && $get_code === 200 && $get_resp && isJson($get_resp)) {
+        $full_product = json_decode($get_resp, true);
+
+        // Step 2: inject asset into the assets array
+        $full_product['assets'] = [[
+            'id'       => $asset_obj['id'],
+            'key'      => $asset_obj['key'],
+            'type'     => 'Photo',
+            'active'   => true,
+            'priority' => 0,
+            'secured'  => false,
+        ]];
+
+        // Step 3: PUT the full object back
+        $put_body = json_encode($full_product);
+        $put_url  = $get_url;
+
+        $put_ch = curl_init($put_url);
+        curl_setopt_array($put_ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST  => 'PUT',
+            CURLOPT_POSTFIELDS     => $put_body,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'Authorization: '  . $auth_code,
+                'X-API-KEY: '      . $partner_key,
+                'Content-Length: ' . strlen($put_body),
+            ],
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => false,
+        ]);
+        $put_resp = curl_exec($put_ch);
+        $put_err  = curl_error($put_ch);
+        $put_code = (int) curl_getinfo($put_ch, CURLINFO_HTTP_CODE);
+        curl_close($put_ch);
+
+        $debug_asset_attach['put_http']     = $put_code;
+        $debug_asset_attach['put_err']      = $put_err ?: null;
+        $debug_asset_attach['put_response'] = $put_resp ? json_decode($put_resp, true) : null;
+
+        // Use the updated product as the final response if PUT succeeded
+        if (!$put_err && $put_code >= 200 && $put_code < 300 && $put_resp) {
+            $updated = json_decode($put_resp, true);
+            if ($updated) $blaze_response_decoded = $updated;
+        }
+    } else {
+        $debug_asset_attach['get_raw'] = $get_resp;
+    }
+}
+
+// ---- Insert into propagation queue on successful push ----
+if ($success && !empty($blaze_response_decoded['id']) && $po_product_id > 0) {
+    $blaze_sku = $blaze_response_decoded['sku'] ?? '';
+    getRs(
+        "INSERT INTO product_push_queue (po_product_id, blaze_product_id, blaze_sku, store_db, davis_price, dixon_price)
+         VALUES (?, ?, ?, ?, ?, ?)",
+        [$po_product_id, $blaze_response_decoded['id'], $blaze_sku, $store_db,
+         ($davis_price > 0 ? $davis_price : null), ($dixon_price > 0 ? $dixon_price : null)]
+    );
+}
 
 echo json_encode([
     'success'        => $success,
