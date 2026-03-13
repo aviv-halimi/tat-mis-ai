@@ -361,9 +361,9 @@ else {
 <!-- ============================================================
      Enrichment Preview Modal
      ============================================================ -->
-<div class="modal fade" id="enrichModal" tabindex="-1" role="dialog" aria-labelledby="enrichModalLabel" style="overflow:hidden;">
-  <div class="modal-dialog" style="width:1150px;max-width:97vw;margin:3vh auto;height:94vh;" role="document">
-    <div class="modal-content" style="height:100%;display:flex;flex-direction:column;">
+<div class="modal fade" id="enrichModal" tabindex="-1" role="dialog" aria-labelledby="enrichModalLabel">
+  <div class="modal-dialog" style="width:1150px;max-width:97vw;margin:3vh auto;" role="document">
+    <div class="modal-content">
 
       <div class="modal-header">
         <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -372,7 +372,7 @@ else {
         <h4 class="modal-title" id="enrichModalLabel">&#10024; Enrichment Preview</h4>
       </div>
 
-      <div class="modal-body" style="flex:1 1 auto;overflow-y:auto;min-height:0;">
+      <div class="modal-body" style="max-height:calc(94vh - 120px);overflow-y:auto;">
 
         <!-- Loading overlay -->
         <div id="enrichLoadingOverlay" style="display:none;text-align:center;padding:30px;">
@@ -514,6 +514,21 @@ else {
 window.addEventListener('load', function() {
   var $ = window.jQuery;
   if (!$) { return; }
+
+  // Resize modal body to fill available window height dynamically
+  function resizeEnrichModalBody() {
+    var $modal   = $('#enrichModal');
+    var $body    = $modal.find('.modal-body');
+    var $header  = $modal.find('.modal-header');
+    var $footer  = $modal.find('.modal-footer');
+    var used     = $header.outerHeight(true) + $footer.outerHeight(true) + 60; // 60 = margins + padding
+    var avail    = Math.round(window.innerHeight * 0.94) - used;
+    $body.css('max-height', Math.max(300, avail) + 'px');
+  }
+  $('#enrichModal').on('shown.bs.modal', resizeEnrichModalBody);
+  $(window).on('resize', function() {
+    if ($('#enrichModal').hasClass('in')) resizeEnrichModalBody();
+  });
 
   /* ---- state ---- */
   var enrichImages       = [];
