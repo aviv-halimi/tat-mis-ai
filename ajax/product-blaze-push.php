@@ -201,7 +201,7 @@ if ($image_url !== '') {
     }
 }
 
-// ---- Build Blaze ProductAddRequest payload ----
+// ---- Build Blaze ProductAddRequest payload (asset already uploaded above) ----
 $product_payload = [
     'name'        => $product_name,
     'description' => $description,
@@ -209,9 +209,22 @@ $product_payload = [
     'active'      => true,
 ];
 
-if ($blaze_brand_id)    $product_payload['brandId']    = $blaze_brand_id;
-if ($blaze_category_id) $product_payload['categoryId']  = $blaze_category_id;
-if ($blaze_vendor_id)   $product_payload['vendorId']    = $blaze_vendor_id;
+if ($blaze_brand_id)    $product_payload['brandId']   = $blaze_brand_id;
+if ($blaze_category_id) $product_payload['categoryId'] = $blaze_category_id;
+if ($blaze_vendor_id)   $product_payload['vendorId']   = $blaze_vendor_id;
+
+// Include asset in the initial POST — avoids a separate PUT entirely.
+if (!empty($debug_image['asset_raw']['id'])) {
+    $asset_obj = $debug_image['asset_raw'];
+    $product_payload['assets'] = [[
+        'id'       => $asset_obj['id'],
+        'key'      => $asset_obj['key'],
+        'type'     => 'Photo',
+        'active'   => true,
+        'priority' => 0,
+        'secured'  => false,
+    ]];
+}
 
 // ---- POST to Blaze API ----
 $blaze_endpoint = $api_url . 'products';
@@ -243,71 +256,8 @@ if ($response && isJson($response)) {
     $blaze_response_decoded = json_decode($response, true);
 }
 
-$success = !$curlErr && $httpCode >= 200 && $httpCode < 300;
-
-// ---- If product was created and we have an asset, attach it via PUT ----
-$debug_asset_attach = null;
-if ($success && !empty($blaze_response_decoded['id']) && !empty($debug_image['asset_raw']['id'])) {
-    $product_id  = $blaze_response_decoded['id'];
-    $asset_obj   = $debug_image['asset_raw'];
-    $put_url     = $api_url . 'products/' . urlencode($product_id);
-
-    // Send a minimal PartnerProductUpdateRequest — only the fields we need to change.
-    // Do NOT echo back the full GET response: its nested objects (e.g. category.sourceMap)
-    // have array-vs-map type mismatches with the update schema.
-    $put_payload = [
-        'id'          => $product_id,
-        'name'        => $product_name,
-        'description' => $description,
-        'price'       => $price,
-        'active'      => true,
-        'assets'      => [[
-            'id'        => $asset_obj['id'],
-            'key'       => $asset_obj['key'],
-            'type'      => 'Photo',
-            'active'    => true,
-            'priority'  => 0,
-            'secured'   => false,
-        ]],
-    ];
-    if ($blaze_brand_id)    $put_payload['brandId']    = $blaze_brand_id;
-    if ($blaze_category_id) $put_payload['categoryId'] = $blaze_category_id;
-    if ($blaze_vendor_id)   $put_payload['vendorId']   = $blaze_vendor_id;
-
-    $put_body = json_encode($put_payload);
-
-    $put_ch = curl_init($put_url);
-    curl_setopt_array($put_ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CUSTOMREQUEST  => 'PUT',
-        CURLOPT_POSTFIELDS     => $put_body,
-        CURLOPT_HTTPHEADER     => [
-            'Content-Type: application/json',
-            'Authorization: '  . $auth_code,
-            'X-API-KEY: '      . $partner_key,
-            'Content-Length: ' . strlen($put_body),
-        ],
-        CURLOPT_TIMEOUT        => 30,
-        CURLOPT_CONNECTTIMEOUT => 10,
-        CURLOPT_SSL_VERIFYPEER => false,
-    ]);
-    $put_resp  = curl_exec($put_ch);
-    $put_err   = curl_error($put_ch);
-    $put_code  = (int) curl_getinfo($put_ch, CURLINFO_HTTP_CODE);
-    curl_close($put_ch);
-
-    $debug_asset_attach = [
-        'http_code' => $put_code,
-        'curl_error'=> $put_err ?: null,
-        'response'  => $put_resp ? json_decode($put_resp, true) : null,
-    ];
-
-    // Use the updated product as the final response if PUT succeeded
-    if (!$put_err && $put_code >= 200 && $put_code < 300 && $put_resp) {
-        $updated = json_decode($put_resp, true);
-        if ($updated) $blaze_response_decoded = $updated;
-    }
-}
+$success            = !$curlErr && $httpCode >= 200 && $httpCode < 300;
+$debug_asset_attach = null; // no longer used — asset sent in initial POST
 
 echo json_encode([
     'success'        => $success,
