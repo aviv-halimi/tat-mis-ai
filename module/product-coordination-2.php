@@ -689,7 +689,11 @@ window.addEventListener('load', function() {
       url: 'ajax/product-image-search.php',
       method: 'POST',
       dataType: 'json',
-      data: { query: query }
+      data: {
+        query: query,
+        name:  $('#enrichProductName').val().trim(),
+        brand: $('#enrichBrandSelect option:selected').text().trim()
+      }
     }).done(function(resp) {
       if (resp && resp.success && resp.images && resp.images.length) {
         enrichImages = resp.images;

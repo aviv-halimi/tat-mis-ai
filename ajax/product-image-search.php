@@ -1,33 +1,93 @@
 <?php
 /**
  * Re-run image search with a custom query.
+ *
  * POST params:
- *   query  string  The search query to send to Serper.dev Images
+ *   query  string  Serper.dev search query (shown in the "Search Again" box)
+ *   name   string  Product name (used for Google Drive fuzzy match)
+ *   brand  string  Brand name   (used for Google Drive fuzzy match)
+ *
+ * Returns images with the Drive match prepended (if found), then Serper results.
  */
 require_once dirname(__FILE__) . '/../_config.php';
+require_once BASE_PATH . 'inc/GoogleDriveHelper.php';
 
 header('Cache-Control: no-cache');
 header('Content-type: application/json');
 
-$query = trim((string) ($_POST['query'] ?? ''));
+$query      = trim((string) ($_POST['query'] ?? ''));
+$name       = trim((string) ($_POST['name']  ?? ''));
+$brand      = trim((string) ($_POST['brand'] ?? ''));
 
 if ($query === '') {
     echo json_encode(['success' => false, 'error' => 'Missing query.']);
     exit;
 }
 
-$apiKey  = 'b3c39559a928534f00749286e3b8503856c72c02';
-$payload = json_encode(['q' => $query, 'num' => 10]);
+$serper_key = 'b3c39559a928534f00749286e3b8503856c72c02';
 
+// --------------------------------------------------------
+// Step 1: Google Drive fuzzy match (re-uses cached index)
+// --------------------------------------------------------
+$drive_image_url = null;
+$drive_source    = '';
+
+$creds_path = BASE_PATH . 'credentials/service-account.json';
+if (file_exists($creds_path) && ($name !== '' || $brand !== '')) {
+    $creds = json_decode((string) file_get_contents($creds_path), true);
+    if (is_array($creds) && !empty($creds['private_key'])) {
+
+        $gemini_key = getenv('GEMINI_API_KEY');
+        if ($gemini_key === false || $gemini_key === '') {
+            $gemini_key = (defined('GEMINI_API_KEY') && GEMINI_API_KEY !== '') ? GEMINI_API_KEY : '';
+        }
+
+        if ($gemini_key !== '') {
+            // Re-use cached Drive index (built by product-enrich.php, good for 4 hours)
+            $file_index = gd_get_index($creds, '1YQSjGTVXYiQP5jBSku2HdRtpbCUvklQx');
+
+            if (!empty($file_index)) {
+                // Use the product name and brand for Gemini matching
+                // If the user changed the search box, strip Serper operators and
+                // use the raw text as an additional hint to Drive
+                $clean_query = preg_replace('/\(site:[^)]+\)|site:\S+|-site:\S+|"/', '', $query);
+                $clean_query = trim(preg_replace('/\s+/', ' ', $clean_query));
+
+                $search_name  = $name  !== '' ? $name  : $clean_query;
+                $search_brand = $brand !== '' ? $brand : '';
+
+                $file_id = gd_gemini_match($search_name, $search_brand, $file_index, $gemini_key);
+
+                if ($file_id !== null) {
+                    $drive_service = gd_make_drive_service($creds);
+                    $local_url = gd_download_and_resize(
+                        $drive_service,
+                        $file_id,
+                        BASE_PATH . 'public/tmp/enrichment',
+                        BASE_URL . '/public/tmp/enrichment'
+                    );
+                    if ($local_url !== null) {
+                        $drive_image_url = $local_url;
+                        $drive_source    = 'Google Drive';
+                    }
+                }
+            }
+        }
+    }
+}
+
+// --------------------------------------------------------
+// Step 2: Serper.dev search with the user's custom query
+// --------------------------------------------------------
 $ch = curl_init('https://google.serper.dev/images');
 curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_POST           => true,
     CURLOPT_HTTPHEADER     => [
-        'X-API-KEY: ' . $apiKey,
+        'X-API-KEY: ' . $serper_key,
         'Content-Type: application/json',
     ],
-    CURLOPT_POSTFIELDS     => $payload,
+    CURLOPT_POSTFIELDS     => (string) json_encode(['q' => $query, 'num' => 10]),
     CURLOPT_TIMEOUT        => 30,
     CURLOPT_CONNECTTIMEOUT => 10,
 ]);
@@ -36,23 +96,39 @@ $curlErr  = curl_error($ch);
 $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
-if ($response === false || $curlErr || $httpCode >= 300) {
-    echo json_encode(['success' => false, 'error' => 'Serper request failed (HTTP ' . $httpCode . ')']);
+$serper_urls = [];
+if ($response !== false && !$curlErr && $httpCode < 300) {
+    $json   = json_decode($response, true);
+    $images = $json['images'] ?? [];
+    foreach ((array) $images as $img) {
+        $url = trim((string) ($img['imageUrl'] ?? ''));
+        if ($url !== '') $serper_urls[] = $url;
+        if (count($serper_urls) >= 10) break;
+    }
+}
+
+// --------------------------------------------------------
+// Combine: Drive first, then Serper, deduplicated
+// --------------------------------------------------------
+$all_urls = $serper_urls;
+if ($drive_image_url !== null) {
+    $all_urls = array_values(array_unique(array_merge([$drive_image_url], $serper_urls)));
+}
+
+if (empty($all_urls)) {
+    echo json_encode(['success' => false, 'error' => 'No images found for that query.']);
     exit;
 }
 
-$json   = json_decode($response, true);
-$images = $json['images'] ?? [];
-$urls   = [];
-foreach ($images as $img) {
-    $url = trim((string) ($img['imageUrl'] ?? ''));
-    if ($url !== '') $urls[] = $url;
-    if (count($urls) >= 10) break;
-}
+// Build source label
+$sources = [];
+if ($drive_source !== '')    $sources[] = 'Google Drive';
+if (!empty($serper_urls))    $sources[] = 'Web Search';
+$image_source = implode(' + ', $sources) ?: 'Web Search';
 
 echo json_encode([
     'success'      => true,
-    'images'       => $urls,
+    'images'       => $all_urls,
     'search_query' => $query,
-    'image_source' => 'Web Search',
+    'image_source' => $image_source,
 ]);
