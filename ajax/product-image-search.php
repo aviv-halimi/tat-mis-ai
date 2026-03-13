@@ -47,13 +47,15 @@ if (file_exists($creds_path) && ($name !== '' || $brand !== '')) {
             $file_index = gd_get_index($creds, '1YQSjGTVXYiQP5jBSku2HdRtpbCUvklQx');
 
             if (!empty($file_index)) {
-                // Use the product name and brand for Gemini matching
-                // If the user changed the search box, strip Serper operators and
-                // use the raw text as an additional hint to Drive
+                // Strip Serper operators from the user's typed query so Gemini
+                // gets plain text (e.g. "graype" not "(site:weedmaps.com...) graype").
                 $clean_query = preg_replace('/\(site:[^)]+\)|site:\S+|-site:\S+|"/', '', $query);
                 $clean_query = trim(preg_replace('/\s+/', ' ', $clean_query));
 
-                $search_name  = $name  !== '' ? $name  : $clean_query;
+                // Use the user's typed query as the primary Drive search term —
+                // that's the whole point of "Search Again". Fall back to the
+                // product name from the form only if the query is blank.
+                $search_name  = $clean_query !== '' ? $clean_query : $name;
                 $search_brand = $brand !== '' ? $brand : '';
 
                 $file_id = gd_gemini_match($search_name, $search_brand, $file_index, $gemini_key);
