@@ -15,6 +15,18 @@ require_once dirname(__FILE__) . '/../_config.php';
 header('Cache-Control: no-cache');
 header('Content-type: application/json');
 
+set_error_handler(function($errno, $errstr, $errfile, $errline) {
+    echo json_encode(['success' => false, 'error' => "PHP error ({$errno}): {$errstr} in {$errfile}:{$errline}"]);
+    exit;
+});
+register_shutdown_function(function() {
+    $e = error_get_last();
+    if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
+        if (!headers_sent()) { header('Content-type: application/json'); }
+        echo json_encode(['success' => false, 'error' => "Fatal: {$e['message']} in {$e['file']}:{$e['line']}"]);
+    }
+});
+
 $product_name = trim((string) ($_POST['name']        ?? ''));
 $description  = trim((string) ($_POST['description'] ?? ''));
 $price        = isset($_POST['price']) && is_numeric($_POST['price']) ? (float) $_POST['price'] : 0;
@@ -86,26 +98,17 @@ if ($category_id > 0 && $store_db !== '') {
     }
 }
 
-// ---- Resolve vendor: {store_db}.vendor.vendor_id → master_vendor_id → blaze1.vendor.id ----
+// ---- Resolve vendor: {store_db}.vendor WHERE vendor_id = ? → get Blaze id ----
 $blaze_vendor_id = null;
 $debug_vendor    = ['input_vendor_id' => $vendor_id, 'store_db' => $store_db];
 
 if ($vendor_id > 0 && $store_db !== '') {
     $vendor_row = getRow(getRs(
-        "SELECT master_vendor_id FROM `{$store_db}`.vendor WHERE vendor_id = ? LIMIT 1",
+        "SELECT id FROM `{$store_db}`.vendor WHERE vendor_id = ? LIMIT 1",
         [$vendor_id]
     ));
-    $debug_vendor['master_vendor_id'] = $vendor_row['master_vendor_id'] ?? null;
-
-    if (!empty($vendor_row['master_vendor_id'])) {
-        $master_vendor_id = (int) $vendor_row['master_vendor_id'];
-        $store1_vendor    = getRow(getRs(
-            "SELECT id FROM `{$store1_db}`.vendor WHERE master_vendor_id = ? AND is_active = 1 LIMIT 1",
-            [$master_vendor_id]
-        ));
-        $blaze_vendor_id              = $store1_vendor['id'] ?? null;
-        $debug_vendor['store1_id']    = $blaze_vendor_id;
-    }
+    $blaze_vendor_id           = $vendor_row['id'] ?? null;
+    $debug_vendor['blaze_id']  = $blaze_vendor_id;
 }
 
 // ---- Build Blaze ProductAddRequest payload ----
