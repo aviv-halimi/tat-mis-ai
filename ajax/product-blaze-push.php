@@ -98,17 +98,28 @@ if ($category_id > 0 && $store_db !== '') {
     }
 }
 
-// ---- Resolve vendor: {store_db}.vendor WHERE vendor_id = ? → get Blaze id ----
+// ---- Resolve vendor: {store_db}.vendor.name → blaze1.vendor.id ----
 $blaze_vendor_id = null;
 $debug_vendor    = ['input_vendor_id' => $vendor_id, 'store_db' => $store_db];
 
 if ($vendor_id > 0 && $store_db !== '') {
-    $vendor_row = getRow(getRs(
-        "SELECT id FROM `{$store_db}`.vendor WHERE vendor_id = ? LIMIT 1",
+    // Step 1: get vendor name from the originating store
+    $src_vendor = getRow(getRs(
+        "SELECT name FROM `{$store_db}`.vendor WHERE vendor_id = ? LIMIT 1",
         [$vendor_id]
     ));
-    $blaze_vendor_id           = $vendor_row['id'] ?? null;
-    $debug_vendor['blaze_id']  = $blaze_vendor_id;
+    $vendor_name_resolved       = $src_vendor['name'] ?? null;
+    $debug_vendor['vendor_name'] = $vendor_name_resolved;
+
+    // Step 2: find that vendor in blaze1 by name
+    if ($vendor_name_resolved) {
+        $store1_vendor = getRow(getRs(
+            "SELECT id FROM `{$store1_db}`.vendor WHERE name = ? AND is_active = 1 LIMIT 1",
+            [$vendor_name_resolved]
+        ));
+        $blaze_vendor_id           = $store1_vendor['id'] ?? null;
+        $debug_vendor['store1_id'] = $blaze_vendor_id;
+    }
 }
 
 // ---- Build Blaze ProductAddRequest payload ----
@@ -168,6 +179,16 @@ echo json_encode([
     'blaze_response' => $blaze_response_decoded,
     'blaze_raw'      => $response,
     'payload_sent'   => $product_payload,
+    'postman'        => [
+        'method'   => 'POST',
+        'url'      => $blaze_endpoint,
+        'headers'  => [
+            'Authorization' => $auth_code,
+            'X-API-KEY'     => $partner_key,
+            'Content-Type'  => 'application/json',
+        ],
+        'body_raw' => $json_body,
+    ],
     'debug'          => [
         'store1_db'    => $store1_db,
         'brand'        => $debug_brand,
