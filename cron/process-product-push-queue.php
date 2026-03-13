@@ -48,7 +48,7 @@ foreach ($queue as $q) {
     $sku      = (string) $q['blaze_sku'];
 
     if ($sku === '') {
-        getRs("UPDATE product_push_queue SET status = 'failed', last_error = 'Missing SKU' WHERE id = ?", [$queue_id]);
+        setRs("UPDATE product_push_queue SET status = 'failed', last_error = 'Missing SKU' WHERE id = ?", [$queue_id]);
         continue;
     }
 
@@ -72,13 +72,13 @@ foreach ($queue as $q) {
 
     if (!$all_propagated) {
         // Not ready yet — just bump the attempt counter
-        getRs("UPDATE product_push_queue SET attempts = attempts + 1 WHERE id = ?", [$queue_id]);
+        setRs("UPDATE product_push_queue SET attempts = attempts + 1 WHERE id = ?", [$queue_id]);
         $results[] = "Queue #{$queue_id} (SKU {$sku}): not yet propagated to all stores, attempts=" . ((int)$q['attempts'] + 1);
         continue;
     }
 
     // ---- Step 2: Mark as processing to prevent duplicate runs ----
-    getRs("UPDATE product_push_queue SET status = 'processing' WHERE id = ?", [$queue_id]);
+    setRs("UPDATE product_push_queue SET status = 'processing' WHERE id = ?", [$queue_id]);
 
     $errors = [];
 
@@ -139,14 +139,14 @@ foreach ($queue as $q) {
 
     // ---- Step 4: Mark done or failed ----
     if (empty($errors)) {
-        getRs(
+        setRs(
             "UPDATE product_push_queue SET status = 'done', completed_at = NOW() WHERE id = ?",
             [$queue_id]
         );
         $results[] = "Queue #{$queue_id} (SKU {$sku}): done — updated " . count($store_blaze_ids) . " stores.";
     } else {
         $error_str = implode(' | ', $errors);
-        getRs(
+        setRs(
             "UPDATE product_push_queue SET status = 'failed', last_error = ? WHERE id = ?",
             [$error_str, $queue_id]
         );

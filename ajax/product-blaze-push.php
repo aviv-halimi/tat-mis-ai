@@ -331,7 +331,7 @@ if ($success && !empty($blaze_response_decoded['id']) && !empty($debug_image['as
 // ---- Insert into propagation queue on successful push ----
 if ($success && !empty($blaze_response_decoded['id']) && $po_product_id > 0) {
     $blaze_sku = $blaze_response_decoded['sku'] ?? '';
-    getRs(
+    setRs(
         "INSERT INTO product_push_queue (po_product_id, blaze_product_id, blaze_sku, store_db, davis_price, dixon_price)
          VALUES (?, ?, ?, ?, ?, ?)",
         [$po_product_id, $blaze_response_decoded['id'], $blaze_sku, $store_db,
