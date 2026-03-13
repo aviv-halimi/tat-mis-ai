@@ -1,0 +1,9 @@
+# Service account credentials — deploy manually to the server; never commit
+credentials/service-account.json
+
+# Enrichment tmp cache files (token, Drive index, processed images)
+public/tmp/enrichment/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db

@@ -1,5 +1,6 @@
 <?php
 require_once dirname(__FILE__) . '/../_config.php';
+require_once BASE_PATH . 'inc/GoogleDriveHelper.php';
 
 header('Cache-Control: no-cache');
 header('Content-type: application/json');
@@ -120,19 +121,30 @@ function tat_serper_image_search(string $query, string $apiKey, int $num = 5): a
     return $urls;
 }
 
+// ============================================================
+// Google Drive master-folder ID and Serper key constants
+// ============================================================
+define('GD_ROOT_FOLDER_ID', '1YQSjGTVXYiQP5jBSku2HdRtpbCUvklQx');
+define('ENRICHMENT_TMP_DIR', BASE_PATH . 'public/tmp/enrichment');
+define('ENRICHMENT_TMP_URL', BASE_URL . '/public/tmp/enrichment');
+define('SERPER_API_KEY',     'b3c39559a928534f00749286e3b8503856c72c02');
+
 /**
- * Google Drive stub (no-op until fully wired) + Serper.dev waterfall.
- * Returns array of up to 10 image URLs.
- * Sets $source_found to 'Trusted Menu' or 'Web Search'.
- * Sets $search_query to whichever query produced results.
+ * Step B: Image discovery.
+ *
+ * Priority:
+ *   1. Google Drive (AI fuzzy match via Gemini) — prepended as first carousel image.
+ *   2. Serper.dev trusted menu sites (weedmaps, leafly, dutchie).
+ *   3. Serper.dev general web (excluding pinterest).
+ *
+ * Returns array of image URLs (Drive image first if found).
+ * Sets $source_found, $warning, $search_query by reference.
  */
 function tat_enrich_discover_images($product_name, $brand_name, $category_name, &$source_found, &$warning = null, &$search_query = null): array
 {
     $source_found = null;
     $warning      = null;
     $search_query = null;
-
-    $apiKey = 'b3c39559a928534f00749286e3b8503856c72c02';
 
     $cleanName = tat_enrich_clean_name((string) $product_name);
     if ($cleanName === '') {
@@ -141,31 +153,92 @@ function tat_enrich_discover_images($product_name, $brand_name, $category_name, 
     }
 
     $categoryPart = trim((string) $category_name);
+    $namePart     = trim(implode(' ', array_filter([$cleanName, $categoryPart])));
 
-    // --- Attempt 1: trusted industry sources ---
-    $trusted_q = '(site:weedmaps.com OR site:leafly.com OR site:dutchie.com) "' .
-                 trim(implode(' ', array_filter([$cleanName, $categoryPart]))) . '"';
-    $urls = tat_serper_image_search($trusted_q, $apiKey, 10);
+    // --------------------------------------------------------
+    // Step B1: Google Drive fuzzy match via Gemini
+    // --------------------------------------------------------
+    $drive_image_url = null;
+    $drive_source    = '';
 
-    if (!empty($urls)) {
-        $source_found = 'Trusted Menu';
-        $search_query = $trusted_q;
-        return $urls;
+    $creds_path = BASE_PATH . 'credentials/service-account.json';
+    if (file_exists($creds_path)) {
+        $creds = json_decode((string) file_get_contents($creds_path), true);
+        if (is_array($creds) && !empty($creds['private_key'])) {
+
+            $gemini_key = getenv('GEMINI_API_KEY');
+            if ($gemini_key === false || $gemini_key === '') {
+                $gemini_key = (defined('GEMINI_API_KEY') && GEMINI_API_KEY !== '') ? GEMINI_API_KEY : '';
+            }
+
+            if ($gemini_key !== '') {
+                // Build / load cached file index
+                $file_index = gd_get_index($creds, GD_ROOT_FOLDER_ID);
+
+                if (!empty($file_index)) {
+                    // Ask Gemini to pick the best match
+                    $file_id = gd_gemini_match($cleanName, (string) $brand_name, $file_index, $gemini_key);
+
+                    if ($file_id !== null) {
+                        // Obtain a fresh token (already cached by gd_get_index)
+                        $token = gd_get_access_token($creds);
+                        if ($token) {
+                            $local_url = gd_download_and_resize(
+                                $token,
+                                $file_id,
+                                ENRICHMENT_TMP_DIR,
+                                ENRICHMENT_TMP_URL
+                            );
+                            if ($local_url !== null) {
+                                $drive_image_url = $local_url;
+                                $drive_source    = 'Google Drive';
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    // --- Attempt 2: general web, excluding Pinterest ---
-    $web_q = '"' . trim(implode(' ', array_filter([$cleanName, $categoryPart]))) .
-             '" cannabis product packaging -site:pinterest.com';
-    $urls = tat_serper_image_search($web_q, $apiKey, 10);
+    // --------------------------------------------------------
+    // Step B2+B3: Serper.dev — always run both queries
+    // --------------------------------------------------------
+    $trusted_q = '(site:weedmaps.com OR site:leafly.com OR site:dutchie.com) "' . $namePart . '"';
+    $web_q     = '"' . $namePart . '" cannabis product packaging -site:pinterest.com';
 
-    if (!empty($urls)) {
-        $source_found = 'Web Search';
-        $search_query = $web_q;
-        return $urls;
+    $trusted_urls = tat_serper_image_search($trusted_q, SERPER_API_KEY, 10);
+    $web_urls     = tat_serper_image_search($web_q,     SERPER_API_KEY, 10);
+
+    // Merge Serper results: trusted first, deduplicate
+    $serper_urls = array_values(array_unique(array_merge($trusted_urls, $web_urls)));
+
+    // --------------------------------------------------------
+    // Combine: Drive image first, then Serper results
+    // --------------------------------------------------------
+    $all_urls = $serper_urls;
+    if ($drive_image_url !== null) {
+        // Prepend Drive image, remove if it accidentally appeared in Serper list
+        $all_urls = array_values(array_unique(
+            array_merge([$drive_image_url], $serper_urls)
+        ));
     }
 
-    $warning = 'No Image Found';
-    return [];
+    if (empty($all_urls)) {
+        $warning = 'No Image Found';
+        return [];
+    }
+
+    // Build source label
+    $sources = [];
+    if ($drive_source !== '')          $sources[] = 'Google Drive';
+    if (!empty($trusted_urls))         $sources[] = 'Trusted Menu';
+    if (!empty($web_urls))             $sources[] = 'Web Search';
+    $source_found = implode(' + ', $sources) ?: 'Web Search';
+
+    // Report both Serper queries for the user's "Search Again" box
+    $search_query = $trusted_q . ' | ' . $web_q;
+
+    return $all_urls;
 }
 
 // ============================================================
