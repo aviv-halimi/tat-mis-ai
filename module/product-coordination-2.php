@@ -1,4 +1,4 @@
-?php
+<?php
 include_once('_config.php');
 if (isset($_archive)) $sql_archive = "(p.is_created = 1 AND p.is_transferred = 1 and p.date_created >= now()-interval 3 month)";
 else $sql_archive = "(p.is_created = 0 OR p.is_transferred = 0)";
