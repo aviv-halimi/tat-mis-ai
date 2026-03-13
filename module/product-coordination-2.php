@@ -662,7 +662,8 @@ window.addEventListener('load', function() {
         brand_id:    brandId,
         category_id: categoryId,
         store_db:   storeDb,
-        vendor_id:  vendorId
+        vendor_id:  vendorId,
+        image_url:  enrichImages.length ? enrichImages[enrichImgIdx] : ''
       }
     }).done(function(resp) {
       $('#enrichBtnPushBlaze').prop('disabled', false).html('<i class="fa fa-cloud-upload"></i> Push to Blaze');

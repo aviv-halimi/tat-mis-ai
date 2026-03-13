@@ -34,6 +34,7 @@ $brand_id     = (int) ($_POST['brand_id']    ?? 0);
 $category_id  = (int) ($_POST['category_id'] ?? 0);
 $store_db     = preg_replace('/[^a-zA-Z0-9_]/', '', trim((string) ($_POST['store_db']    ?? '')));
 $vendor_id    = (int) ($_POST['vendor_id'] ?? 0);
+$image_url    = trim((string) ($_POST['image_url'] ?? ''));
 
 if ($product_name === '') {
     echo json_encode(['success' => false, 'error' => 'Missing product name.']);
@@ -122,6 +123,72 @@ if ($vendor_id > 0 && $store_db !== '') {
     }
 }
 
+// ---- Upload image to Blaze as a public asset → get assetKey ----
+$blaze_asset_key = null;
+$debug_image     = ['image_url' => $image_url];
+
+if ($image_url !== '') {
+    // 1. Download image bytes
+    $img_ch = curl_init($image_url);
+    curl_setopt_array($img_ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS      => 5,
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_USERAGENT      => 'Mozilla/5.0 (compatible; EnrichBot/1.0)',
+        CURLOPT_SSL_VERIFYPEER => false,
+    ]);
+    $img_bytes = curl_exec($img_ch);
+    $img_err   = curl_error($img_ch);
+    curl_close($img_ch);
+
+    if ($img_bytes && strlen($img_bytes) > 0 && !$img_err) {
+        // 2. Save to a temp file so cURL can send it as multipart
+        $tmp_path = tempnam(sys_get_temp_dir(), 'blaze_img_') . '.jpg';
+        file_put_contents($tmp_path, $img_bytes);
+
+        // 3. Upload to Blaze
+        $upload_url = $api_url . 'asset/upload/public';
+        $up_ch = curl_init($upload_url);
+        curl_setopt_array($up_ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => [
+                'file'      => new CURLFile($tmp_path, 'image/jpeg', basename($product_name) . '.jpg'),
+                'name'      => $product_name,
+                'assetType' => 'Photo',
+            ],
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: ' . $auth_code,
+                'X-API-KEY: '     . $partner_key,
+            ],
+            CURLOPT_TIMEOUT        => 60,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => false,
+        ]);
+        $upload_resp     = curl_exec($up_ch);
+        $upload_err      = curl_error($up_ch);
+        $upload_http     = (int) curl_getinfo($up_ch, CURLINFO_HTTP_CODE);
+        curl_close($up_ch);
+        @unlink($tmp_path);
+
+        $debug_image['upload_http'] = $upload_http;
+        $debug_image['upload_err']  = $upload_err ?: null;
+
+        if ($upload_resp && !$upload_err && $upload_http >= 200 && $upload_http < 300) {
+            $asset_data = json_decode($upload_resp, true);
+            $blaze_asset_key          = $asset_data['assetKey'] ?? null;
+            $debug_image['asset_key'] = $blaze_asset_key;
+            $debug_image['asset_raw'] = $asset_data;
+        } else {
+            $debug_image['upload_raw'] = $upload_resp;
+        }
+    } else {
+        $debug_image['download_error'] = $img_err ?: 'Empty response';
+    }
+}
+
 // ---- Build Blaze ProductAddRequest payload ----
 $product_payload = [
     'name'        => $product_name,
@@ -133,6 +200,7 @@ $product_payload = [
 if ($blaze_brand_id)    $product_payload['brandId']    = $blaze_brand_id;
 if ($blaze_category_id) $product_payload['categoryId']  = $blaze_category_id;
 if ($blaze_vendor_id)   $product_payload['vendorId']    = $blaze_vendor_id;
+if ($blaze_asset_key)   $product_payload['assetKey']    = $blaze_asset_key;
 
 // ---- POST to Blaze API ----
 $blaze_endpoint = $api_url . 'products';
@@ -188,6 +256,7 @@ echo json_encode([
         'brand'        => $debug_brand,
         'category'     => $debug_category,
         'vendor'       => $debug_vendor,
+        'image'        => $debug_image,
         'endpoint'     => $blaze_endpoint,
     ],
 ]);
