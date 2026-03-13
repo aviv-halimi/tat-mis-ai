@@ -143,20 +143,38 @@ $blaze_asset_key = null;
 $debug_image     = ['image_url' => $image_url];
 
 if ($image_url !== '') {
-    // 1. Download image bytes
-    $img_ch = curl_init($image_url);
-    curl_setopt_array($img_ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_MAXREDIRS      => 5,
-        CURLOPT_TIMEOUT        => 30,
-        CURLOPT_CONNECTTIMEOUT => 10,
-        CURLOPT_USERAGENT      => 'Mozilla/5.0 (compatible; EnrichBot/1.0)',
-        CURLOPT_SSL_VERIFYPEER => false,
-    ]);
-    $img_bytes = curl_exec($img_ch);
-    $img_err   = curl_error($img_ch);
-    curl_close($img_ch);
+    $img_bytes = false;
+    $img_err   = '';
+    $img_mime  = 'image/jpeg';
+
+    if (strpos($image_url, 'data:') === 0) {
+        // Uploaded image — decode base64 data URI
+        if (preg_match('/^data:(image\/[a-zA-Z+]+);base64,(.+)$/s', $image_url, $m)) {
+            $img_mime  = $m[1];
+            $img_bytes = base64_decode($m[2]);
+            if ($img_bytes === false) {
+                $img_err   = 'base64 decode failed';
+                $img_bytes = false;
+            }
+        } else {
+            $img_err = 'Invalid data URI format';
+        }
+    } else {
+        // Remote URL — download via cURL
+        $img_ch = curl_init($image_url);
+        curl_setopt_array($img_ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS      => 5,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_USERAGENT      => 'Mozilla/5.0 (compatible; EnrichBot/1.0)',
+            CURLOPT_SSL_VERIFYPEER => false,
+        ]);
+        $img_bytes = curl_exec($img_ch);
+        $img_err   = curl_error($img_ch);
+        curl_close($img_ch);
+    }
 
     if ($img_bytes && strlen($img_bytes) > 0 && !$img_err) {
         // 2. Save to a temp file so cURL can send it as multipart
@@ -170,7 +188,7 @@ if ($image_url !== '') {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => [
-                'file'      => new CURLFile($tmp_path, 'image/jpeg', basename($product_name) . '.jpg'),
+                'file'      => new CURLFile($tmp_path, $img_mime, basename($product_name) . '.jpg'),
                 'name'      => $product_name,
                 'assetType' => 'Photo',
             ],

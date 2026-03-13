@@ -122,20 +122,16 @@ function tat_serper_image_search(string $query, string $apiKey, int $num = 5): a
 
 /**
  * Google Drive stub (no-op until fully wired) + Serper.dev waterfall.
- * Returns array of up to 5 image URLs.
+ * Returns array of up to 10 image URLs.
+ * Sets $source_found to 'Trusted Menu' or 'Web Search'.
+ * Sets $search_query to whichever query produced results.
  */
-function tat_enrich_discover_images($product_name, $brand_name, &$source_found, &$warning = null): array
+function tat_enrich_discover_images($product_name, $brand_name, $category_name, &$source_found, &$warning = null, &$search_query = null): array
 {
     $source_found = null;
     $warning      = null;
+    $search_query = null;
 
-    // B1: Google Drive (stub — activate when service-account.json is present and Drive integration is built)
-    $service_account_path = BASE_PATH . 'credentials/service-account.json';
-    if (file_exists($service_account_path)) {
-        // TODO: search Drive brand folder
-    }
-
-    // B2: Serper.dev
     $apiKey = 'b3c39559a928534f00749286e3b8503856c72c02';
 
     $cleanName = tat_enrich_clean_name((string) $product_name);
@@ -144,22 +140,33 @@ function tat_enrich_discover_images($product_name, $brand_name, &$source_found, 
         return [];
     }
 
-    // Primary query: product name + "cannabis product"
-    $urls = tat_serper_image_search($cleanName . ' cannabis product', $apiKey, 5);
+    $brandPart    = trim((string) $brand_name);
+    $categoryPart = trim((string) $category_name);
 
-    // Fallback: brand + product name + "cannabis"
-    if (empty($urls)) {
-        $fallback = trim(implode(' ', array_filter([$brand_name, $cleanName, 'cannabis'])));
-        $urls = tat_serper_image_search($fallback, $apiKey, 5);
+    // --- Attempt 1: trusted industry sources ---
+    $trusted_q = '(site:weedmaps.com OR site:leafly.com OR site:dutchie.com) "' .
+                 trim(implode(' ', array_filter([$brandPart, $cleanName, $categoryPart]))) . '"';
+    $urls = tat_serper_image_search($trusted_q, $apiKey, 10);
+
+    if (!empty($urls)) {
+        $source_found = 'Trusted Menu';
+        $search_query = $trusted_q;
+        return $urls;
     }
 
-    if (empty($urls)) {
-        $warning = 'No Image Found';
-        return [];
+    // --- Attempt 2: general web, excluding Pinterest ---
+    $web_q = '"' . trim(implode(' ', array_filter([$brandPart, $cleanName, $categoryPart]))) .
+             '" cannabis product packaging -site:pinterest.com';
+    $urls = tat_serper_image_search($web_q, $apiKey, 10);
+
+    if (!empty($urls)) {
+        $source_found = 'Web Search';
+        $search_query = $web_q;
+        return $urls;
     }
 
-    $source_found = 'Web (Serper.dev)';
-    return $urls;
+    $warning = 'No Image Found';
+    return [];
 }
 
 // ============================================================
@@ -184,7 +191,8 @@ $description = tat_enrich_generate_description($product_name, $brand_name, $cate
 
 $source_found = null;
 $imageWarning = null;
-$images       = tat_enrich_discover_images($product_name, $brand_name, $source_found, $imageWarning);
+$search_query = null;
+$images       = tat_enrich_discover_images($product_name, $brand_name, $category_name, $source_found, $imageWarning, $search_query);
 
 if ($descError && $description === '') {
     echo json_encode(['success' => false, 'error' => $descError]);
@@ -192,15 +200,17 @@ if ($descError && $description === '') {
 }
 
 echo json_encode([
-    'success'      => true,
-    'description'  => $description,
-    'images'       => $images,
-    'source_found' => $source_found ?: 'Web',
-    'warning'      => $imageWarning,
-    'brand'        => $brand_name,
-    'brand_id'     => $brand_id,
-    'category'     => $category_name,
-    'category_id'  => $category_id,
-    'brands'       => $brands,
-    'categories'   => $categories,
+    'success'       => true,
+    'description'   => $description,
+    'images'        => $images,
+    'source_found'  => $source_found ?: 'Web Search',
+    'image_source'  => $source_found ?: 'Web Search',
+    'search_query'  => $search_query ?: '',
+    'warning'       => $imageWarning,
+    'brand'         => $brand_name,
+    'brand_id'      => $brand_id,
+    'category'      => $category_name,
+    'category_id'   => $category_id,
+    'brands'        => $brands,
+    'categories'    => $categories,
 ]);

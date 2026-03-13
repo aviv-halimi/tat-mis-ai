@@ -392,8 +392,19 @@ else {
               <!-- Carousel navigation -->
               <div id="enrichCarouselNav" style="display:none;text-align:center;margin-top:6px;">
                 <button id="enrichImgPrev" class="btn btn-xs btn-default" style="margin-right:4px;">&#9664;</button>
-                <span id="enrichImgCounter" style="font-size:12px;color:#666;">1 / 5</span>
+                <span id="enrichImgCounter" style="font-size:12px;color:#666;">1 / 10</span>
                 <button id="enrichImgNext" class="btn btn-xs btn-default" style="margin-left:4px;">&#9654;</button>
+              </div>
+              <!-- Source label -->
+              <div class="text-center m-t-6">
+                <span id="enrichImageSource" style="font-size:11px;color:#888;"></span>
+              </div>
+              <!-- Upload own image -->
+              <div class="text-center m-t-6">
+                <label class="btn btn-xs btn-default" style="margin:0;cursor:pointer;" title="Upload your own image">
+                  <i class="fa fa-upload"></i> Upload Image
+                  <input type="file" id="enrichImageUpload" accept="image/*" style="display:none;" />
+                </label>
               </div>
               <!-- Status -->
               <div class="text-center m-t-10">
@@ -453,6 +464,20 @@ else {
 
             </div><!-- /col-sm-8 -->
           </div><!-- /row -->
+
+          <!-- Search again -->
+          <div class="m-t-15" style="border-top:1px solid #eee;padding-top:12px;">
+            <label style="font-size:12px;margin-bottom:4px;display:block;"><i class="fa fa-search"></i> Image Search Query <span style="color:#aaa;font-weight:normal;">(edit &amp; click Search Again to find better images)</span></label>
+            <div class="input-group input-group-sm">
+              <input type="text" id="enrichSearchQuery" class="form-control" placeholder="Search query…" />
+              <span class="input-group-btn">
+                <button id="enrichBtnSearchAgain" class="btn btn-default" type="button">
+                  <i class="fa fa-refresh"></i> Search Again
+                </button>
+              </span>
+            </div>
+            <div id="enrichSearchLoading" style="display:none;font-size:12px;color:#888;margin-top:4px;"><i class="fa fa-spinner fa-spin"></i> Searching…</div>
+          </div>
 
           <!-- Blaze API response -->
           <div id="enrichBlazeResponseArea" style="display:none;margin-top:15px;">
@@ -616,12 +641,16 @@ window.addEventListener('load', function() {
         $('#enrichCarouselNav').hide();
       }
 
-      /* Status badge */
-      var source = resp.source_found || 'Web';
+      /* Status badge + image source label + search query */
+      var source = resp.image_source || resp.source_found || 'Web Search';
       $('#enrichStatusBadge')
         .removeClass('label-info label-danger label-warning')
         .addClass('label-success')
         .text('Source: ' + source);
+
+      var sourceIcon = (source === 'Trusted Menu') ? '&#9733; Source: Trusted Menu' : '&#127760; Source: Web Search';
+      $('#enrichImageSource').html(sourceIcon);
+      $('#enrichSearchQuery').val(resp.search_query || '');
 
       if (resp.warning) {
         $('#enrichWarning').text(resp.warning).show();
@@ -646,6 +675,62 @@ window.addEventListener('load', function() {
   });
   $(document).on('click', '#enrichImgNext', function() {
     if (enrichImages.length) showImage(enrichImgIdx + 1);
+  });
+
+  /* ---- Search Again ---- */
+  $(document).on('click', '#enrichBtnSearchAgain', function() {
+    var query = $('#enrichSearchQuery').val().trim();
+    if (!query) { alert('Please enter a search query.'); return; }
+
+    $('#enrichBtnSearchAgain').prop('disabled', true);
+    $('#enrichSearchLoading').show();
+
+    $.ajax({
+      url: 'ajax/product-image-search.php',
+      method: 'POST',
+      dataType: 'json',
+      data: { query: query }
+    }).done(function(resp) {
+      if (resp && resp.success && resp.images && resp.images.length) {
+        enrichImages = resp.images;
+        enrichImgIdx = 0;
+        showImage(0);
+        $('#enrichCarouselNav').toggle(enrichImages.length > 1);
+        $('#enrichImgCounter').text('1 / ' + enrichImages.length);
+        var src = resp.image_source || 'Web Search';
+        $('#enrichImageSource').html('&#127760; Source: ' + src);
+      } else {
+        $('#enrichImagePlaceholder').show().text('No images found for that query.');
+        $('#enrichImage').hide();
+        $('#enrichCarouselNav').hide();
+      }
+    }).fail(function() {
+      alert('Image search request failed.');
+    }).always(function() {
+      $('#enrichBtnSearchAgain').prop('disabled', false);
+      $('#enrichSearchLoading').hide();
+    });
+  });
+
+  /* ---- Upload own image ---- */
+  $(document).on('change', '#enrichImageUpload', function() {
+    var file = this.files[0];
+    if (!file) return;
+
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var dataUrl = e.target.result;
+      // Prepend the uploaded image to the front of the carousel
+      enrichImages.unshift(dataUrl);
+      enrichImgIdx = 0;
+      showImage(0);
+      $('#enrichCarouselNav').toggle(enrichImages.length > 1);
+      $('#enrichImgCounter').text('1 / ' + enrichImages.length);
+      $('#enrichImageSource').html('&#128190; Source: Uploaded');
+    };
+    reader.readAsDataURL(file);
+    // Reset so the same file can be re-selected if needed
+    this.value = '';
   });
 
   /* ---- Push to Blaze ---- */
