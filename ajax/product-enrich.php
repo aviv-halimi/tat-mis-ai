@@ -171,7 +171,7 @@ if ($store_db !== '') {
     foreach (getRs("SELECT brand_id, name FROM `{$store_db}`.brand WHERE is_active = 1 ORDER BY name", []) as $b) {
         $brands[] = ['id' => (int) $b['brand_id'], 'name' => (string) $b['name']];
     }
-    foreach (getRs("SELECT category_id, name FROM `{$store_db}`.category WHERE is_active = 1 ORDER BY name", []) as $c) {
+    foreach (getRs("SELECT category_id, name FROM `{$store_db}`.category ORDER BY name", []) as $c) {
         $categories[] = ['id' => (int) $c['category_id'], 'name' => (string) $c['name']];
     }
 }

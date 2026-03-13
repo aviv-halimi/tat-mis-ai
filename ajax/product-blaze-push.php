@@ -77,26 +77,38 @@ if ($brand_id > 0 && $store_db !== '') {
     }
 }
 
-// ---- Resolve category: originating store category_id → master_category_id → store1 Blaze id ----
+// ---- Resolve category: master_category_id → store1, fallback to name match ----
 $blaze_category_id = null;
 $debug_category    = ['input_category_id' => $category_id, 'store_db' => $store_db];
 
 if ($category_id > 0 && $store_db !== '') {
     $cat_row = getRow(getRs(
-        "SELECT master_category_id FROM `{$store_db}`.category WHERE category_id = ? LIMIT 1",
+        "SELECT master_category_id, name FROM `{$store_db}`.category WHERE category_id = ? LIMIT 1",
         [$category_id]
     ));
     $debug_category['master_category_id'] = $cat_row['master_category_id'] ?? null;
+    $debug_category['src_name']           = $cat_row['name'] ?? null;
 
+    // Step 1: try master_category_id
     if (!empty($cat_row['master_category_id'])) {
-        $master_cat_id = (int) $cat_row['master_category_id'];
-        $store1_cat    = getRow(getRs(
-            "SELECT id FROM `{$store1_db}`.category WHERE master_category_id = ? AND is_active = 1 LIMIT 1",
-            [$master_cat_id]
+        $store1_cat = getRow(getRs(
+            "SELECT id FROM `{$store1_db}`.category WHERE master_category_id = ? LIMIT 1",
+            [(int) $cat_row['master_category_id']]
         ));
-        $blaze_category_id             = $store1_cat['id'] ?? null;
-        $debug_category['store1_id']   = $blaze_category_id;
+        $blaze_category_id = $store1_cat['id'] ?? null;
     }
+
+    // Step 2: fallback — match by name in blaze1
+    if (!$blaze_category_id && !empty($cat_row['name'])) {
+        $store1_cat = getRow(getRs(
+            "SELECT id FROM `{$store1_db}`.category WHERE name = ? LIMIT 1",
+            [$cat_row['name']]
+        ));
+        $blaze_category_id = $store1_cat['id'] ?? null;
+        if ($blaze_category_id) $debug_category['resolved_via'] = 'name';
+    }
+
+    $debug_category['store1_id'] = $blaze_category_id;
 }
 
 // ---- Resolve vendor: {store_db}.vendor.name → blaze1.vendor.id ----
@@ -178,7 +190,7 @@ if ($image_url !== '') {
 
         if ($upload_resp && !$upload_err && $upload_http >= 200 && $upload_http < 300) {
             $asset_data = json_decode($upload_resp, true);
-            $blaze_asset_key          = $asset_data['assetKey'] ?? null;
+            $blaze_asset_key          = $asset_data['key'] ?? null;
             $debug_image['asset_key'] = $blaze_asset_key;
             $debug_image['asset_raw'] = $asset_data;
         } else {
