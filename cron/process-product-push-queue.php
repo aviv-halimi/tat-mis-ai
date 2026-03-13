@@ -52,22 +52,64 @@ foreach ($queue as $q) {
         continue;
     }
 
-    // ---- Step 1: Check propagation — product must exist in every store's local DB ----
+    // ---- Step 1: Check propagation via the Blaze API (not local DB, which may lag) ----
+    // Search each store's API for the product by SKU. Once all stores return a match
+    // we know propagation is complete and we have the per-store Blaze product ObjectId.
     $store_blaze_ids = []; // store_id => Blaze product ObjectId for that store
     $all_propagated  = true;
+    $product_name    = (string) ($q['product_name'] ?? '');
 
     foreach ($store_map as $store_id => $store) {
-        $product_row = getRow(getRs(
-            "SELECT `id` FROM `{$store['db']}`.product WHERE sku = ? AND deleted = 0 LIMIT 1",
-            [$sku]
-        ));
+        // GET /api/v1/partner/products?search={sku} — returns a list of matching products
+        $search_json = fetchApi(
+            'products',
+            $store['api_url'],
+            $store['auth_code'],
+            $store['partner_key'],
+            'search=' . urlencode($sku)
+        );
 
-        if (empty($product_row['id'])) {
+        $blaze_id = null;
+
+        if ($search_json) {
+            $search_data = json_decode($search_json, true);
+
+            // Response may be a plain array or wrapped in a key; handle both
+            $items = null;
+            if (is_array($search_data)) {
+                // Plain array of products
+                if (isset($search_data[0])) {
+                    $items = $search_data;
+                }
+                // Wrapped: {"data": [...]} or {"products": [...]}
+                foreach (['data', 'products', 'result', 'items'] as $key) {
+                    if (isset($search_data[$key]) && is_array($search_data[$key])) {
+                        $items = $search_data[$key];
+                        break;
+                    }
+                }
+            }
+
+            if ($items) {
+                foreach ($items as $item) {
+                    // Match by exact SKU first, fall back to exact name
+                    if (
+                        (!empty($item['sku'])  && $item['sku']  === $sku) ||
+                        (!empty($item['name']) && $product_name && $item['name'] === $product_name)
+                    ) {
+                        $blaze_id = $item['id'] ?? null;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!$blaze_id) {
             $all_propagated = false;
             break;
         }
 
-        $store_blaze_ids[$store_id] = $product_row['id'];
+        $store_blaze_ids[$store_id] = $blaze_id;
     }
 
     if (!$all_propagated) {
