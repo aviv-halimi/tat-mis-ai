@@ -180,19 +180,17 @@ function tat_enrich_discover_images($product_name, $brand_name, $category_name, 
                     $file_id = gd_gemini_match($cleanName, (string) $brand_name, $file_index, $gemini_key);
 
                     if ($file_id !== null) {
-                        // Obtain a fresh token (already cached by gd_get_index)
-                        $token = gd_get_access_token($creds);
-                        if ($token) {
-                            $local_url = gd_download_and_resize(
-                                $token,
-                                $file_id,
-                                ENRICHMENT_TMP_DIR,
-                                ENRICHMENT_TMP_URL
-                            );
-                            if ($local_url !== null) {
-                                $drive_image_url = $local_url;
-                                $drive_source    = 'Google Drive';
-                            }
+                        // Reuse the authenticated service to download + resize
+                        $drive_service = gd_make_drive_service($creds);
+                        $local_url = gd_download_and_resize(
+                            $drive_service,
+                            $file_id,
+                            ENRICHMENT_TMP_DIR,
+                            ENRICHMENT_TMP_URL
+                        );
+                        if ($local_url !== null) {
+                            $drive_image_url = $local_url;
+                            $drive_source    = 'Google Drive';
                         }
                     }
                 }
