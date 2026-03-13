@@ -140,11 +140,12 @@ define('SERPER_API_KEY',     'b3c39559a928534f00749286e3b8503856c72c02');
  * Returns array of image URLs (Drive image first if found).
  * Sets $source_found, $warning, $search_query by reference.
  */
-function tat_enrich_discover_images($product_name, $brand_name, $category_name, &$source_found, &$warning = null, &$search_query = null): array
+function tat_enrich_discover_images($product_name, $brand_name, $category_name, &$source_found, &$warning = null, &$search_query = null, &$image_sources = null): array
 {
-    $source_found = null;
-    $warning      = null;
-    $search_query = null;
+    $source_found  = null;
+    $warning       = null;
+    $search_query  = null;
+    $image_sources = [];
 
     $cleanName = tat_enrich_clean_name((string) $product_name);
     if ($cleanName === '') {
@@ -212,13 +213,34 @@ function tat_enrich_discover_images($product_name, $brand_name, $category_name, 
 
     // --------------------------------------------------------
     // Combine: Drive image first, then Serper results
+    // Build parallel image_sources[] so each URL has its own label
     // --------------------------------------------------------
-    $all_urls = $serper_urls;
+    $all_urls      = [];
+    $image_sources = [];
+
+    // 1. Drive image (if found)
     if ($drive_image_url !== null) {
-        // Prepend Drive image, remove if it accidentally appeared in Serper list
-        $all_urls = array_values(array_unique(
-            array_merge([$drive_image_url], $serper_urls)
-        ));
+        $all_urls[]      = $drive_image_url;
+        $image_sources[] = 'Google Drive';
+    }
+
+    // 2. Trusted menu results
+    $seen = $drive_image_url !== null ? [$drive_image_url => true] : [];
+    foreach ($trusted_urls as $url) {
+        if (!isset($seen[$url])) {
+            $all_urls[]      = $url;
+            $image_sources[] = 'Trusted Menu';
+            $seen[$url]      = true;
+        }
+    }
+
+    // 3. Web search results
+    foreach ($web_urls as $url) {
+        if (!isset($seen[$url])) {
+            $all_urls[]      = $url;
+            $image_sources[] = 'Web Search';
+            $seen[$url]      = true;
+        }
     }
 
     if (empty($all_urls)) {
@@ -226,11 +248,11 @@ function tat_enrich_discover_images($product_name, $brand_name, $category_name, 
         return [];
     }
 
-    // Build source label
+    // Overall combined source label (for status badge)
     $sources = [];
-    if ($drive_source !== '')          $sources[] = 'Google Drive';
-    if (!empty($trusted_urls))         $sources[] = 'Trusted Menu';
-    if (!empty($web_urls))             $sources[] = 'Web Search';
+    if ($drive_source !== '')  $sources[] = 'Google Drive';
+    if (!empty($trusted_urls)) $sources[] = 'Trusted Menu';
+    if (!empty($web_urls))     $sources[] = 'Web Search';
     $source_found = implode(' + ', $sources) ?: 'Web Search';
 
     // Report both Serper queries for the user's "Search Again" box
@@ -259,10 +281,11 @@ if ($store_db !== '') {
 $descError   = null;
 $description = tat_enrich_generate_description($product_name, $brand_name, $category_name, $descError);
 
-$source_found = null;
-$imageWarning = null;
-$search_query = null;
-$images       = tat_enrich_discover_images($product_name, $brand_name, $category_name, $source_found, $imageWarning, $search_query);
+$source_found  = null;
+$imageWarning  = null;
+$search_query  = null;
+$image_sources = [];
+$images        = tat_enrich_discover_images($product_name, $brand_name, $category_name, $source_found, $imageWarning, $search_query, $image_sources);
 
 if ($descError && $description === '') {
     echo json_encode(['success' => false, 'error' => $descError]);
@@ -270,17 +293,18 @@ if ($descError && $description === '') {
 }
 
 echo json_encode([
-    'success'       => true,
-    'description'   => $description,
-    'images'        => $images,
-    'source_found'  => $source_found ?: 'Web Search',
-    'image_source'  => $source_found ?: 'Web Search',
-    'search_query'  => $search_query ?: '',
-    'warning'       => $imageWarning,
-    'brand'         => $brand_name,
-    'brand_id'      => $brand_id,
-    'category'      => $category_name,
-    'category_id'   => $category_id,
-    'brands'        => $brands,
-    'categories'    => $categories,
+    'success'        => true,
+    'description'    => $description,
+    'images'         => $images,
+    'image_sources'  => $image_sources,   // per-image source label, parallel to images[]
+    'source_found'   => $source_found ?: 'Web Search',
+    'image_source'   => $source_found ?: 'Web Search',
+    'search_query'   => $search_query ?: '',
+    'warning'        => $imageWarning,
+    'brand'          => $brand_name,
+    'brand_id'       => $brand_id,
+    'category'       => $category_name,
+    'category_id'    => $category_id,
+    'brands'         => $brands,
+    'categories'     => $categories,
 ]);

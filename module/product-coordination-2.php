@@ -510,9 +510,17 @@ window.addEventListener('load', function() {
   if (!$) { return; }
 
   /* ---- state ---- */
-  var enrichImages  = [];
-  var enrichImgIdx  = 0;
-  var enrichStoreDb = '';
+  var enrichImages       = [];
+  var enrichImageSources = [];   // parallel to enrichImages — one source label per URL
+  var enrichImgIdx       = 0;
+  var enrichStoreDb      = '';
+
+  var sourceIcons = {
+    'Google Drive': '&#128190; Source: Google Drive',
+    'Trusted Menu': '&#127758; Source: Trusted Menu',
+    'Web Search':   '&#127760; Source: Web Search',
+    'Uploaded':     '&#128190; Source: Uploaded'
+  };
 
   /* ---- helpers ---- */
   function showImage(idx) {
@@ -523,6 +531,10 @@ window.addEventListener('load', function() {
     $('#enrichImage').attr('src', url).show();
     $('#enrichImagePlaceholder').hide();
     $('#enrichImgCounter').text((idx + 1) + ' / ' + enrichImages.length);
+
+    // Update the per-image source label
+    var src = enrichImageSources[idx] || 'Web Search';
+    $('#enrichImageSource').html(sourceIcons[src] || ('&#127760; Source: ' + src));
   }
 
   function populateDropdown(selectId, items, selectedId) {
@@ -626,9 +638,10 @@ window.addEventListener('load', function() {
       populateDropdown('enrichCategorySelect', resp.categories || [], resp.category_id || catId);
 
       /* Image carousel */
-      enrichImages = resp.images || [];
+      enrichImages       = resp.images        || [];
+      enrichImageSources = resp.image_sources || [];
       if (enrichImages.length) {
-        showImage(0);
+        showImage(0);   // showImage() now also sets the per-image source label
         if (enrichImages.length > 1) {
           $('#enrichCarouselNav').show();
           $('#enrichImgCounter').text('1 / ' + enrichImages.length);
@@ -641,15 +654,13 @@ window.addEventListener('load', function() {
         $('#enrichCarouselNav').hide();
       }
 
-      /* Status badge + image source label + search query */
+      /* Status badge (overall combined source) */
       var source = resp.image_source || resp.source_found || 'Web Search';
       $('#enrichStatusBadge')
         .removeClass('label-info label-danger label-warning')
         .addClass('label-success')
         .text('Source: ' + source);
-
-      var sourceIcon = (source === 'Trusted Menu') ? '&#9733; Source: Trusted Menu' : '&#127760; Source: Web Search';
-      $('#enrichImageSource').html(sourceIcon);
+      // Note: per-image label is handled by showImage() above
       $('#enrichSearchQuery').val(resp.search_query || '');
 
       if (resp.warning) {
@@ -696,13 +707,12 @@ window.addEventListener('load', function() {
       }
     }).done(function(resp) {
       if (resp && resp.success && resp.images && resp.images.length) {
-        enrichImages = resp.images;
+        enrichImages       = resp.images;
+        enrichImageSources = resp.image_sources || [];
         enrichImgIdx = 0;
-        showImage(0);
+        showImage(0);   // sets per-image source label automatically
         $('#enrichCarouselNav').toggle(enrichImages.length > 1);
         $('#enrichImgCounter').text('1 / ' + enrichImages.length);
-        var src = resp.image_source || 'Web Search';
-        $('#enrichImageSource').html('&#127760; Source: ' + src);
       } else {
         $('#enrichImagePlaceholder').show().text('No images found for that query.');
         $('#enrichImage').hide();
@@ -726,11 +736,11 @@ window.addEventListener('load', function() {
       var dataUrl = e.target.result;
       // Prepend the uploaded image to the front of the carousel
       enrichImages.unshift(dataUrl);
+      enrichImageSources.unshift('Uploaded');
       enrichImgIdx = 0;
-      showImage(0);
+      showImage(0);   // sets source label to "Uploaded" automatically
       $('#enrichCarouselNav').toggle(enrichImages.length > 1);
       $('#enrichImgCounter').text('1 / ' + enrichImages.length);
-      $('#enrichImageSource').html('&#128190; Source: Uploaded');
     };
     reader.readAsDataURL(file);
     // Reset so the same file can be re-selected if needed

@@ -108,11 +108,23 @@ if ($response !== false && !$curlErr && $httpCode < 300) {
 }
 
 // --------------------------------------------------------
-// Combine: Drive first, then Serper, deduplicated
+// Combine: Drive first, then Serper — build parallel sources[]
 // --------------------------------------------------------
-$all_urls = $serper_urls;
+$all_urls      = [];
+$image_sources = [];
+
 if ($drive_image_url !== null) {
-    $all_urls = array_values(array_unique(array_merge([$drive_image_url], $serper_urls)));
+    $all_urls[]      = $drive_image_url;
+    $image_sources[] = 'Google Drive';
+}
+
+$seen = $drive_image_url !== null ? [$drive_image_url => true] : [];
+foreach ($serper_urls as $url) {
+    if (!isset($seen[$url])) {
+        $all_urls[]      = $url;
+        $image_sources[] = 'Web Search';
+        $seen[$url]      = true;
+    }
 }
 
 if (empty($all_urls)) {
@@ -120,15 +132,16 @@ if (empty($all_urls)) {
     exit;
 }
 
-// Build source label
+// Overall source label for the status badge
 $sources = [];
-if ($drive_source !== '')    $sources[] = 'Google Drive';
-if (!empty($serper_urls))    $sources[] = 'Web Search';
+if ($drive_source !== '')  $sources[] = 'Google Drive';
+if (!empty($serper_urls))  $sources[] = 'Web Search';
 $image_source = implode(' + ', $sources) ?: 'Web Search';
 
 echo json_encode([
-    'success'      => true,
-    'images'       => $all_urls,
-    'search_query' => $query,
-    'image_source' => $image_source,
+    'success'       => true,
+    'images'        => $all_urls,
+    'image_sources' => $image_sources,
+    'search_query'  => $query,
+    'image_source'  => $image_source,
 ]);
