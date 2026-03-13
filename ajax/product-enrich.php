@@ -93,96 +93,98 @@ function tat_enrich_generate_description($product_name, $brand_name, $category_n
 }
 
 /**
- * Step B: Image discovery — Google Drive (placeholder, no-op) then Google Custom Search.
+ * Clean a product name for image search:
+ * removes parenthetical strain codes like (I), (S), (H) and collapses whitespace.
  */
-function tat_enrich_discover_image($product_name, $brand_name, &$source_found, &$warning = null)
+function tat_enrich_clean_name(string $name): string
 {
-    $source_found = null;
-    $warning      = null;
+    $clean = preg_replace('/\s*\([^)]*\)\s*/', ' ', $name);
+    return trim(preg_replace('/\s+/', ' ', $clean));
+}
 
-    // Step B1: Google Drive (conditional). Placeholder implementation: checks for credentials but does not query Drive.
-    $service_account_path = BASE_PATH . 'credentials/service-account.json';
-    if (file_exists($service_account_path)) {
-        // TODO: Implement Google Drive search by brand folder and product name when Drive integration details are available.
-        // For now, proceed to web search even if credentials exist.
-    }
+/**
+ * Send one image query to Serper.dev and return the first imageUrl, or null.
+ */
+function tat_serper_image_search(string $query, string $apiKey): ?string
+{
+    $payload = json_encode(['q' => $query, 'num' => 1]);
 
-    // Step B2: Google Custom Search (image search).
-    $apiKey = getenv('GOOGLE_SEARCH_API_KEY');
-    if ($apiKey === false || $apiKey === '') {
-        $apiKey = defined('GOOGLE_SEARCH_API_KEY') && GOOGLE_SEARCH_API_KEY !== '' ? GOOGLE_SEARCH_API_KEY : '';
-    }
-    if ($apiKey === '') {
-        $warning = 'Google Search API key (GOOGLE_SEARCH_API_KEY) is not configured; image search skipped.';
-        return null;
-    }
-
-    $cx = getenv('GOOGLE_SEARCH_CX');
-    if ($cx === false || $cx === '') {
-        if (defined('GOOGLE_SEARCH_CX') && GOOGLE_SEARCH_CX !== '') {
-            $cx = GOOGLE_SEARCH_CX;
-        } else {
-            $cx = 'f6f49c82b49524b1d';
-        }
-    }
-
-    // Use only the product name for search: strip parenthetical content and collapse spaces.
-    $search_name = preg_replace('/\s*\([^)]*\)\s*/', ' ', (string) $product_name);
-    $search_name = trim(preg_replace('/\s+/', ' ', $search_name));
-    if ($search_name === '') {
-        $warning = 'Product name is empty after cleaning; image search skipped.';
-        return null;
-    }
-    $query = 'site:weedmaps.com "' . $search_name . '"';
-
-    $params = [
-        'key'        => $apiKey,
-        'cx'         => $cx,
-        'searchType' => 'image',
-        'q'          => $query,
-        'num'        => 5,
-    ];
-
-    $url = 'https://www.googleapis.com/customsearch/v1?' . http_build_query($params);
-
-    $ch = curl_init($url);
+    $ch = curl_init('https://google.serper.dev/images');
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_HTTPHEADER     => [
+            'X-API-KEY: ' . $apiKey,
+            'Content-Type: application/json',
+        ],
+        CURLOPT_POSTFIELDS     => $payload,
         CURLOPT_TIMEOUT        => 30,
         CURLOPT_CONNECTTIMEOUT => 10,
     ]);
+
     $response = curl_exec($ch);
     $curlErr  = curl_error($ch);
     $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
     if ($response === false || $curlErr || $httpCode >= 300) {
-        $warning = 'Google Custom Search failed; no image found.';
         return null;
     }
 
     $json = json_decode($response, true);
-    if (!isset($json['items']) || !is_array($json['items']) || empty($json['items'])) {
-        $warning = 'No image results returned from Google Search.';
+    $images = $json['images'] ?? [];
+    if (!is_array($images) || empty($images)) {
         return null;
     }
 
-    foreach ($json['items'] as $item) {
-        $link = isset($item['link']) ? trim((string) $item['link']) : '';
-        if ($link === '') {
-            continue;
-        }
-        // Simple filter: prefer standard image extensions.
-        if (!preg_match('~\.(jpe?g|png|webp|gif)(\?|#|$)~i', $link)) {
-            continue;
-        }
+    $imageUrl = trim((string) ($images[0]['imageUrl'] ?? ''));
+    return $imageUrl !== '' ? $imageUrl : null;
+}
 
-        $source_found = 'Web (Google Search)';
-        return $link;
+/**
+ * Step B: Image discovery — Google Drive (placeholder) then Serper.dev Images API.
+ * Primary query:  "[cleanName] cannabis product"
+ * Fallback query: "[brand] [cleanName] cannabis"
+ */
+function tat_enrich_discover_image($product_name, $brand_name, &$source_found, &$warning = null)
+{
+    $source_found = null;
+    $warning      = null;
+
+    // Step B1: Google Drive (conditional — stub until Drive integration is wired up).
+    $service_account_path = BASE_PATH . 'credentials/service-account.json';
+    if (file_exists($service_account_path)) {
+        // TODO: search brand folder for product image when Drive integration is available.
     }
 
-    $warning = 'No suitable image link found in Google Search results.';
-    return null;
+    // Step B2: Serper.dev image search.
+    $apiKey = 'b3c39559a928534f00749286e3b8503856c72c02';
+
+    // Clean strain-abbreviation parentheticals from the product name.
+    $cleanName = tat_enrich_clean_name((string) $product_name);
+    if ($cleanName === '') {
+        $warning = 'Product name is empty after cleaning; image search skipped.';
+        return null;
+    }
+
+    // Primary query: product name + "cannabis product".
+    $primaryQuery = $cleanName . ' cannabis product';
+    $imageUrl = tat_serper_image_search($primaryQuery, $apiKey);
+
+    // Fallback query: brand + product name + "cannabis".
+    if (!$imageUrl) {
+        $fallbackParts = array_filter([$brand_name, $cleanName, 'cannabis']);
+        $fallbackQuery = implode(' ', $fallbackParts);
+        $imageUrl = tat_serper_image_search($fallbackQuery, $apiKey);
+    }
+
+    if (!$imageUrl) {
+        $warning = 'No Image Found';
+        return null;
+    }
+
+    $source_found = 'Web (Serper.dev)';
+    return $imageUrl;
 }
 
 /**
