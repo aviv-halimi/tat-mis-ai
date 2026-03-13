@@ -102,7 +102,7 @@ if ($blaze_category_id) {
 }
 
 // ---- POST to Blaze API ----
-$blaze_endpoint = $api_url . 'api/v1/partner/products';
+$blaze_endpoint = $api_url . 'products';
 $json_body      = json_encode($product_payload);
 
 $ch = curl_init($blaze_endpoint);
