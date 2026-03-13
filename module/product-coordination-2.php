@@ -133,7 +133,7 @@ include_once('inc/header.php');
       </div>
 </form>
 
-<?php
+<?php // product-coordination-2 module (enrichment preview enabled)
 
 if (sizeof($rs)) {
 ?>
