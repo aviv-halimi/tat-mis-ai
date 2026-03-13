@@ -21,7 +21,7 @@ if ($_po_status_id) array_push($params, $_po_status_id);
 
 
 $rs = getRs("
-	SELECT s.store_name, p.po_product_id, p.po_product_name, p.is_created, p.is_transferred, po.po_code, po.vendor_name, po.date_ordered, t.po_status_name, IFNULL(coalesce(p.paid, p.price, p.cost),0) AS unitPrice, p.category_id, s.db, p.brand_id, s.params, po.date_po_event_scheduled as sch_date
+	SELECT s.store_name, p.po_product_id, p.po_product_name, p.is_created, p.is_transferred, po.po_code, po.vendor_name, po.vendor_id, po.date_ordered, t.po_status_name, IFNULL(coalesce(p.paid, p.price, p.cost),0) AS unitPrice, p.category_id, s.db, p.brand_id, s.params, po.date_po_event_scheduled as sch_date
 		FROM store s 
 		RIGHT JOIN (po_status t 
 		RIGHT JOIN (po 
@@ -323,7 +323,7 @@ if (sizeof($rs)) {
                 data-category="' . htmlspecialchars($enrichCategory, ENT_QUOTES, 'UTF-8') . '"
                 data-category-id="' . (int)$r['category_id'] . '"
                 data-store-db="' . htmlspecialchars($r['db'], ENT_QUOTES, 'UTF-8') . '"
-                data-vendor-name="' . htmlspecialchars($r['vendor_name'], ENT_QUOTES, 'UTF-8') . '"
+                data-vendor-id="' . (int)$r['vendor_id'] . '"
                 data-default-price="' . number_format($salePrice, 2, '.', '') . '"
                 data-davis-price="' . number_format($davisPrice, 2, '.', '') . '"
                 data-dixon-price="' . number_format($dixonPrice, 2, '.', '') . '"
@@ -511,7 +511,7 @@ window.addEventListener('load', function() {
     var category  = $btn.data('category')  || '';
     var catId     = $btn.data('category-id') || 0;
     var storeDb    = $btn.data('store-db')    || '';
-    var vendorName = $btn.data('vendor-name') || '';
+    var vendorId   = $btn.data('vendor-id')   || 0;
     var defPrice   = $btn.data('default-price') || '';
     var davPrice   = $btn.data('davis-price')   || '';
     var dixPrice   = $btn.data('dixon-price')   || '';
@@ -529,8 +529,8 @@ window.addEventListener('load', function() {
     $('#enrichModal')
       .data('brand_id',    brandId)
       .data('category_id', catId)
-      .data('store_db',    storeDb)
-      .data('vendor_name', vendorName);
+      .data('store_db',   storeDb)
+      .data('vendor_id',  vendorId);
 
     /* reset modal */
     $('#enrichLoadingOverlay').show();
@@ -639,8 +639,8 @@ window.addEventListener('load', function() {
     var $modal      = $('#enrichModal');
     var brandId     = $('#enrichBrandSelect').val()    || $modal.data('brand_id')    || 0;
     var categoryId  = $('#enrichCategorySelect').val() || $modal.data('category_id') || 0;
-    var storeDb     = $modal.data('store_db')   || '';
-    var vendorName  = $modal.data('vendor_name') || '';
+    var storeDb    = $modal.data('store_db')  || '';
+    var vendorId   = $modal.data('vendor_id') || 0;
     var name        = $('#enrichProductName').val().trim();
     var description = $('#enrichDescription').val().trim();
     var price       = parseFloat($('#enrichDefaultPrice').val()) || 0;
@@ -661,8 +661,8 @@ window.addEventListener('load', function() {
         price:       price,
         brand_id:    brandId,
         category_id: categoryId,
-        store_db:    storeDb,
-        vendor_name: vendorName
+        store_db:   storeDb,
+        vendor_id:  vendorId
       }
     }).done(function(resp) {
       $('#enrichBtnPushBlaze').prop('disabled', false).html('<i class="fa fa-cloud-upload"></i> Push to Blaze');
