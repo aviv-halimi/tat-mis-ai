@@ -319,7 +319,13 @@ if (sizeof($rs)) {
                 data-id="' . (int)$r['po_product_id'] . '"
                 data-name="' . htmlspecialchars($enrichProductName, ENT_QUOTES, 'UTF-8') . '"
                 data-brand="' . htmlspecialchars($enrichBrand, ENT_QUOTES, 'UTF-8') . '"
+                data-brand-id="' . (int)$r['brand_id'] . '"
                 data-category="' . htmlspecialchars($enrichCategory, ENT_QUOTES, 'UTF-8') . '"
+                data-category-id="' . (int)$r['category_id'] . '"
+                data-store-db="' . htmlspecialchars($r['db'], ENT_QUOTES, 'UTF-8') . '"
+                data-default-price="' . number_format($salePrice, 2, '.', '') . '"
+                data-davis-price="' . number_format($davisPrice, 2, '.', '') . '"
+                data-dixon-price="' . number_format($dixonPrice, 2, '.', '') . '"
             >&#10024; Enrich</button>
         </td>
         </tr>';
@@ -339,46 +345,124 @@ else {
 }
 ?>
 
-<!-- Enrichment Preview Modal -->
+<!-- ============================================================
+     Enrichment Preview Modal
+     ============================================================ -->
 <div class="modal fade" id="enrichModal" tabindex="-1" role="dialog" aria-labelledby="enrichModalLabel">
-  <div class="modal-dialog modal-lg" role="document">
+  <div class="modal-dialog" style="width:900px;max-width:95vw;" role="document">
     <div class="modal-content">
+
       <div class="modal-header">
         <button type="button" class="close" data-dismiss="modal" aria-label="Close">
           <span aria-hidden="true">&times;</span>
         </button>
-        <h4 class="modal-title" id="enrichModalLabel">Enrichment Preview</h4>
+        <h4 class="modal-title" id="enrichModalLabel">&#10024; Enrichment Preview</h4>
       </div>
+
       <div class="modal-body">
-        <div class="row">
-          <div class="col-sm-4 text-center">
-            <div class="enrich-image-wrapper" style="border:1px solid #ddd;padding:10px;min-height:220px;display:flex;align-items:center;justify-content:center;background:#fafafa;">
-              <img id="enrichImage" src="" alt="Product Image Preview" style="max-width:100%;max-height:200px;display:none;" />
-              <span id="enrichImagePlaceholder" style="color:#888;">No image loaded yet.</span>
-            </div>
-            <div class="m-t-10">
-              <span class="label label-default">Brand: <span id="enrichBrand"></span></span>
-            </div>
-            <div class="m-t-5">
-              <span class="label label-default">Category: <span id="enrichCategory"></span></span>
-            </div>
-            <div class="m-t-10">
-              <span id="enrichStatusBadge" class="label label-info">Status: Not started</span>
-            </div>
-          </div>
-          <div class="col-sm-8">
-            <div class="form-group">
-              <label for="enrichDescription">AI Description</label>
-              <textarea id="enrichDescription" class="form-control" rows="8" style="resize:vertical;"></textarea>
-            </div>
-            <div id="enrichWarning" class="alert alert-warning" style="display:none;"></div>
-          </div>
+
+        <!-- Loading overlay -->
+        <div id="enrichLoadingOverlay" style="display:none;text-align:center;padding:30px;">
+          <i class="fa fa-spinner fa-spin fa-2x"></i>
+          <p class="m-t-10 text-muted">Generating description &amp; searching images…</p>
         </div>
-      </div>
+
+        <div id="enrichContent" style="display:none;">
+          <div class="row">
+
+            <!-- LEFT: Image carousel -->
+            <div class="col-sm-4">
+              <div id="enrichImageBox" style="border:1px solid #ddd;border-radius:4px;padding:8px;min-height:220px;display:flex;align-items:center;justify-content:center;background:#f9f9f9;position:relative;">
+                <img id="enrichImage" src="" alt="Product image" style="max-width:100%;max-height:220px;display:none;border-radius:3px;" />
+                <span id="enrichImagePlaceholder" style="color:#aaa;font-size:13px;">No images found.</span>
+              </div>
+              <!-- Carousel navigation -->
+              <div id="enrichCarouselNav" style="display:none;text-align:center;margin-top:6px;">
+                <button id="enrichImgPrev" class="btn btn-xs btn-default" style="margin-right:4px;">&#9664;</button>
+                <span id="enrichImgCounter" style="font-size:12px;color:#666;">1 / 5</span>
+                <button id="enrichImgNext" class="btn btn-xs btn-default" style="margin-left:4px;">&#9654;</button>
+              </div>
+              <!-- Status -->
+              <div class="text-center m-t-10">
+                <span id="enrichStatusBadge" class="label label-info">Not started</span>
+              </div>
+              <div id="enrichWarning" class="alert alert-warning m-t-10" style="display:none;font-size:12px;"></div>
+            </div>
+
+            <!-- RIGHT: Form fields -->
+            <div class="col-sm-8">
+
+              <div class="form-group" style="margin-bottom:8px;">
+                <label style="font-size:12px;margin-bottom:2px;">Product Name</label>
+                <input type="text" id="enrichProductName" class="form-control input-sm" />
+              </div>
+
+              <div class="row" style="margin-bottom:8px;">
+                <div class="col-sm-6">
+                  <label style="font-size:12px;margin-bottom:2px;">Brand</label>
+                  <select id="enrichBrandSelect" class="form-control input-sm">
+                    <option value="">-- Loading… --</option>
+                  </select>
+                </div>
+                <div class="col-sm-6">
+                  <label style="font-size:12px;margin-bottom:2px;">Category</label>
+                  <select id="enrichCategorySelect" class="form-control input-sm">
+                    <option value="">-- Loading… --</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-bottom:8px;">
+                <label style="font-size:12px;margin-bottom:2px;">Description</label>
+                <textarea id="enrichDescription" class="form-control" rows="6" style="resize:vertical;font-size:13px;"></textarea>
+              </div>
+
+              <div class="row">
+                <div class="col-sm-4">
+                  <div class="form-group" style="margin-bottom:8px;">
+                    <label style="font-size:12px;margin-bottom:2px;">Default Price ($)</label>
+                    <input type="number" id="enrichDefaultPrice" class="form-control input-sm" step="0.01" min="0" placeholder="0.00" />
+                  </div>
+                </div>
+                <div class="col-sm-4">
+                  <div class="form-group" style="margin-bottom:8px;">
+                    <label style="font-size:12px;margin-bottom:2px;">Davis Price ($)</label>
+                    <input type="number" id="enrichDavisPrice" class="form-control input-sm" step="0.01" min="0" placeholder="0.00" />
+                  </div>
+                </div>
+                <div class="col-sm-4">
+                  <div class="form-group" style="margin-bottom:8px;">
+                    <label style="font-size:12px;margin-bottom:2px;">Dixon Price ($)</label>
+                    <input type="number" id="enrichDixonPrice" class="form-control input-sm" step="0.01" min="0" placeholder="0.00" />
+                  </div>
+                </div>
+              </div>
+
+            </div><!-- /col-sm-8 -->
+          </div><!-- /row -->
+
+          <!-- Blaze API response -->
+          <div id="enrichBlazeResponseArea" style="display:none;margin-top:15px;">
+            <hr />
+            <h5 style="margin-bottom:6px;">Blaze API Response</h5>
+            <pre id="enrichBlazeResponseText" style="background:#f4f4f4;border:1px solid #ddd;border-radius:3px;padding:10px;font-size:11px;max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-all;"></pre>
+          </div>
+
+        </div><!-- /enrichContent -->
+
+      </div><!-- /modal-body -->
+
       <div class="modal-footer">
+        <div class="pull-left">
+          <span id="enrichBlazeStatus" style="font-size:13px;"></span>
+        </div>
+        <button id="enrichBtnPushBlaze" type="button" class="btn btn-success" style="display:none;">
+          <i class="fa fa-cloud-upload"></i> Push to Blaze
+        </button>
         <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
       </div>
-    </div>
+
+    </div><!-- /modal-content -->
   </div>
 </div>
 
@@ -387,31 +471,81 @@ window.addEventListener('load', function() {
   var $ = window.jQuery;
   if (!$) { return; }
 
+  /* ---- state ---- */
+  var enrichImages  = [];
+  var enrichImgIdx  = 0;
+  var enrichStoreDb = '';
+
+  /* ---- helpers ---- */
+  function showImage(idx) {
+    if (!enrichImages.length) return;
+    idx = Math.max(0, Math.min(idx, enrichImages.length - 1));
+    enrichImgIdx = idx;
+    var url = enrichImages[idx];
+    $('#enrichImage').attr('src', url).show();
+    $('#enrichImagePlaceholder').hide();
+    $('#enrichImgCounter').text((idx + 1) + ' / ' + enrichImages.length);
+  }
+
+  function populateDropdown(selectId, items, selectedId) {
+    var $sel = $('#' + selectId);
+    $sel.empty();
+    $sel.append('<option value="">-- Select --</option>');
+    $.each(items || [], function(_, item) {
+      var $opt = $('<option>').val(item.id).text(item.name);
+      if (item.id == selectedId) $opt.attr('selected', 'selected');
+      $sel.append($opt);
+    });
+  }
+
+  /* ---- Open modal / trigger enrichment ---- */
   $(document).on('click', '.btn-enrich', function(e) {
     e.preventDefault();
 
-    var $btn = $(this);
-    var id = $btn.data('id');
-    var name = $btn.data('name') || '';
-    var brand = $btn.data('brand') || '';
-    var category = $btn.data('category') || '';
+    var $btn      = $(this);
+    var id        = $btn.data('id');
+    var name      = $btn.data('name')      || '';
+    var brand     = $btn.data('brand')     || '';
+    var brandId   = $btn.data('brand-id')  || 0;
+    var category  = $btn.data('category')  || '';
+    var catId     = $btn.data('category-id') || 0;
+    var storeDb   = $btn.data('store-db')  || '';
+    var defPrice  = $btn.data('default-price') || '';
+    var davPrice  = $btn.data('davis-price')   || '';
+    var dixPrice  = $btn.data('dixon-price')   || '';
 
     if (!id || !name) {
       alert('Missing product information for enrichment.');
       return;
     }
 
-    $('#enrichModal').data('po_product_id', id);
-    $('#enrichImage').hide().attr('src', '');
-    $('#enrichImagePlaceholder').show().text('Loading image...');
-    $('#enrichBrand').text(brand);
-    $('#enrichCategory').text(category);
+    enrichImages  = [];
+    enrichImgIdx  = 0;
+    enrichStoreDb = storeDb;
+
+    /* store IDs so Push to Blaze can use them */
+    $('#enrichModal')
+      .data('brand_id',    brandId)
+      .data('category_id', catId)
+      .data('store_db',    storeDb);
+
+    /* reset modal */
+    $('#enrichLoadingOverlay').show();
+    $('#enrichContent').hide();
+    $('#enrichBlazeResponseArea').hide();
+    $('#enrichBlazeResponseText').text('');
+    $('#enrichBlazeStatus').text('').css('color', '');
+    $('#enrichBtnPushBlaze').hide();
+    $('#enrichProductName').val(name);
+    $('#enrichDefaultPrice').val(defPrice);
+    $('#enrichDavisPrice').val(davPrice);
+    $('#enrichDixonPrice').val(dixPrice);
     $('#enrichDescription').val('');
     $('#enrichWarning').hide().text('');
     $('#enrichStatusBadge')
       .removeClass('label-success label-warning label-danger')
       .addClass('label-info')
-      .text('Status: Fetching enrichment…');
+      .text('Fetching enrichment…');
 
     $('#enrichModal').modal('show');
 
@@ -420,55 +554,134 @@ window.addEventListener('load', function() {
       method: 'POST',
       dataType: 'json',
       data: {
-        id: id,
-        name: name,
-        brand: brand,
-        category: category
+        id:          id,
+        name:        name,
+        brand:       brand,
+        brand_id:    brandId,
+        category:    category,
+        category_id: catId,
+        store_db:    storeDb
       }
     }).done(function(resp) {
+      $('#enrichLoadingOverlay').hide();
+      $('#enrichContent').show();
+
       if (!resp || !resp.success) {
         var msg = (resp && resp.error) ? resp.error : 'Enrichment failed.';
         $('#enrichStatusBadge')
           .removeClass('label-info label-success')
           .addClass('label-danger')
-          .text('Status: Error');
+          .text('Error');
         $('#enrichWarning').text(msg).show();
-        $('#enrichImagePlaceholder').text('No image available.');
         return;
       }
 
+      /* Description */
       $('#enrichDescription').val(resp.description || '');
-      $('#enrichBrand').text(resp.brand || brand);
-      $('#enrichCategory').text(resp.category || category);
 
-      if (resp.temp_image_url) {
-        $('#enrichImage').attr('src', resp.temp_image_url).show();
-        $('#enrichImagePlaceholder').hide();
+      /* Dropdowns */
+      populateDropdown('enrichBrandSelect',    resp.brands || [],     resp.brand_id    || brandId);
+      populateDropdown('enrichCategorySelect', resp.categories || [], resp.category_id || catId);
+
+      /* Image carousel */
+      enrichImages = resp.images || [];
+      if (enrichImages.length) {
+        showImage(0);
+        if (enrichImages.length > 1) {
+          $('#enrichCarouselNav').show();
+          $('#enrichImgCounter').text('1 / ' + enrichImages.length);
+        } else {
+          $('#enrichCarouselNav').hide();
+        }
       } else {
         $('#enrichImage').hide();
-        $('#enrichImagePlaceholder').show().text('No image available.');
+        $('#enrichImagePlaceholder').show().text('No images found.');
+        $('#enrichCarouselNav').hide();
       }
 
-      if (resp.warning) {
-        $('#enrichWarning').text(resp.warning).show();
-      } else {
-        $('#enrichWarning').hide().text('');
-      }
-
-      var source = resp.source_found || 'Unknown';
+      /* Status badge */
+      var source = resp.source_found || 'Web';
       $('#enrichStatusBadge')
         .removeClass('label-info label-danger label-warning')
         .addClass('label-success')
         .text('Source: ' + source);
+
+      if (resp.warning) {
+        $('#enrichWarning').text(resp.warning).show();
+      }
+
+      $('#enrichBtnPushBlaze').show();
+
     }).fail(function() {
+      $('#enrichLoadingOverlay').hide();
+      $('#enrichContent').show();
       $('#enrichStatusBadge')
         .removeClass('label-info label-success')
         .addClass('label-danger')
-        .text('Status: Error');
+        .text('Error');
       $('#enrichWarning').text('An unexpected error occurred while calling enrichment.').show();
-      $('#enrichImagePlaceholder').text('No image available.');
     });
   });
+
+  /* ---- Carousel prev / next ---- */
+  $(document).on('click', '#enrichImgPrev', function() {
+    if (enrichImages.length) showImage(enrichImgIdx - 1);
+  });
+  $(document).on('click', '#enrichImgNext', function() {
+    if (enrichImages.length) showImage(enrichImgIdx + 1);
+  });
+
+  /* ---- Push to Blaze ---- */
+  $(document).on('click', '#enrichBtnPushBlaze', function() {
+    var $modal      = $('#enrichModal');
+    var brandId     = $('#enrichBrandSelect').val()    || $modal.data('brand_id')    || 0;
+    var categoryId  = $('#enrichCategorySelect').val() || $modal.data('category_id') || 0;
+    var storeDb     = $modal.data('store_db')  || '';
+    var name        = $('#enrichProductName').val().trim();
+    var description = $('#enrichDescription').val().trim();
+    var price       = parseFloat($('#enrichDefaultPrice').val()) || 0;
+
+    if (!name) { alert('Product name is required before pushing to Blaze.'); return; }
+
+    $('#enrichBtnPushBlaze').prop('disabled', true).text('Pushing…');
+    $('#enrichBlazeStatus').text('').css('color', '');
+    $('#enrichBlazeResponseArea').hide();
+
+    $.ajax({
+      url: 'ajax/product-blaze-push.php',
+      method: 'POST',
+      dataType: 'json',
+      data: {
+        name:        name,
+        description: description,
+        price:       price,
+        brand_id:    brandId,
+        category_id: categoryId,
+        store_db:    storeDb
+      }
+    }).done(function(resp) {
+      $('#enrichBtnPushBlaze').prop('disabled', false).html('<i class="fa fa-cloud-upload"></i> Push to Blaze');
+
+      var prettyResp = JSON.stringify(resp, null, 2);
+      $('#enrichBlazeResponseText').text(prettyResp);
+      $('#enrichBlazeResponseArea').show();
+
+      if (resp && resp.success) {
+        $('#enrichBlazeStatus').text('✓ Pushed successfully to Blaze.').css('color', '#3c763d');
+      } else {
+        var errMsg = (resp && resp.curl_error) ? resp.curl_error
+                   : (resp && resp.blaze_response && resp.blaze_response.message) ? resp.blaze_response.message
+                   : 'Push failed (HTTP ' + (resp && resp.http_code ? resp.http_code : '?') + ').';
+        $('#enrichBlazeStatus').text('✗ ' + errMsg).css('color', '#a94442');
+      }
+    }).fail(function() {
+      $('#enrichBtnPushBlaze').prop('disabled', false).html('<i class="fa fa-cloud-upload"></i> Push to Blaze');
+      $('#enrichBlazeStatus').text('✗ Network error calling push endpoint.').css('color', '#a94442');
+      $('#enrichBlazeResponseArea').show();
+      $('#enrichBlazeResponseText').text('AJAX request failed.');
+    });
+  });
+
 });
 </script>
 
