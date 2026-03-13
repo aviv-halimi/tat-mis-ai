@@ -188,7 +188,28 @@ function tat_enrich_discover_image($product_name, $brand_name, &$source_found, &
 }
 
 /**
- * Step C: AI validation + formatting (Gemini multimodal + Intervention/Image or GD).
+ * Download image bytes from a URL using cURL (handles redirects and browser-like headers).
+ */
+function tat_enrich_fetch_image_bytes(string $url): string
+{
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS      => 5,
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_USERAGENT      => 'Mozilla/5.0 (compatible; EnrichBot/1.0)',
+        CURLOPT_SSL_VERIFYPEER => false,
+    ]);
+    $bytes = curl_exec($ch);
+    curl_close($ch);
+    return (is_string($bytes) && strlen($bytes) > 0) ? $bytes : '';
+}
+
+/**
+ * Step C: AI validation + image processing.
+ * Returns a base64 data URI (no filesystem writes needed) or null on failure.
  */
 function tat_enrich_validate_and_process_image($image_url, $product_name, &$is_valid, &$error = null)
 {
@@ -200,48 +221,37 @@ function tat_enrich_validate_and_process_image($image_url, $product_name, &$is_v
         return null;
     }
 
+    // Download image bytes once; reuse for both validation and processing.
+    $imgBytes = tat_enrich_fetch_image_bytes($image_url);
+    if ($imgBytes === '') {
+        $error = 'Could not download image.';
+        return null;
+    }
+
+    // Gemini validation (multimodal).
     $apiKey = getenv('GEMINI_API_KEY');
     if ($apiKey === false || $apiKey === '') {
         if (defined('GEMINI_API_KEY') && GEMINI_API_KEY !== '') {
             $apiKey = GEMINI_API_KEY;
         }
     }
+
     if (!$apiKey) {
-        // If we cannot validate via AI, optimistically skip validation and just process the image.
+        // No Gemini key — skip validation, proceed to process.
         $is_valid = true;
     } else {
-        $model = (defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-2.0-flash';
-        $url   = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode($model) . ':generateContent?key=' . urlencode($apiKey);
-
-        // Download image bytes for inlineData.
-        $imgBytes = @file_get_contents($image_url);
-        if ($imgBytes === false || strlen($imgBytes) === 0) {
-            $error = 'Could not download image for validation.';
-            return null;
-        }
-
-        $prompt = "Is this image a specific product shot for {$product_name}? If it is just a logo, a 'no image' placeholder, or a different product, return 'INVALID'. Otherwise return 'VALID'.";
+        $model   = (defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-2.0-flash';
+        $url     = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode($model) . ':generateContent?key=' . urlencode($apiKey);
+        $prompt  = "Is this image a specific product shot for {$product_name}? If it is just a logo, a 'no image' placeholder, or a different product, return 'INVALID'. Otherwise return 'VALID'.";
 
         $payload = [
-            'contents' => [
-                [
-                    'parts' => [
-                        [
-                            'inline_data' => [
-                                'mime_type' => 'image/jpeg',
-                                'data'      => base64_encode($imgBytes),
-                            ],
-                        ],
-                        [
-                            'text' => $prompt,
-                        ],
-                    ],
+            'contents' => [[
+                'parts' => [
+                    ['inline_data' => ['mime_type' => 'image/jpeg', 'data' => base64_encode($imgBytes)]],
+                    ['text' => $prompt],
                 ],
-            ],
-            'generationConfig' => [
-                'temperature'     => 0,
-                'maxOutputTokens' => 8,
-            ],
+            ]],
+            'generationConfig' => ['temperature' => 0, 'maxOutputTokens' => 8],
         ];
 
         $ch = curl_init($url);
@@ -253,97 +263,61 @@ function tat_enrich_validate_and_process_image($image_url, $product_name, &$is_v
             CURLOPT_TIMEOUT        => 60,
             CURLOPT_CONNECTTIMEOUT => 10,
         ]);
-
         $response = curl_exec($ch);
         $curlErr  = curl_error($ch);
         $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
         if ($response === false || $curlErr || $httpCode >= 300) {
-            $error = 'Gemini image validation failed; treating image as invalid.';
-            return null;
-        }
-
-        $json = json_decode($response, true);
-        $text = $json['candidates'][0]['content']['parts'][0]['text'] ?? '';
-        $text = strtoupper(trim((string) $text));
-
-        if ($text === 'VALID') {
+            // Validation call failed — optimistically proceed rather than block.
             $is_valid = true;
         } else {
-            $is_valid = false;
-            $error    = 'Gemini marked the image as invalid.';
-            return null;
-        }
-
-        // Use the bytes we already downloaded for processing.
-        $imgData = $imgBytes;
-    }
-
-    // Image processing: resize to 800x800 with white letterbox.
-    $tmpDir = BASE_PATH . 'public/tmp/enrich/';
-    if (!is_dir($tmpDir)) {
-        @mkdir($tmpDir, 0755, true);
-    }
-
-    $filename = 'enrich_' . time() . '_' . substr(sha1($image_url . mt_rand()), 0, 8) . '.jpg';
-    $fullPath = $tmpDir . $filename;
-
-    // Prefer Intervention\Image if available.
-    $processed = false;
-    if (file_exists(BASE_PATH . 'vendor/autoload.php')) {
-        @require_once BASE_PATH . 'vendor/autoload.php';
-    }
-    if (class_exists('\Intervention\Image\ImageManagerStatic')) {
-        $manager = new \Intervention\Image\ImageManagerStatic();
-        $img     = $manager::make(isset($imgData) ? $imgData : $image_url);
-        $img->resize(800, 800, function ($constraint) {
-            $constraint->aspectRatio();
-            $constraint->upsize();
-        });
-        $canvas = $manager::canvas(800, 800, '#ffffff');
-        $canvas->insert($img, 'center');
-        $canvas->save($fullPath, 90, 'jpg');
-        $processed = true;
-    } else {
-        // Fallback to basic GD if available.
-        $raw = isset($imgData) ? $imgData : @file_get_contents($image_url);
-        if ($raw !== false && strlen($raw) > 0) {
-            $src = @imagecreatefromstring($raw);
-            if ($src) {
-                $srcW = imagesx($src);
-                $srcH = imagesy($src);
-                $targetW = 800;
-                $targetH = 800;
-
-                $scale = min($targetW / $srcW, $targetH / $srcH);
-                $newW = (int) floor($srcW * $scale);
-                $newH = (int) floor($srcH * $scale);
-
-                $dst = imagecreatetruecolor($targetW, $targetH);
-                $white = imagecolorallocate($dst, 255, 255, 255);
-                imagefilledrectangle($dst, 0, 0, $targetW, $targetH, $white);
-
-                $dstX = (int) floor(($targetW - $newW) / 2);
-                $dstY = (int) floor(($targetH - $newH) / 2);
-                imagecopyresampled($dst, $src, $dstX, $dstY, 0, 0, $newW, $newH, $srcW, $srcH);
-
-                imagejpeg($dst, $fullPath, 90);
-                imagedestroy($src);
-                imagedestroy($dst);
-                $processed = true;
+            $json   = json_decode($response, true);
+            $text   = strtoupper(trim((string) ($json['candidates'][0]['content']['parts'][0]['text'] ?? '')));
+            if ($text === 'VALID') {
+                $is_valid = true;
+            } else {
+                $is_valid = false;
+                $error    = 'Gemini marked the image as invalid.';
+                return null;
             }
         }
     }
 
-    if (!$processed) {
-        $error = 'Failed to process image.';
+    // Process image: resize to 800×800 with white letterbox, return as base64 data URI.
+    $src = @imagecreatefromstring($imgBytes);
+    if (!$src) {
+        $error = 'Could not decode image for processing.';
         return null;
     }
 
-    // Public URL (assuming /public is web root).
-    $publicUrl = '/tmp/enrich/' . $filename;
-    return $publicUrl;
+    $srcW    = imagesx($src);
+    $srcH    = imagesy($src);
+    $targetW = 800;
+    $targetH = 800;
+    $scale   = min($targetW / $srcW, $targetH / $srcH);
+    $newW    = max(1, (int) floor($srcW * $scale));
+    $newH    = max(1, (int) floor($srcH * $scale));
+    $dstX    = (int) floor(($targetW - $newW) / 2);
+    $dstY    = (int) floor(($targetH - $newH) / 2);
+
+    $dst   = imagecreatetruecolor($targetW, $targetH);
+    $white = imagecolorallocate($dst, 255, 255, 255);
+    imagefilledrectangle($dst, 0, 0, $targetW, $targetH, $white);
+    imagecopyresampled($dst, $src, $dstX, $dstY, 0, 0, $newW, $newH, $srcW, $srcH);
+    imagedestroy($src);
+
+    ob_start();
+    imagejpeg($dst, null, 88);
+    imagedestroy($dst);
+    $jpegBytes = ob_get_clean();
+
+    if (!$jpegBytes) {
+        $error = 'Failed to encode processed image.';
+        return null;
+    }
+
+    return 'data:image/jpeg;base64,' . base64_encode($jpegBytes);
 }
 
 // ---- Run the enrichment waterfall ----
