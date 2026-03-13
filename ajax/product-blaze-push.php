@@ -91,7 +91,6 @@ $product_payload = [
     'description' => $description,
     'price'       => $price,
     'active'      => true,
-    'cannabisType'=> 'CANNABIS',
 ];
 
 if ($blaze_brand_id) {
