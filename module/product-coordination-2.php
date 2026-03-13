@@ -361,9 +361,9 @@ else {
 <!-- ============================================================
      Enrichment Preview Modal
      ============================================================ -->
-<div class="modal fade" id="enrichModal" tabindex="-1" role="dialog" aria-labelledby="enrichModalLabel">
-  <div class="modal-dialog" style="width:1150px;max-width:97vw;height:92vh;margin:2vh auto;display:flex;flex-direction:column;" role="document">
-    <div class="modal-content" style="display:flex;flex-direction:column;flex:1;min-height:0;">
+<div class="modal fade" id="enrichModal" tabindex="-1" role="dialog" aria-labelledby="enrichModalLabel" style="overflow:hidden;">
+  <div class="modal-dialog" style="width:1150px;max-width:97vw;margin:3vh auto;height:94vh;" role="document">
+    <div class="modal-content" style="height:100%;display:flex;flex-direction:column;">
 
       <div class="modal-header">
         <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -372,7 +372,7 @@ else {
         <h4 class="modal-title" id="enrichModalLabel">&#10024; Enrichment Preview</h4>
       </div>
 
-      <div class="modal-body" style="flex:1;overflow-y:auto;min-height:0;">
+      <div class="modal-body" style="flex:1 1 auto;overflow-y:auto;min-height:0;">
 
         <!-- Loading overlay -->
         <div id="enrichLoadingOverlay" style="display:none;text-align:center;padding:30px;">
