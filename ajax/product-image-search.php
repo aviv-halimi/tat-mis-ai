@@ -79,49 +79,66 @@ if (file_exists($creds_path) && ($name !== '' || $brand !== '')) {
 }
 
 // --------------------------------------------------------
-// Step 2: Serper.dev search with the user's custom query
+// Step 2: Serper.dev — run trusted-site + broad-web queries
+// from the plain search term, exactly like product-enrich.php
 // --------------------------------------------------------
-$ch = curl_init('https://google.serper.dev/images');
-curl_setopt_array($ch, [
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_POST           => true,
-    CURLOPT_HTTPHEADER     => [
-        'X-API-KEY: ' . $serper_key,
-        'Content-Type: application/json',
-    ],
-    CURLOPT_POSTFIELDS     => (string) json_encode(['q' => $query, 'num' => 10]),
-    CURLOPT_TIMEOUT        => 30,
-    CURLOPT_CONNECTTIMEOUT => 10,
-]);
-$response = curl_exec($ch);
-$curlErr  = curl_error($ch);
-$httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-curl_close($ch);
+function pis_serper_search(string $query, string $apiKey, int $num = 10): array
+{
+    $ch = curl_init('https://google.serper.dev/images');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_HTTPHEADER     => [
+            'X-API-KEY: ' . $apiKey,
+            'Content-Type: application/json',
+        ],
+        CURLOPT_POSTFIELDS     => (string) json_encode(['q' => $query, 'num' => $num]),
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_CONNECTTIMEOUT => 10,
+    ]);
+    $resp    = curl_exec($ch);
+    $curlErr = curl_error($ch);
+    $http    = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
 
-$serper_urls = [];
-if ($response !== false && !$curlErr && $httpCode < 300) {
-    $json   = json_decode($response, true);
-    $images = $json['images'] ?? [];
-    foreach ((array) $images as $img) {
+    if ($resp === false || $curlErr || $http >= 300) return [];
+
+    $urls = [];
+    foreach ((array) (json_decode($resp, true)['images'] ?? []) as $img) {
         $url = trim((string) ($img['imageUrl'] ?? ''));
-        if ($url !== '') $serper_urls[] = $url;
-        if (count($serper_urls) >= 10) break;
+        if ($url !== '') $urls[] = $url;
+        if (count($urls) >= $num) break;
     }
+    return $urls;
 }
 
+$trusted_q    = '(site:weedmaps.com OR site:leafly.com OR site:dutchie.com) "' . $query . '"';
+$web_q        = '"' . $query . '" cannabis product packaging -site:pinterest.com';
+$trusted_urls = pis_serper_search($trusted_q, $serper_key, 10);
+$web_urls     = pis_serper_search($web_q,     $serper_key, 10);
+
 // --------------------------------------------------------
-// Combine: Drive first, then Serper — build parallel sources[]
+// Combine: Drive → Trusted Menu → Web Search, parallel sources[]
 // --------------------------------------------------------
 $all_urls      = [];
 $image_sources = [];
+$seen          = [];
 
 if ($drive_image_url !== null) {
-    $all_urls[]      = $drive_image_url;
-    $image_sources[] = 'Google Drive';
+    $all_urls[]          = $drive_image_url;
+    $image_sources[]     = 'Google Drive';
+    $seen[$drive_image_url] = true;
 }
 
-$seen = $drive_image_url !== null ? [$drive_image_url => true] : [];
-foreach ($serper_urls as $url) {
+foreach ($trusted_urls as $url) {
+    if (!isset($seen[$url])) {
+        $all_urls[]      = $url;
+        $image_sources[] = 'Trusted Menu';
+        $seen[$url]      = true;
+    }
+}
+
+foreach ($web_urls as $url) {
     if (!isset($seen[$url])) {
         $all_urls[]      = $url;
         $image_sources[] = 'Web Search';
@@ -136,8 +153,9 @@ if (empty($all_urls)) {
 
 // Overall source label for the status badge
 $sources = [];
-if ($drive_source !== '')  $sources[] = 'Google Drive';
-if (!empty($serper_urls))  $sources[] = 'Web Search';
+if ($drive_source !== '')    $sources[] = 'Google Drive';
+if (!empty($trusted_urls))   $sources[] = 'Trusted Menu';
+if (!empty($web_urls))       $sources[] = 'Web Search';
 $image_source = implode(' + ', $sources) ?: 'Web Search';
 
 echo json_encode([

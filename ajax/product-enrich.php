@@ -255,8 +255,10 @@ function tat_enrich_discover_images($product_name, $brand_name, $category_name, 
     if (!empty($web_urls))     $sources[] = 'Web Search';
     $source_found = implode(' + ', $sources) ?: 'Web Search';
 
-    // Report both Serper queries for the user's "Search Again" box
-    $search_query = $trusted_q . ' | ' . $web_q;
+    // Populate the "Search Again" box with the plain search term only —
+    // the trusted-site and web query wrappers are built automatically by
+    // product-image-search.php when the user hits "Search Again".
+    $search_query = $namePart;
 
     return $all_urls;
 }
