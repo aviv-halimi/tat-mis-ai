@@ -362,8 +362,8 @@ else {
      Enrichment Preview Modal
      ============================================================ -->
 <div class="modal fade" id="enrichModal" tabindex="-1" role="dialog" aria-labelledby="enrichModalLabel">
-  <div class="modal-dialog" style="width:1150px;max-width:97vw;" role="document">
-    <div class="modal-content">
+  <div class="modal-dialog" style="width:1150px;max-width:97vw;height:92vh;margin:2vh auto;display:flex;flex-direction:column;" role="document">
+    <div class="modal-content" style="display:flex;flex-direction:column;flex:1;min-height:0;">
 
       <div class="modal-header">
         <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -372,7 +372,7 @@ else {
         <h4 class="modal-title" id="enrichModalLabel">&#10024; Enrichment Preview</h4>
       </div>
 
-      <div class="modal-body">
+      <div class="modal-body" style="flex:1;overflow-y:auto;min-height:0;">
 
         <!-- Loading overlay -->
         <div id="enrichLoadingOverlay" style="display:none;text-align:center;padding:30px;">
@@ -386,9 +386,9 @@ else {
             <!-- LEFT: Image carousel -->
             <div class="col-sm-5">
               <!-- Image box — click to open full size in new tab -->
-              <div id="enrichImageBox" style="border:1px solid #ddd;border-radius:4px;padding:8px;height:380px;display:flex;align-items:center;justify-content:center;background:#f9f9f9;position:relative;overflow:hidden;">
+              <div id="enrichImageBox" style="border:1px solid #ddd;border-radius:4px;padding:8px;height:520px;display:flex;align-items:center;justify-content:center;background:#f9f9f9;position:relative;overflow:hidden;">
                 <img id="enrichImage" src="" alt="Product image"
-                     style="max-width:100%;max-height:364px;display:none;border-radius:3px;cursor:zoom-in;"
+                     style="max-width:100%;max-height:504px;display:none;border-radius:3px;cursor:zoom-in;"
                      title="Click to open full size"
                 />
                 <span id="enrichImagePlaceholder" style="color:#aaa;font-size:13px;">No images found.</span>
@@ -444,7 +444,7 @@ else {
 
               <div class="form-group" style="margin-bottom:8px;">
                 <label style="font-size:12px;margin-bottom:2px;">Description</label>
-                <textarea id="enrichDescription" class="form-control" rows="6" style="resize:vertical;font-size:13px;"></textarea>
+                <textarea id="enrichDescription" class="form-control" rows="10" style="resize:vertical;font-size:13px;"></textarea>
               </div>
 
               <div class="row">
