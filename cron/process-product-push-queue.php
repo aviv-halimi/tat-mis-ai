@@ -55,9 +55,10 @@ foreach ($queue as $q) {
     // ---- Step 1: Check propagation via the Blaze API (not local DB, which may lag) ----
     // Search each store's API for the product by SKU. Once all stores return a match
     // we know propagation is complete and we have the per-store Blaze product ObjectId.
-    $store_blaze_ids = []; // store_id => Blaze product ObjectId for that store
-    $all_propagated  = true;
-    $product_name    = (string) ($q['product_name'] ?? '');
+    $store_blaze_ids  = []; // store_id => Blaze product ObjectId for that store
+    $all_propagated   = true;
+    $product_name     = (string) ($q['product_name'] ?? '');
+    $store_search_log = []; // debug: what each store returned
 
     foreach ($store_map as $store_id => $store) {
         // GET /api/v1/partner/products?search={sku} — returns a list of matching products
@@ -77,11 +78,9 @@ foreach ($queue as $q) {
             // Response may be a plain array or wrapped in a key; handle both
             $items = null;
             if (is_array($search_data)) {
-                // Plain array of products
                 if (isset($search_data[0])) {
                     $items = $search_data;
                 }
-                // Wrapped: {"data": [...]} or {"products": [...]}
                 foreach (['data', 'products', 'result', 'items'] as $key) {
                     if (isset($search_data[$key]) && is_array($search_data[$key])) {
                         $items = $search_data[$key];
@@ -92,7 +91,6 @@ foreach ($queue as $q) {
 
             if ($items) {
                 foreach ($items as $item) {
-                    // Match by exact SKU first, fall back to exact name
                     if (
                         (!empty($item['sku'])  && $item['sku']  === $sku) ||
                         (!empty($item['name']) && $product_name && $item['name'] === $product_name)
@@ -101,21 +99,34 @@ foreach ($queue as $q) {
                         break;
                     }
                 }
+                $store_search_log[$store_id] = $blaze_id
+                    ? "FOUND:{$blaze_id}"
+                    : "NO_MATCH (got " . count($items) . " items, first_sku=" . ($items[0]['sku'] ?? 'n/a') . ")";
+            } else {
+                // Log raw response (truncated) so we can see the actual structure
+                $store_search_log[$store_id] = "NO_ITEMS raw=" . substr(json_encode($search_data), 0, 200);
             }
+        } else {
+            $store_search_log[$store_id] = "EMPTY_RESPONSE";
         }
 
         if (!$blaze_id) {
             $all_propagated = false;
-            break;
+            // Don't break — keep checking remaining stores so we get the full picture
         }
 
-        $store_blaze_ids[$store_id] = $blaze_id;
+        if ($blaze_id) {
+            $store_blaze_ids[$store_id] = $blaze_id;
+        }
     }
 
     if (!$all_propagated) {
-        // Not ready yet — just bump the attempt counter
+        $log_parts = [];
+        foreach ($store_search_log as $sid => $msg) {
+            $log_parts[] = "store{$sid}: {$msg}";
+        }
         setRs("UPDATE product_push_queue SET attempts = attempts + 1 WHERE id = ?", [$queue_id]);
-        $results[] = "Queue #{$queue_id} (SKU {$sku}): not yet propagated to all stores, attempts=" . ((int)$q['attempts'] + 1);
+        $results[] = "Queue #{$queue_id} (SKU {$sku}): not yet propagated | " . implode(' || ', $log_parts);
         continue;
     }
 
