@@ -20,7 +20,8 @@ $description  = trim((string) ($_POST['description'] ?? ''));
 $price        = isset($_POST['price']) && is_numeric($_POST['price']) ? (float) $_POST['price'] : 0;
 $brand_id     = (int) ($_POST['brand_id']    ?? 0);
 $category_id  = (int) ($_POST['category_id'] ?? 0);
-$store_db     = preg_replace('/[^a-zA-Z0-9_]/', '', trim((string) ($_POST['store_db'] ?? '')));
+$store_db     = preg_replace('/[^a-zA-Z0-9_]/', '', trim((string) ($_POST['store_db']    ?? '')));
+$vendor_name  = trim((string) ($_POST['vendor_name'] ?? ''));
 
 if ($product_name === '') {
     echo json_encode(['success' => false, 'error' => 'Missing product name.']);
@@ -85,6 +86,19 @@ if ($category_id > 0 && $store_db !== '') {
     }
 }
 
+// ---- Resolve vendor: match by name in store1 DB ----
+$blaze_vendor_id = null;
+$debug_vendor    = ['input_vendor_name' => $vendor_name];
+
+if ($vendor_name !== '') {
+    $vendor_row = getRow(getRs(
+        "SELECT id FROM `{$store1_db}`.vendor WHERE name = ? AND is_active = 1 LIMIT 1",
+        [$vendor_name]
+    ));
+    $blaze_vendor_id          = $vendor_row['id'] ?? null;
+    $debug_vendor['store1_id'] = $blaze_vendor_id;
+}
+
 // ---- Build Blaze ProductAddRequest payload ----
 $product_payload = [
     'name'        => $product_name,
@@ -98,6 +112,9 @@ if ($blaze_brand_id) {
 }
 if ($blaze_category_id) {
     $product_payload['category'] = ['id' => $blaze_category_id];
+}
+if ($blaze_vendor_id) {
+    $product_payload['vendor'] = ['id' => $blaze_vendor_id];
 }
 
 // ---- POST to Blaze API ----
@@ -143,6 +160,7 @@ echo json_encode([
         'store1_db'    => $store1_db,
         'brand'        => $debug_brand,
         'category'     => $debug_category,
+        'vendor'       => $debug_vendor,
         'endpoint'     => $blaze_endpoint,
     ],
 ]);

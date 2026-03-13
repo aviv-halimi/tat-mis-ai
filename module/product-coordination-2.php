@@ -323,6 +323,7 @@ if (sizeof($rs)) {
                 data-category="' . htmlspecialchars($enrichCategory, ENT_QUOTES, 'UTF-8') . '"
                 data-category-id="' . (int)$r['category_id'] . '"
                 data-store-db="' . htmlspecialchars($r['db'], ENT_QUOTES, 'UTF-8') . '"
+                data-vendor-name="' . htmlspecialchars($r['vendor_name'], ENT_QUOTES, 'UTF-8') . '"
                 data-default-price="' . number_format($salePrice, 2, '.', '') . '"
                 data-davis-price="' . number_format($davisPrice, 2, '.', '') . '"
                 data-dixon-price="' . number_format($dixonPrice, 2, '.', '') . '"
@@ -509,10 +510,11 @@ window.addEventListener('load', function() {
     var brandId   = $btn.data('brand-id')  || 0;
     var category  = $btn.data('category')  || '';
     var catId     = $btn.data('category-id') || 0;
-    var storeDb   = $btn.data('store-db')  || '';
-    var defPrice  = $btn.data('default-price') || '';
-    var davPrice  = $btn.data('davis-price')   || '';
-    var dixPrice  = $btn.data('dixon-price')   || '';
+    var storeDb    = $btn.data('store-db')    || '';
+    var vendorName = $btn.data('vendor-name') || '';
+    var defPrice   = $btn.data('default-price') || '';
+    var davPrice   = $btn.data('davis-price')   || '';
+    var dixPrice   = $btn.data('dixon-price')   || '';
 
     if (!id || !name) {
       alert('Missing product information for enrichment.');
@@ -527,7 +529,8 @@ window.addEventListener('load', function() {
     $('#enrichModal')
       .data('brand_id',    brandId)
       .data('category_id', catId)
-      .data('store_db',    storeDb);
+      .data('store_db',    storeDb)
+      .data('vendor_name', vendorName);
 
     /* reset modal */
     $('#enrichLoadingOverlay').show();
@@ -636,7 +639,8 @@ window.addEventListener('load', function() {
     var $modal      = $('#enrichModal');
     var brandId     = $('#enrichBrandSelect').val()    || $modal.data('brand_id')    || 0;
     var categoryId  = $('#enrichCategorySelect').val() || $modal.data('category_id') || 0;
-    var storeDb     = $modal.data('store_db')  || '';
+    var storeDb     = $modal.data('store_db')   || '';
+    var vendorName  = $modal.data('vendor_name') || '';
     var name        = $('#enrichProductName').val().trim();
     var description = $('#enrichDescription').val().trim();
     var price       = parseFloat($('#enrichDefaultPrice').val()) || 0;
@@ -657,7 +661,8 @@ window.addEventListener('load', function() {
         price:       price,
         brand_id:    brandId,
         category_id: categoryId,
-        store_db:    storeDb
+        store_db:    storeDb,
+        vendor_name: vendorName
       }
     }).done(function(resp) {
       $('#enrichBtnPushBlaze').prop('disabled', false).html('<i class="fa fa-cloud-upload"></i> Push to Blaze');
