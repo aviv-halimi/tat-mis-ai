@@ -81,7 +81,7 @@ foreach ($queue as $q) {
                 if (isset($search_data[0])) {
                     $items = $search_data;
                 }
-                foreach (['data', 'products', 'result', 'items'] as $key) {
+                foreach (['values', 'data', 'products', 'result', 'items'] as $key) {
                     if (isset($search_data[$key]) && is_array($search_data[$key])) {
                         $items = $search_data[$key];
                         break;
