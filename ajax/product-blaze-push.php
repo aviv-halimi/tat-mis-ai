@@ -130,15 +130,9 @@ $product_payload = [
     'active'      => true,
 ];
 
-if ($blaze_brand_id) {
-    $product_payload['brand'] = ['id' => $blaze_brand_id];
-}
-if ($blaze_category_id) {
-    $product_payload['category'] = ['id' => $blaze_category_id];
-}
-if ($blaze_vendor_id) {
-    $product_payload['vendor'] = ['id' => $blaze_vendor_id];
-}
+if ($blaze_brand_id)    $product_payload['brandId']    = $blaze_brand_id;
+if ($blaze_category_id) $product_payload['categoryId']  = $blaze_category_id;
+if ($blaze_vendor_id)   $product_payload['vendorId']    = $blaze_vendor_id;
 
 // ---- POST to Blaze API ----
 $blaze_endpoint = $api_url . 'products';
