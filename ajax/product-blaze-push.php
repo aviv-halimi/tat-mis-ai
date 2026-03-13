@@ -212,7 +212,6 @@ $product_payload = [
 if ($blaze_brand_id)    $product_payload['brandId']    = $blaze_brand_id;
 if ($blaze_category_id) $product_payload['categoryId']  = $blaze_category_id;
 if ($blaze_vendor_id)   $product_payload['vendorId']    = $blaze_vendor_id;
-if ($blaze_asset_key)   $product_payload['assetKey']    = $blaze_asset_key;
 
 // ---- POST to Blaze API ----
 $blaze_endpoint = $api_url . 'products';
@@ -246,6 +245,52 @@ if ($response && isJson($response)) {
 
 $success = !$curlErr && $httpCode >= 200 && $httpCode < 300;
 
+// ---- If product was created and we have an asset, attach it via PUT ----
+$debug_asset_attach = null;
+if ($success && !empty($blaze_response_decoded['id']) && !empty($debug_image['asset_raw']['id'])) {
+    $product_id     = $blaze_response_decoded['id'];
+    $asset_obj      = $debug_image['asset_raw'];
+    $put_url        = $api_url . 'products/' . urlencode($product_id);
+
+    // Merge the existing product with the assets array containing our uploaded asset
+    $put_payload    = array_merge($blaze_response_decoded, [
+        'assets' => [['id' => $asset_obj['id']]],
+    ]);
+    $put_body = json_encode($put_payload);
+
+    $put_ch = curl_init($put_url);
+    curl_setopt_array($put_ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST  => 'PUT',
+        CURLOPT_POSTFIELDS     => $put_body,
+        CURLOPT_HTTPHEADER     => [
+            'Content-Type: application/json',
+            'Authorization: '  . $auth_code,
+            'X-API-KEY: '      . $partner_key,
+            'Content-Length: ' . strlen($put_body),
+        ],
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_SSL_VERIFYPEER => false,
+    ]);
+    $put_resp  = curl_exec($put_ch);
+    $put_err   = curl_error($put_ch);
+    $put_code  = (int) curl_getinfo($put_ch, CURLINFO_HTTP_CODE);
+    curl_close($put_ch);
+
+    $debug_asset_attach = [
+        'http_code' => $put_code,
+        'curl_error'=> $put_err ?: null,
+        'response'  => $put_resp ? json_decode($put_resp, true) : null,
+    ];
+
+    // Use the updated product as the final response if PUT succeeded
+    if (!$put_err && $put_code >= 200 && $put_code < 300 && $put_resp) {
+        $updated = json_decode($put_resp, true);
+        if ($updated) $blaze_response_decoded = $updated;
+    }
+}
+
 echo json_encode([
     'success'        => $success,
     'http_code'      => $httpCode,
@@ -269,6 +314,7 @@ echo json_encode([
         'category'     => $debug_category,
         'vendor'       => $debug_vendor,
         'image'        => $debug_image,
+        'asset_attach' => $debug_asset_attach,
         'endpoint'     => $blaze_endpoint,
     ],
 ]);
