@@ -614,6 +614,7 @@ window.addEventListener('load', function() {
     $('#enrichDescription').val('');
     $('#enrichWarning').hide().text('');
     $('#enrichStatusBadge')
+      .show()
       .removeClass('label-success label-warning label-danger')
       .addClass('label-info')
       .text('Fetching enrichment…');
@@ -640,6 +641,7 @@ window.addEventListener('load', function() {
       if (!resp || !resp.success) {
         var msg = (resp && resp.error) ? resp.error : 'Enrichment failed.';
         $('#enrichStatusBadge')
+          .show()
           .removeClass('label-info label-success')
           .addClass('label-danger')
           .text('Error');
@@ -671,13 +673,8 @@ window.addEventListener('load', function() {
         $('#enrichCarouselNav').hide();
       }
 
-      /* Status badge (overall combined source) */
-      var source = resp.image_source || resp.source_found || 'Web Search';
-      $('#enrichStatusBadge')
-        .removeClass('label-info label-danger label-warning')
-        .addClass('label-success')
-        .text('Source: ' + source);
-      // Note: per-image label is handled by showImage() above
+      // Source is shown per-image by showImage() via #enrichImageSource — hide badge on success
+      $('#enrichStatusBadge').hide();
       $('#enrichSearchQuery').val(resp.search_query || '');
 
       if (resp.warning) {
