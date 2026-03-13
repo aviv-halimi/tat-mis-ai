@@ -362,7 +362,7 @@ else {
      Enrichment Preview Modal
      ============================================================ -->
 <div class="modal fade" id="enrichModal" tabindex="-1" role="dialog" aria-labelledby="enrichModalLabel">
-  <div class="modal-dialog" style="width:900px;max-width:95vw;" role="document">
+  <div class="modal-dialog" style="width:1150px;max-width:97vw;" role="document">
     <div class="modal-content">
 
       <div class="modal-header">
@@ -384,10 +384,16 @@ else {
           <div class="row">
 
             <!-- LEFT: Image carousel -->
-            <div class="col-sm-4">
-              <div id="enrichImageBox" style="border:1px solid #ddd;border-radius:4px;padding:8px;min-height:220px;display:flex;align-items:center;justify-content:center;background:#f9f9f9;position:relative;">
-                <img id="enrichImage" src="" alt="Product image" style="max-width:100%;max-height:220px;display:none;border-radius:3px;" />
+            <div class="col-sm-5">
+              <!-- Image box — click to open full size in new tab -->
+              <div id="enrichImageBox" style="border:1px solid #ddd;border-radius:4px;padding:8px;height:380px;display:flex;align-items:center;justify-content:center;background:#f9f9f9;position:relative;overflow:hidden;">
+                <img id="enrichImage" src="" alt="Product image"
+                     style="max-width:100%;max-height:364px;display:none;border-radius:3px;cursor:zoom-in;"
+                     title="Click to open full size"
+                />
                 <span id="enrichImagePlaceholder" style="color:#aaa;font-size:13px;">No images found.</span>
+                <!-- Expand hint overlay (bottom-right corner) -->
+                <span id="enrichImageExpandHint" style="display:none;position:absolute;bottom:10px;right:10px;background:rgba(0,0,0,.45);color:#fff;font-size:10px;padding:2px 6px;border-radius:3px;pointer-events:none;">&#x26F6; open</span>
               </div>
               <!-- Carousel navigation -->
               <div id="enrichCarouselNav" style="display:none;text-align:center;margin-top:6px;">
@@ -414,7 +420,7 @@ else {
             </div>
 
             <!-- RIGHT: Form fields -->
-            <div class="col-sm-8">
+            <div class="col-sm-7">
 
               <div class="form-group" style="margin-bottom:8px;">
                 <label style="font-size:12px;margin-bottom:2px;">Product Name</label>
@@ -535,7 +541,16 @@ window.addEventListener('load', function() {
     // Update the per-image source label
     var src = enrichImageSources[idx] || 'Web Search';
     $('#enrichImageSource').html(sourceIcons[src] || ('&#127760; Source: ' + src));
+
+    // Show the expand hint when an image is visible
+    $('#enrichImageExpandHint').show();
   }
+
+  // Click image → open full size in new tab
+  $(document).on('click', '#enrichImage', function() {
+    var url = enrichImages[enrichImgIdx];
+    if (url) window.open(url, '_blank');
+  });
 
   function populateDropdown(selectId, items, selectedId) {
     var $sel = $('#' + selectId);
@@ -569,9 +584,11 @@ window.addEventListener('load', function() {
       return;
     }
 
-    enrichImages  = [];
-    enrichImgIdx  = 0;
-    enrichStoreDb = storeDb;
+    enrichImages       = [];
+    enrichImageSources = [];
+    enrichImgIdx       = 0;
+    enrichStoreDb      = storeDb;
+    $('#enrichImageExpandHint').hide();
 
     /* store IDs so Push to Blaze can use them */
     $('#enrichModal')
