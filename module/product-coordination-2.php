@@ -493,10 +493,9 @@ window.addEventListener('load', function() {
     $sel.empty();
     $sel.append('<option value="">-- Select --</option>');
     $.each(items || [], function(_, item) {
-      var $opt = $('<option>').val(item.id).text(item.name);
-      if (item.id == selectedId) $opt.attr('selected', 'selected');
-      $sel.append($opt);
+      $sel.append($('<option>').val(item.id).text(item.name));
     });
+    if (selectedId) $sel.val(selectedId);
   }
 
   /* ---- Open modal / trigger enrichment ---- */
