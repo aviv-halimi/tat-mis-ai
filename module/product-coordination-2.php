@@ -383,7 +383,10 @@ else {
 </div>
 
 <script>
-(function($) {
+window.addEventListener('load', function() {
+  var $ = window.jQuery;
+  if (!$) { return; }
+
   $(document).on('click', '.btn-enrich', function(e) {
     e.preventDefault();
 
@@ -466,7 +469,7 @@ else {
       $('#enrichImagePlaceholder').text('No image available.');
     });
   });
-})(jQuery);
+});
 </script>
 
 <?php
