@@ -77,13 +77,13 @@ $(document).ready(function() {
 
   function badgeHtml(status) {
     var map = {
-      "drive_public":  \'<span class="label label-success"><i class="fa fa-check-circle"></i> Drive – Public</span>\',
-      "drive_private": \'<span class="label label-warning"><i class="fa fa-lock"></i> Drive – Share Required</span>\',
-      "drive_saved":   \'<span class="label label-info"><i class="fa fa-google"></i> Drive – Saved</span>\',
-      "drive_error":   \'<span class="label label-warning"><i class="fa fa-exclamation-triangle"></i> Drive – Could Not Verify</span>\',
-      "other_saved":   \'<span class="label label-info"><i class="fa fa-link"></i> URL Saved</span>\',
-      "saved":         \'<span class="label label-success"><i class="fa fa-check"></i> Saved</span>\',
-      "cleared":       \'<span class="label label-default">—</span>\'
+      "drive_ok":        \'<span class="label label-success"><i class="fa fa-check-circle"></i> Drive – Accessible ✓</span>\',
+      "drive_no_access": \'<span class="label label-warning"><i class="fa fa-lock"></i> Drive – Share with service account</span>\',
+      "drive_no_creds":  \'<span class="label label-info"><i class="fa fa-key"></i> Drive – Saved (deploy credentials to verify)</span>\',
+      "drive_error":     \'<span class="label label-danger"><i class="fa fa-exclamation-triangle"></i> Drive – Error verifying</span>\',
+      "other_saved":     \'<span class="label label-info"><i class="fa fa-link"></i> URL Saved</span>\',
+      "saved":           \'<span class="label label-success"><i class="fa fa-check"></i> Saved</span>\',
+      "cleared":         \'<span class="label label-default">—</span>\'
     };
     return map[status] || \'<span class="label label-success"><i class="fa fa-check"></i> Saved</span>\';
   }

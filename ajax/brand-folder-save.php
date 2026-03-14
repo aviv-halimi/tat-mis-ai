@@ -1,6 +1,12 @@
 <?php
 /**
- * Save (and optionally validate) a brand's asset folder URL.
+ * Save (and validate) a brand's asset folder URL.
+ *
+ * Validation uses the service account (not an API key) because
+ * Google's unauthenticated API only returns 200 for truly-public
+ * ("Anyone on the internet") folders — it rejects "Anyone with the
+ * link" folders with 403.  The service account correctly accesses
+ * link-shared folders, which is also what the enrichment workflow uses.
  *
  * POST params:
  *   brand_id      int     PK from blaze1.brand
@@ -8,12 +14,13 @@
  *
  * Returns JSON:
  *   success    bool
- *   status     string   drive_public | drive_private | drive_saved | drive_error |
+ *   status     string   drive_ok | drive_no_access | drive_no_creds | drive_error |
  *                        other_saved | cleared
- *   folder_id  string|null   Extracted Drive folder ID (if any)
- *   error      string        Only on failure
+ *   folder_id  string|null
+ *   error      string   Only on failure
  */
 require_once dirname(__FILE__) . '/../_config.php';
+require_once BASE_PATH . 'inc/GoogleDriveHelper.php';
 
 header('Cache-Control: no-cache');
 header('Content-type: application/json');
@@ -45,7 +52,6 @@ if ($brand_folder !== '') {
             $folder_id = $m[1];
         }
     } elseif (preg_match('/^[A-Za-z0-9_\-]{20,}$/', $brand_folder)) {
-        // Looks like a raw folder ID
         $is_drive  = true;
         $folder_id = $brand_folder;
     } elseif (filter_var($brand_folder, FILTER_VALIDATE_URL)) {
@@ -53,58 +59,54 @@ if ($brand_folder !== '') {
     }
 }
 
-// ---- Validate Drive folder accessibility ----
+// ---- Validate Drive folder using the service account ----
 $status = 'saved';
 
 if ($brand_folder === '') {
     $status = 'cleared';
+
 } elseif ($is_drive && $folder_id !== null) {
-    // Try public access check with an API key (no auth).
-    // We try GOOGLE_DRIVE_API_KEY, then fall back to GOOGLE_SEARCH_API_KEY
-    // (same GCP project, both have Drive API enabled in most setups).
-    $api_key = '';
-    foreach (['GOOGLE_DRIVE_API_KEY', 'GOOGLE_SEARCH_API_KEY'] as $const) {
-        $val = getenv($const);
-        if ($val === false || $val === '') {
-            $val = (defined($const) && constant($const) !== '') ? constant($const) : '';
-        }
-        if ($val !== '') { $api_key = $val; break; }
-    }
 
-    if ($api_key !== '') {
-        // Use files.get on the folder ID directly.
-        // files.list requires OAuth even for link-shared folders;
-        // files.get correctly returns 200 for "anyone with the link" folders.
-        $url = 'https://www.googleapis.com/drive/v3/files/' . rawurlencode($folder_id)
-             . '?key='    . rawurlencode($api_key)
-             . '&fields=' . rawurlencode('id,name,mimeType');
+    $creds_path = BASE_PATH . 'credentials/service-account.json';
 
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 10,
-            CURLOPT_CONNECTTIMEOUT => 5,
-        ]);
-        $resp = curl_exec($ch);
-        $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($http === 200) {
-            // Accessible without auth — public or "anyone with the link"
-            $status = 'drive_public';
-        } elseif ($http === 403 || $http === 401) {
-            // Needs explicit share with our service account
-            $status = 'drive_private';
-        } else {
-            $status = 'drive_error';
-        }
+    if (!file_exists($creds_path)) {
+        // Credentials file not on server — save without validation
+        $status = 'drive_no_creds';
     } else {
-        // No API key configured — save the URL but skip the public check.
-        $status = 'drive_saved';
+        $creds = json_decode((string) file_get_contents($creds_path), true);
+
+        if (!is_array($creds) || empty($creds['private_key'])) {
+            $status = 'drive_no_creds';
+        } else {
+            try {
+                $service = gd_make_drive_service($creds);
+
+                // Try to list one file inside the folder.
+                // Returns 200 for any folder the service account can read,
+                // including "anyone with the link" folders.
+                $result = $service->files->listFiles([
+                    'q'                         => "'{$folder_id}' in parents and trashed = false",
+                    'pageSize'                  => 1,
+                    'fields'                    => 'files(id)',
+                    'supportsAllDrives'         => true,
+                    'includeItemsFromAllDrives' => true,
+                ]);
+                $status = 'drive_ok';   // service account can access it
+
+            } catch (\Google_Service_Exception $e) {
+                $status = ($e->getCode() === 403 || $e->getCode() === 404)
+                        ? 'drive_no_access'
+                        : 'drive_error';
+            } catch (\Exception $e) {
+                $status = 'drive_error';
+            }
+        }
     }
+
 } elseif ($is_drive) {
-    // Drive URL but couldn't extract a folder ID
+    // Drive URL but couldn't extract folder ID
     $status = 'drive_error';
+
 } elseif ($is_other_url) {
     $status = 'other_saved';
 }
