@@ -140,8 +140,46 @@ define('SERPER_API_KEY',     'b3c39559a928534f00749286e3b8503856c72c02');
  * Returns array of image URLs (Drive image first if found).
  * Sets $source_found, $warning, $search_query by reference.
  */
-function tat_enrich_discover_images($product_name, $brand_name, $category_name, &$source_found, &$warning = null, &$search_query = null, &$image_sources = null): array
+/**
+ * Extract a Google Drive folder ID from a URL or raw ID string.
+ * Returns null if the input doesn't look like Drive.
+ */
+function tat_extract_drive_folder_id(string $input): ?string
 {
+    $input = trim($input);
+    if ($input === '') return null;
+
+    // Full Drive URL
+    if (preg_match('#/folders/([A-Za-z0-9_\-]{10,})#', $input, $m)) return $m[1];
+
+    // Raw folder ID (no slashes, 20+ chars)
+    if (preg_match('/^[A-Za-z0-9_\-]{20,}$/', $input)) return $input;
+
+    return null;
+}
+
+/**
+ * Step B: Image discovery — tiered hierarchy:
+ *
+ *  1. Brand-specific Drive folder (from blaze1.brand.brand_folder via master_brand_id)
+ *  2. Non-Drive brand URL  → extra Serper site: search
+ *  3. Global master Drive folder (fallback when brand has no folder)
+ *  4. Serper trusted menu sites (weedmaps, leafly, dutchie)
+ *  5. Serper broad web
+ *
+ * Extra params (optional):
+ *   $brand_id  — local store brand_id to look up the master brand folder
+ *   $store_db  — local store DB name for the master_brand_id join
+ */
+function tat_enrich_discover_images(
+    $product_name, $brand_name, $category_name,
+    &$source_found,
+    &$warning      = null,
+    &$search_query = null,
+    &$image_sources = null,
+    int $brand_id  = 0,
+    string $store_db = ''
+): array {
     $source_found  = null;
     $warning       = null;
     $search_query  = null;
@@ -157,7 +195,46 @@ function tat_enrich_discover_images($product_name, $brand_name, $category_name, 
     $namePart     = trim(implode(' ', array_filter([$cleanName, $categoryPart])));
 
     // --------------------------------------------------------
-    // Step B1: Google Drive fuzzy match via Gemini
+    // Step B1: Look up brand-specific asset folder from blaze1
+    // --------------------------------------------------------
+    $brand_folder_url      = null;
+    $brand_drive_folder_id = null;
+    $brand_site_domain     = null;   // for non-Drive URLs
+
+    if ($brand_id > 0 && $store_db !== '') {
+        // Translate local brand_id → master_brand_id
+        $local_brand     = getRow(getRs(
+            "SELECT master_brand_id FROM `{$store_db}`.brand WHERE brand_id = ? LIMIT 1",
+            [$brand_id]
+        ));
+        $master_brand_id = $local_brand['master_brand_id'] ?? null;
+
+        if ($master_brand_id) {
+            $store1    = getRow(getRs("SELECT db FROM store WHERE store_id = 1 LIMIT 1"));
+            $store1_db = $store1['db'] ?? 'blaze1';
+
+            $blaze_brand = getRow(getRs(
+                "SELECT brand_folder FROM `{$store1_db}`.brand
+                  WHERE master_brand_id = ? AND is_active = 1 LIMIT 1",
+                [$master_brand_id]
+            ));
+            $brand_folder_url = $blaze_brand['brand_folder'] ?? null;
+        }
+    }
+
+    if ($brand_folder_url !== null && $brand_folder_url !== '') {
+        $brand_drive_folder_id = tat_extract_drive_folder_id($brand_folder_url);
+
+        // Non-Drive URL: extract domain for Serper site: search
+        if ($brand_drive_folder_id === null && filter_var($brand_folder_url, FILTER_VALIDATE_URL)) {
+            $parsed = parse_url($brand_folder_url);
+            $brand_site_domain = $parsed['host'] ?? null;
+        }
+    }
+
+    // --------------------------------------------------------
+    // Step B2: Google Drive image search via Gemini
+    //   Priority: brand-specific folder > master folder
     // --------------------------------------------------------
     $drive_image_url = null;
     $drive_source    = '';
@@ -173,17 +250,22 @@ function tat_enrich_discover_images($product_name, $brand_name, $category_name, 
             }
 
             if ($gemini_key !== '') {
-                // Build / load cached file index
-                $file_index = gd_get_index($creds, GD_ROOT_FOLDER_ID);
+                // Choose folder: brand-specific first, then global master
+                $search_folder_id = $brand_drive_folder_id ?? GD_ROOT_FOLDER_ID;
+
+                $file_index = gd_get_index($creds, $search_folder_id);
+
+                // If brand folder returned no results, try master folder as fallback
+                if (empty($file_index) && $brand_drive_folder_id !== null) {
+                    $file_index = gd_get_index($creds, GD_ROOT_FOLDER_ID);
+                }
 
                 if (!empty($file_index)) {
-                    // Ask Gemini to pick the best match
                     $file_id = gd_gemini_match($cleanName, (string) $brand_name, $file_index, $gemini_key);
 
                     if ($file_id !== null) {
-                        // Reuse the authenticated service to download + resize
                         $drive_service = gd_make_drive_service($creds);
-                        $local_url = gd_download_and_resize(
+                        $local_url     = gd_download_and_resize(
                             $drive_service,
                             $file_id,
                             ENRICHMENT_TMP_DIR,
@@ -191,7 +273,9 @@ function tat_enrich_discover_images($product_name, $brand_name, $category_name, 
                         );
                         if ($local_url !== null) {
                             $drive_image_url = $local_url;
-                            $drive_source    = 'Google Drive';
+                            $drive_source    = $brand_drive_folder_id
+                                ? 'Brand Drive Folder'
+                                : 'Google Drive';
                         }
                     }
                 }
@@ -200,7 +284,16 @@ function tat_enrich_discover_images($product_name, $brand_name, $category_name, 
     }
 
     // --------------------------------------------------------
-    // Step B2+B3: Serper.dev — always run both queries
+    // Step B3: Non-Drive brand asset URL → Serper site: search
+    // --------------------------------------------------------
+    $brand_site_urls = [];
+    if ($brand_site_domain !== null) {
+        $brand_site_q    = 'site:' . $brand_site_domain . ' "' . $cleanName . '"';
+        $brand_site_urls = tat_serper_image_search($brand_site_q, SERPER_API_KEY, 10);
+    }
+
+    // --------------------------------------------------------
+    // Step B4+B5: Serper.dev — always run both queries
     // --------------------------------------------------------
     $trusted_q = '(site:weedmaps.com OR site:leafly.com OR site:dutchie.com) "' . $namePart . '"';
     $web_q     = '"' . $namePart . '" cannabis product packaging -site:pinterest.com';
@@ -218,14 +311,24 @@ function tat_enrich_discover_images($product_name, $brand_name, $category_name, 
     $all_urls      = [];
     $image_sources = [];
 
-    // 1. Drive image (if found)
+    // 1. Drive image (brand folder or master folder)
     if ($drive_image_url !== null) {
         $all_urls[]      = $drive_image_url;
-        $image_sources[] = 'Google Drive';
+        $image_sources[] = $drive_source ?: 'Google Drive';
     }
 
-    // 2. Trusted menu results
     $seen = $drive_image_url !== null ? [$drive_image_url => true] : [];
+
+    // 2. Non-Drive brand asset site results
+    foreach ($brand_site_urls as $url) {
+        if (!isset($seen[$url])) {
+            $all_urls[]      = $url;
+            $image_sources[] = 'Brand Site';
+            $seen[$url]      = true;
+        }
+    }
+
+    // 3. Trusted menu results
     foreach ($trusted_urls as $url) {
         if (!isset($seen[$url])) {
             $all_urls[]      = $url;
@@ -234,7 +337,7 @@ function tat_enrich_discover_images($product_name, $brand_name, $category_name, 
         }
     }
 
-    // 3. Web search results
+    // 4. Web search results
     foreach ($web_urls as $url) {
         if (!isset($seen[$url])) {
             $all_urls[]      = $url;
@@ -250,9 +353,10 @@ function tat_enrich_discover_images($product_name, $brand_name, $category_name, 
 
     // Overall combined source label (for status badge)
     $sources = [];
-    if ($drive_source !== '')  $sources[] = 'Google Drive';
-    if (!empty($trusted_urls)) $sources[] = 'Trusted Menu';
-    if (!empty($web_urls))     $sources[] = 'Web Search';
+    if ($drive_source !== '')      $sources[] = $drive_source;
+    if (!empty($brand_site_urls))  $sources[] = 'Brand Site';
+    if (!empty($trusted_urls))     $sources[] = 'Trusted Menu';
+    if (!empty($web_urls))         $sources[] = 'Web Search';
     $source_found = implode(' + ', $sources) ?: 'Web Search';
 
     // Populate the "Search Again" box with the plain search term only —
@@ -287,7 +391,7 @@ $source_found  = null;
 $imageWarning  = null;
 $search_query  = null;
 $image_sources = [];
-$images        = tat_enrich_discover_images($product_name, $brand_name, $category_name, $source_found, $imageWarning, $search_query, $image_sources);
+$images        = tat_enrich_discover_images($product_name, $brand_name, $category_name, $source_found, $imageWarning, $search_query, $image_sources, $brand_id, $store_db);
 
 if ($descError && $description === '') {
     echo json_encode(['success' => false, 'error' => $descError]);

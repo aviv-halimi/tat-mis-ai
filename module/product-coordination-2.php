@@ -537,10 +537,12 @@ window.addEventListener('load', function() {
   var enrichStoreDb      = '';
 
   var sourceIcons = {
-    'Google Drive': '&#128190; Source: Google Drive',
-    'Trusted Menu': '&#127758; Source: Trusted Menu',
-    'Web Search':   '&#127760; Source: Web Search',
-    'Uploaded':     '&#128190; Source: Uploaded'
+    'Brand Drive Folder': '&#128190; Source: Brand Drive Folder',
+    'Google Drive':       '&#128190; Source: Google Drive',
+    'Brand Site':         '&#127968; Source: Brand Site',
+    'Trusted Menu':       '&#127758; Source: Trusted Menu',
+    'Web Search':         '&#127760; Source: Web Search',
+    'Uploaded':           '&#128190; Source: Uploaded'
   };
 
   /* ---- helpers ---- */
