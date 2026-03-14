@@ -732,9 +732,11 @@ window.addEventListener('load', function() {
       method: 'POST',
       dataType: 'json',
       data: {
-        query: query,
-        name:  $('#enrichProductName').val().trim(),
-        brand: $('#enrichBrandSelect option:selected').text().trim()
+        query:    query,
+        name:     $('#enrichProductName').val().trim(),
+        brand:    $('#enrichBrandSelect option:selected').text().trim(),
+        brand_id: parseInt($('#enrichModal').data('brand_id') || 0, 10),
+        store_db: enrichStoreDb
       }
     }).done(function(resp) {
       if (resp && resp.success && resp.images && resp.images.length) {

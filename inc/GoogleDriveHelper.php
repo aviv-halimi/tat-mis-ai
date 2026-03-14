@@ -125,7 +125,9 @@ function gd_get_flat_file_index(
  */
 function gd_get_index(array $creds, string $rootFolderId): array
 {
-    $cache_file = BASE_PATH . 'public/tmp/enrichment/.drive_index_cache.json';
+    // Per-folder cache file — allows brand folder and master folder to coexist
+    $safe_id    = preg_replace('/[^A-Za-z0-9_\-]/', '', $rootFolderId);
+    $cache_file = BASE_PATH . 'public/tmp/enrichment/.drive_index_' . $safe_id . '.json';
     $cache_ttl  = 4 * 3600;
 
     // Return cached index if still fresh and for the same root folder
@@ -133,8 +135,7 @@ function gd_get_index(array $creds, string $rootFolderId): array
         $cached = json_decode((string) file_get_contents($cache_file), true);
         if (
             is_array($cached) &&
-            isset($cached['built_at'], $cached['folder'], $cached['files']) &&
-            $cached['folder'] === $rootFolderId &&
+            isset($cached['built_at'], $cached['files']) &&
             (time() - (int) $cached['built_at']) < $cache_ttl
         ) {
             return (array) $cached['files'];
@@ -153,7 +154,6 @@ function gd_get_index(array $creds, string $rootFolderId): array
         $cache_file,
         (string) json_encode([
             'built_at' => time(),
-            'folder'   => $rootFolderId,
             'files'    => $index,
         ])
     );

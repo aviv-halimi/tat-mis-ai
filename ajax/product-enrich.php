@@ -210,12 +210,9 @@ function tat_enrich_discover_images(
         $master_brand_id = $local_brand['master_brand_id'] ?? null;
 
         if ($master_brand_id) {
-            $store1    = getRow(getRs("SELECT db FROM store WHERE store_id = 1 LIMIT 1"));
-            $store1_db = $store1['db'] ?? 'blaze1';
-
             $blaze_brand = getRow(getRs(
-                "SELECT brand_folder FROM `{$store1_db}`.brand
-                  WHERE master_brand_id = ? AND is_active = 1 LIMIT 1",
+                "SELECT brand_folder FROM `blaze1`.brand
+                  WHERE brand_id = ? AND is_active = 1 LIMIT 1",
                 [$master_brand_id]
             ));
             $brand_folder_url = $blaze_brand['brand_folder'] ?? null;
@@ -234,7 +231,8 @@ function tat_enrich_discover_images(
 
     // --------------------------------------------------------
     // Step B2: Google Drive image search via Gemini
-    //   Priority: brand-specific folder > master folder
+    //   Priority 1: brand-specific Drive folder (if set)
+    //   Priority 2: global master Drive folder (always tried as fallback)
     // --------------------------------------------------------
     $drive_image_url = null;
     $drive_source    = '';
@@ -250,32 +248,38 @@ function tat_enrich_discover_images(
             }
 
             if ($gemini_key !== '') {
-                // Choose folder: brand-specific first, then global master
-                $search_folder_id = $brand_drive_folder_id ?? GD_ROOT_FOLDER_ID;
-
-                $file_index = gd_get_index($creds, $search_folder_id);
-
-                // If brand folder returned no results, try master folder as fallback
-                if (empty($file_index) && $brand_drive_folder_id !== null) {
-                    $file_index = gd_get_index($creds, GD_ROOT_FOLDER_ID);
+                // --- Attempt 1: brand-specific folder ---
+                if ($brand_drive_folder_id !== null) {
+                    $brand_index = gd_get_index($creds, $brand_drive_folder_id);
+                    if (!empty($brand_index)) {
+                        $file_id = gd_gemini_match($cleanName, (string) $brand_name, $brand_index, $gemini_key);
+                        if ($file_id !== null) {
+                            $drive_service = gd_make_drive_service($creds);
+                            $local_url     = gd_download_and_resize(
+                                $drive_service, $file_id, ENRICHMENT_TMP_DIR, ENRICHMENT_TMP_URL
+                            );
+                            if ($local_url !== null) {
+                                $drive_image_url = $local_url;
+                                $drive_source    = 'Brand Drive Folder';
+                            }
+                        }
+                    }
                 }
 
-                if (!empty($file_index)) {
-                    $file_id = gd_gemini_match($cleanName, (string) $brand_name, $file_index, $gemini_key);
-
-                    if ($file_id !== null) {
-                        $drive_service = gd_make_drive_service($creds);
-                        $local_url     = gd_download_and_resize(
-                            $drive_service,
-                            $file_id,
-                            ENRICHMENT_TMP_DIR,
-                            ENRICHMENT_TMP_URL
-                        );
-                        if ($local_url !== null) {
-                            $drive_image_url = $local_url;
-                            $drive_source    = $brand_drive_folder_id
-                                ? 'Brand Drive Folder'
-                                : 'Google Drive';
+                // --- Attempt 2: global master folder (always run if brand folder gave no result) ---
+                if ($drive_image_url === null) {
+                    $master_index = gd_get_index($creds, GD_ROOT_FOLDER_ID);
+                    if (!empty($master_index)) {
+                        $file_id = gd_gemini_match($cleanName, (string) $brand_name, $master_index, $gemini_key);
+                        if ($file_id !== null) {
+                            $drive_service = gd_make_drive_service($creds);
+                            $local_url     = gd_download_and_resize(
+                                $drive_service, $file_id, ENRICHMENT_TMP_DIR, ENRICHMENT_TMP_URL
+                            );
+                            if ($local_url !== null) {
+                                $drive_image_url = $local_url;
+                                $drive_source    = 'Google Drive';
+                            }
                         }
                     }
                 }
