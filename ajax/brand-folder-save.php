@@ -72,12 +72,12 @@ if ($brand_folder === '') {
     }
 
     if ($api_key !== '') {
-        // Hit the Drive Files API without a bearer token — succeeds only if folder is public.
-        $url = 'https://www.googleapis.com/drive/v3/files'
-             . '?q='       . rawurlencode("'{$folder_id}' in parents and trashed = false")
-             . '&key='     . rawurlencode($api_key)
-             . '&pageSize=1'
-             . '&fields=files(id)';
+        // Use files.get on the folder ID directly.
+        // files.list requires OAuth even for link-shared folders;
+        // files.get correctly returns 200 for "anyone with the link" folders.
+        $url = 'https://www.googleapis.com/drive/v3/files/' . rawurlencode($folder_id)
+             . '?key='    . rawurlencode($api_key)
+             . '&fields=' . rawurlencode('id,name,mimeType');
 
         $ch = curl_init($url);
         curl_setopt_array($ch, [
@@ -90,8 +90,10 @@ if ($brand_folder === '') {
         curl_close($ch);
 
         if ($http === 200) {
+            // Accessible without auth — public or "anyone with the link"
             $status = 'drive_public';
         } elseif ($http === 403 || $http === 401) {
+            // Needs explicit share with our service account
             $status = 'drive_private';
         } else {
             $status = 'drive_error';
