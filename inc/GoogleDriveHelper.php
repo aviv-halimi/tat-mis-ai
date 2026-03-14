@@ -166,22 +166,17 @@ function gd_get_index(array $creds, string $rootFolderId): array
 // ============================================================
 
 /**
- * Sends the file index to Gemini and asks it to return the single
- * best-matching Drive file ID for "[brand] [product]".
+ * Shared pre-filter + Gemini call used by gd_gemini_match and gd_gemini_match_multi.
  *
- * Pre-filters index to entries sharing at least one meaningful word
- * with the product/brand before sending to Gemini (keeps prompt small).
- *
- * Returns the winning file ID, or null if no match.
+ * @internal
  */
-function gd_gemini_match(
+function _gd_gemini_call(
     string $product_name,
     string $brand_name,
     array  $file_index,
-    string $gemini_key
-): ?string {
-    if (empty($file_index)) return null;
-
+    string $gemini_key,
+    int    $max_results  // 1 = single match, >1 = ranked list
+): string /* raw Gemini text */ {
     // Pre-filter by keyword overlap (at least one 3+ char word)
     $search_words = array_filter(
         preg_split('/\s+/', strtolower(trim($brand_name . ' ' . $product_name))),
@@ -210,20 +205,32 @@ function gd_gemini_match(
         array_map(fn(array $f) => $f['id'] . ' | ' . $f['name'], $file_index)
     );
 
+    if ($max_results === 1) {
+        $return_instruction =
+            "Return ONLY the single best-matching Google Drive File ID (the part before the ' | '). " .
+            "If no reasonable match exists, return the single word NULL.";
+    } else {
+        $return_instruction =
+            "Return up to {$max_results} Google Drive File IDs, one per line, ranked best-to-worst match. " .
+            "Only include IDs with a genuine match. " .
+            "If no reasonable match exists at all, return the single word NULL.";
+    }
+
     $prompt =
         "You are an expert inventory librarian for a cannabis company.\n" .
-        "Goal: Match the product \"{$brand_name} {$product_name}\" to the best possible image file from the following list.\n" .
+        "Goal: Match the product \"{$brand_name} {$product_name}\" to the best possible image file(s) from the following list.\n" .
         "Filename List:\n{$filename_list}\n\n" .
         "Rules:\n" .
         "- Prioritize files that match both brand and strain name.\n" .
         "- Ignore file extensions when matching.\n" .
-        "- If multiple versions exist (e.g., 'Product_Final' vs 'Product_V1'), pick the one that looks most like a final asset.\n" .
-        "- Return ONLY the Google Drive File ID (the part before the ' | '). " .
-        "If no reasonable match exists, return the single word NULL.";
+        "- If multiple versions exist (e.g., 'Product_Final' vs 'Product_V1'), prefer the one that looks most like a final asset.\n" .
+        "- {$return_instruction}";
 
     $model = (defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-2.0-flash';
     $url   = 'https://generativelanguage.googleapis.com/v1beta/models/' .
              urlencode($model) . ':generateContent?key=' . urlencode($gemini_key);
+
+    $tokens = $max_results === 1 ? 64 : ($max_results * 50);
 
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -232,24 +239,53 @@ function gd_gemini_match(
         CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
         CURLOPT_POSTFIELDS     => (string) json_encode([
             'contents'         => [['parts' => [['text' => $prompt]]]],
-            'generationConfig' => ['temperature' => 0, 'maxOutputTokens' => 64],
+            'generationConfig' => ['temperature' => 0, 'maxOutputTokens' => $tokens],
         ]),
         CURLOPT_TIMEOUT => 60,
     ]);
     $resp = (string) curl_exec($ch);
     curl_close($ch);
 
-    $json   = json_decode($resp, true);
-    $result = trim((string) ($json['candidates'][0]['content']['parts'][0]['text'] ?? ''));
+    $json = json_decode($resp, true);
+    return trim((string) ($json['candidates'][0]['content']['parts'][0]['text'] ?? ''));
+}
 
+/**
+ * Returns the single best-matching Drive file ID, or null.
+ * (Kept for backwards compatibility.)
+ */
+function gd_gemini_match(
+    string $product_name,
+    string $brand_name,
+    array  $file_index,
+    string $gemini_key
+): ?string {
+    $result = _gd_gemini_call($product_name, $brand_name, $file_index, $gemini_key, 1);
     if ($result === '' || strtoupper($result) === 'NULL') return null;
-
-    // Extract the first token that looks like a Drive file ID (20+ alphanumeric chars)
-    if (preg_match('/\b([A-Za-z0-9_\-]{20,})\b/', $result, $m)) {
-        return $m[1];
-    }
-
+    if (preg_match('/\b([A-Za-z0-9_\-]{20,})\b/', $result, $m)) return $m[1];
     return null;
+}
+
+/**
+ * Returns up to $max Drive file IDs ranked best-to-worst, or [] if no match.
+ */
+function gd_gemini_match_multi(
+    string $product_name,
+    string $brand_name,
+    array  $file_index,
+    string $gemini_key,
+    int    $max = 5
+): array {
+    if (empty($file_index)) return [];
+
+    $result = _gd_gemini_call($product_name, $brand_name, $file_index, $gemini_key, $max);
+    if ($result === '' || strtoupper(trim($result)) === 'NULL') return [];
+
+    // Extract all Drive file IDs — each is 20+ alphanumeric/dash/underscore chars
+    preg_match_all('/\b([A-Za-z0-9_\-]{20,})\b/', $result, $matches);
+    $ids = array_values(array_unique($matches[1] ?? []));
+
+    return array_slice($ids, 0, $max);
 }
 
 // ============================================================

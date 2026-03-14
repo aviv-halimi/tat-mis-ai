@@ -35,8 +35,9 @@ $serper_key = 'b3c39559a928534f00749286e3b8503856c72c02';
 //   1a. Brand-specific folder (if brand_id + store_db provided)
 //   1b. Global master folder (always tried as fallback)
 // --------------------------------------------------------
-$drive_image_url = null;
-$drive_source    = '';
+$brand_drive_urls  = [];
+$master_drive_urls = [];
+$drive_source      = '';
 
 $creds_path = BASE_PATH . 'credentials/service-account.json';
 if (file_exists($creds_path) && ($name !== '' || $brand !== '' || $query !== '')) {
@@ -84,40 +85,46 @@ if (file_exists($creds_path) && ($name !== '' || $brand !== '' || $query !== '')
                 }
             }
 
+            $svc_obj = null;   // lazy Drive service, shared across both folder searches
+
             if ($brand_drive_folder_id !== null) {
                 $brand_index = gd_get_index($creds, $brand_drive_folder_id);
                 if (!empty($brand_index)) {
-                    $file_id = gd_gemini_match($search_name, $search_brand, $brand_index, $gemini_key);
-                    if ($file_id !== null) {
-                        $svc       = gd_make_drive_service($creds);
-                        $local_url = gd_download_and_resize(
-                            $svc, $file_id,
-                            BASE_PATH . 'public/tmp/enrichment',
-                            BASE_URL . '/public/tmp/enrichment'
-                        );
-                        if ($local_url !== null) {
-                            $drive_image_url = $local_url;
-                            $drive_source    = 'Brand Drive Folder';
+                    $file_ids = gd_gemini_match_multi($search_name, $search_brand, $brand_index, $gemini_key, 5);
+                    if (!empty($file_ids)) {
+                        $svc_obj = gd_make_drive_service($creds);
+                        foreach ($file_ids as $fid) {
+                            $local_url = gd_download_and_resize(
+                                $svc_obj, $fid,
+                                BASE_PATH . 'public/tmp/enrichment',
+                                BASE_URL . '/public/tmp/enrichment'
+                            );
+                            if ($local_url !== null) {
+                                $brand_drive_urls[] = $local_url;
+                                $drive_source       = 'Brand Drive Folder';
+                            }
                         }
                     }
                 }
             }
 
-            // --- 1b: global master folder (if brand folder gave no result) ---
-            if ($drive_image_url === null) {
+            // --- 1b: global master folder (up to 5, only if brand folder gave nothing) ---
+            if (empty($brand_drive_urls)) {
                 $master_index = gd_get_index($creds, PIS_ROOT_FOLDER_ID);
                 if (!empty($master_index)) {
-                    $file_id = gd_gemini_match($search_name, $search_brand, $master_index, $gemini_key);
-                    if ($file_id !== null) {
-                        $svc       = gd_make_drive_service($creds);
-                        $local_url = gd_download_and_resize(
-                            $svc, $file_id,
-                            BASE_PATH . 'public/tmp/enrichment',
-                            BASE_URL . '/public/tmp/enrichment'
-                        );
-                        if ($local_url !== null) {
-                            $drive_image_url = $local_url;
-                            $drive_source    = 'Google Drive';
+                    $file_ids = gd_gemini_match_multi($search_name, $search_brand, $master_index, $gemini_key, 5);
+                    if (!empty($file_ids)) {
+                        if ($svc_obj === null) $svc_obj = gd_make_drive_service($creds);
+                        foreach ($file_ids as $fid) {
+                            $local_url = gd_download_and_resize(
+                                $svc_obj, $fid,
+                                BASE_PATH . 'public/tmp/enrichment',
+                                BASE_URL . '/public/tmp/enrichment'
+                            );
+                            if ($local_url !== null) {
+                                $master_drive_urls[] = $local_url;
+                                $drive_source        = 'Google Drive';
+                            }
                         }
                     }
                 }
@@ -162,20 +169,30 @@ function pis_serper_search(string $query, string $apiKey, int $num = 10): array
 
 $trusted_q    = '(site:weedmaps.com OR site:leafly.com OR site:dutchie.com) "' . $query . '"';
 $web_q        = '"' . $query . '" cannabis product packaging -site:pinterest.com';
-$trusted_urls = pis_serper_search($trusted_q, $serper_key, 10);
-$web_urls     = pis_serper_search($web_q,     $serper_key, 10);
+$trusted_urls = pis_serper_search($trusted_q, $serper_key, 5);
+$web_urls     = pis_serper_search($web_q,     $serper_key, 5);
 
 // --------------------------------------------------------
-// Combine: Drive → Trusted Menu → Web Search, parallel sources[]
+// Combine: Brand Drive → Master Drive → Trusted Menu → Web Search
 // --------------------------------------------------------
 $all_urls      = [];
 $image_sources = [];
 $seen          = [];
 
-if ($drive_image_url !== null) {
-    $all_urls[]             = $drive_image_url;
-    $image_sources[]        = $drive_source ?: 'Google Drive';
-    $seen[$drive_image_url] = true;
+foreach ($brand_drive_urls as $url) {
+    if (!isset($seen[$url])) {
+        $all_urls[]      = $url;
+        $image_sources[] = 'Brand Drive Folder';
+        $seen[$url]      = true;
+    }
+}
+
+foreach ($master_drive_urls as $url) {
+    if (!isset($seen[$url])) {
+        $all_urls[]      = $url;
+        $image_sources[] = 'Google Drive';
+        $seen[$url]      = true;
+    }
 }
 
 foreach ($trusted_urls as $url) {
@@ -201,9 +218,10 @@ if (empty($all_urls)) {
 
 // Overall source label for the status badge
 $sources = [];
-if ($drive_source !== '')    $sources[] = $drive_source;
-if (!empty($trusted_urls))   $sources[] = 'Trusted Menu';
-if (!empty($web_urls))       $sources[] = 'Web Search';
+if (!empty($brand_drive_urls))  $sources[] = 'Brand Drive Folder';
+if (!empty($master_drive_urls)) $sources[] = 'Google Drive';
+if (!empty($trusted_urls))      $sources[] = 'Trusted Menu';
+if (!empty($web_urls))          $sources[] = 'Web Search';
 $image_source = implode(' + ', $sources) ?: 'Web Search';
 
 echo json_encode([

@@ -230,12 +230,13 @@ function tat_enrich_discover_images(
     }
 
     // --------------------------------------------------------
-    // Step B2: Google Drive image search via Gemini
+    // Step B2: Google Drive image search via Gemini (up to 5 per folder)
     //   Priority 1: brand-specific Drive folder (if set)
-    //   Priority 2: global master Drive folder (always tried as fallback)
+    //   Priority 2: global master Drive folder (only if brand folder gave nothing)
     // --------------------------------------------------------
-    $drive_image_url = null;
-    $drive_source    = '';
+    $brand_drive_urls  = [];
+    $master_drive_urls = [];
+    $drive_service_obj = null;   // lazy-init; reused across both folder searches
 
     $creds_path = BASE_PATH . 'credentials/service-account.json';
     if (file_exists($creds_path)) {
@@ -248,37 +249,31 @@ function tat_enrich_discover_images(
             }
 
             if ($gemini_key !== '') {
-                // --- Attempt 1: brand-specific folder ---
+                // --- Attempt 1: brand-specific folder (up to 5 images) ---
                 if ($brand_drive_folder_id !== null) {
                     $brand_index = gd_get_index($creds, $brand_drive_folder_id);
                     if (!empty($brand_index)) {
-                        $file_id = gd_gemini_match($cleanName, (string) $brand_name, $brand_index, $gemini_key);
-                        if ($file_id !== null) {
-                            $drive_service = gd_make_drive_service($creds);
-                            $local_url     = gd_download_and_resize(
-                                $drive_service, $file_id, ENRICHMENT_TMP_DIR, ENRICHMENT_TMP_URL
-                            );
-                            if ($local_url !== null) {
-                                $drive_image_url = $local_url;
-                                $drive_source    = 'Brand Drive Folder';
+                        $file_ids = gd_gemini_match_multi($cleanName, (string) $brand_name, $brand_index, $gemini_key, 5);
+                        if (!empty($file_ids)) {
+                            $drive_service_obj = gd_make_drive_service($creds);
+                            foreach ($file_ids as $fid) {
+                                $url = gd_download_and_resize($drive_service_obj, $fid, ENRICHMENT_TMP_DIR, ENRICHMENT_TMP_URL);
+                                if ($url !== null) $brand_drive_urls[] = $url;
                             }
                         }
                     }
                 }
 
-                // --- Attempt 2: global master folder (always run if brand folder gave no result) ---
-                if ($drive_image_url === null) {
+                // --- Attempt 2: global master folder (up to 5 images, only if brand gave nothing) ---
+                if (empty($brand_drive_urls)) {
                     $master_index = gd_get_index($creds, GD_ROOT_FOLDER_ID);
                     if (!empty($master_index)) {
-                        $file_id = gd_gemini_match($cleanName, (string) $brand_name, $master_index, $gemini_key);
-                        if ($file_id !== null) {
-                            $drive_service = gd_make_drive_service($creds);
-                            $local_url     = gd_download_and_resize(
-                                $drive_service, $file_id, ENRICHMENT_TMP_DIR, ENRICHMENT_TMP_URL
-                            );
-                            if ($local_url !== null) {
-                                $drive_image_url = $local_url;
-                                $drive_source    = 'Google Drive';
+                        $file_ids = gd_gemini_match_multi($cleanName, (string) $brand_name, $master_index, $gemini_key, 5);
+                        if (!empty($file_ids)) {
+                            if ($drive_service_obj === null) $drive_service_obj = gd_make_drive_service($creds);
+                            foreach ($file_ids as $fid) {
+                                $url = gd_download_and_resize($drive_service_obj, $fid, ENRICHMENT_TMP_DIR, ENRICHMENT_TMP_URL);
+                                if ($url !== null) $master_drive_urls[] = $url;
                             }
                         }
                     }
@@ -293,37 +288,42 @@ function tat_enrich_discover_images(
     $brand_site_urls = [];
     if ($brand_site_domain !== null) {
         $brand_site_q    = 'site:' . $brand_site_domain . ' "' . $cleanName . '"';
-        $brand_site_urls = tat_serper_image_search($brand_site_q, SERPER_API_KEY, 10);
+        $brand_site_urls = tat_serper_image_search($brand_site_q, SERPER_API_KEY, 5);
     }
 
     // --------------------------------------------------------
-    // Step B4+B5: Serper.dev — always run both queries
+    // Step B4+B5: Serper.dev — always run both queries (5 each)
     // --------------------------------------------------------
     $trusted_q = '(site:weedmaps.com OR site:leafly.com OR site:dutchie.com) "' . $namePart . '"';
     $web_q     = '"' . $namePart . '" cannabis product packaging -site:pinterest.com';
 
-    $trusted_urls = tat_serper_image_search($trusted_q, SERPER_API_KEY, 10);
-    $web_urls     = tat_serper_image_search($web_q,     SERPER_API_KEY, 10);
-
-    // Merge Serper results: trusted first, deduplicate
-    $serper_urls = array_values(array_unique(array_merge($trusted_urls, $web_urls)));
+    $trusted_urls = tat_serper_image_search($trusted_q, SERPER_API_KEY, 5);
+    $web_urls     = tat_serper_image_search($web_q,     SERPER_API_KEY, 5);
 
     // --------------------------------------------------------
-    // Combine: Drive image first, then Serper results
-    // Build parallel image_sources[] so each URL has its own label
+    // Combine all sources — up to 5 per source, deduped
+    // Order: Brand Drive → Master Drive → Brand Site → Trusted Menu → Web
     // --------------------------------------------------------
     $all_urls      = [];
     $image_sources = [];
+    $seen          = [];
 
-    // 1. Drive image (brand folder or master folder)
-    if ($drive_image_url !== null) {
-        $all_urls[]      = $drive_image_url;
-        $image_sources[] = $drive_source ?: 'Google Drive';
+    foreach ($brand_drive_urls as $url) {
+        if (!isset($seen[$url])) {
+            $all_urls[]      = $url;
+            $image_sources[] = 'Brand Drive Folder';
+            $seen[$url]      = true;
+        }
     }
 
-    $seen = $drive_image_url !== null ? [$drive_image_url => true] : [];
+    foreach ($master_drive_urls as $url) {
+        if (!isset($seen[$url])) {
+            $all_urls[]      = $url;
+            $image_sources[] = 'Google Drive';
+            $seen[$url]      = true;
+        }
+    }
 
-    // 2. Non-Drive brand asset site results
     foreach ($brand_site_urls as $url) {
         if (!isset($seen[$url])) {
             $all_urls[]      = $url;
@@ -332,7 +332,6 @@ function tat_enrich_discover_images(
         }
     }
 
-    // 3. Trusted menu results
     foreach ($trusted_urls as $url) {
         if (!isset($seen[$url])) {
             $all_urls[]      = $url;
@@ -341,7 +340,6 @@ function tat_enrich_discover_images(
         }
     }
 
-    // 4. Web search results
     foreach ($web_urls as $url) {
         if (!isset($seen[$url])) {
             $all_urls[]      = $url;
@@ -357,10 +355,11 @@ function tat_enrich_discover_images(
 
     // Overall combined source label (for status badge)
     $sources = [];
-    if ($drive_source !== '')      $sources[] = $drive_source;
-    if (!empty($brand_site_urls))  $sources[] = 'Brand Site';
-    if (!empty($trusted_urls))     $sources[] = 'Trusted Menu';
-    if (!empty($web_urls))         $sources[] = 'Web Search';
+    if (!empty($brand_drive_urls))  $sources[] = 'Brand Drive Folder';
+    if (!empty($master_drive_urls)) $sources[] = 'Google Drive';
+    if (!empty($brand_site_urls))   $sources[] = 'Brand Site';
+    if (!empty($trusted_urls))      $sources[] = 'Trusted Menu';
+    if (!empty($web_urls))          $sources[] = 'Web Search';
     $source_found = implode(' + ', $sources) ?: 'Web Search';
 
     // Populate the "Search Again" box with the plain search term only —

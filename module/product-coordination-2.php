@@ -386,9 +386,9 @@ else {
             <!-- LEFT: Image carousel -->
             <div class="col-sm-5">
               <!-- Image box — click to open full size in new tab -->
-              <div id="enrichImageBox" style="border:1px solid #ddd;border-radius:4px;padding:8px;height:520px;display:flex;align-items:center;justify-content:center;background:#f9f9f9;position:relative;overflow:hidden;">
+              <div id="enrichImageBox" style="border:1px solid #ddd;border-radius:4px;padding:8px;height:320px;display:flex;align-items:center;justify-content:center;background:#f9f9f9;position:relative;overflow:hidden;">
                 <img id="enrichImage" src="" alt="Product image"
-                     style="max-width:100%;max-height:504px;display:none;border-radius:3px;cursor:zoom-in;"
+                     style="max-width:100%;max-height:304px;display:none;border-radius:3px;cursor:zoom-in;"
                      title="Click to open full size"
                 />
                 <span id="enrichImagePlaceholder" style="color:#aaa;font-size:13px;">No images found.</span>
