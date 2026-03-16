@@ -25,7 +25,7 @@ if (!$current) {
 
 $next = getRow(getRs(
     "SELECT po_id, po_code, ai_invoice_number, ai_total FROM po " .
-    "WHERE " . is_enabled('po') . " AND store_id = ? AND po_status_id = 5 AND po_id > ? ORDER BY po_id ASC LIMIT 1",
+    "WHERE " . is_enabled('po') . " AND store_id = ? AND po_status_id = 5 AND po_type_id = 1 AND po_id > ? ORDER BY po_id ASC LIMIT 1",
     array($current['store_id'], $current['po_id'])
 ));
 
