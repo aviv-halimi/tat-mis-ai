@@ -826,8 +826,21 @@ if ($t['po_status_id'] > 3) {
   if ($t['po_status_id'] == 5) {
     $_invoice_pdf_url = (str_len($_invoice_filename)) ? '/po-download-r/' . $po_code : '';
     echo '
-<style>.po-status5-layout { display: flex; gap: 1rem; margin-top: 1rem; } .po-status5-layout .po-status5-pdf-col { flex: 1; min-width: 0; } .po-status5-layout .po-status5-info-col { flex: 0 0 340px; max-width: 340px; }</style>
-<div class="row mt-3 po-status5-layout">
+<style>
+.po-status5-layout { display: flex; gap: 1.25rem; margin-top: 1rem; align-items: flex-start; }
+.po-status5-layout .po-status5-pdf-col { flex: 1; min-width: 0; }
+.po-status5-layout .po-status5-info-col { flex: 0 0 460px; max-width: 460px; }
+.po5-card { border-radius: 8px; border: 1px solid #e0e0e0; background: #fff; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.07); margin-top: 1rem; }
+.po5-card-header { padding: 12px 18px; background: #f7f8fa; border-bottom: 1px solid #e0e0e0; font-size: 12px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: .06em; }
+.po5-data-grid { display: grid; grid-template-columns: 1fr 1fr; }
+.po5-data-cell { padding: 12px 18px; border-bottom: 1px solid #f0f0f0; }
+.po5-data-cell:nth-child(odd) { border-right: 1px solid #f0f0f0; }
+.po5-data-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: #999; margin-bottom: 3px; white-space: nowrap; }
+.po5-data-value { font-size: 14px; font-weight: 600; color: #222; white-space: nowrap; }
+.po5-validation-row { padding: 12px 18px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.po5-push-row { padding: 14px 18px; }
+</style>
+<div class="po-status5-layout">
   <div class="po-status5-pdf-col">';
     if ($_invoice_pdf_url) {
       echo '
@@ -845,38 +858,29 @@ if ($t['po_status_id'] > 3) {
     echo '
   </div>
   <div class="po-status5-info-col">
-    <div class="panel mt-3">
-      <div class="panel-body">
-        <div class="row form-input-flat mb-2">
-          <div class="col-sm-6 col-form-label">Date Ordered: <b>' . $_date_ordered . '</b></div>
-          <div class="col-sm-6 col-form-label">Date Received: <b>' . $_date_received . '</b></div>
-        </div>
-        <div class="row form-input-flat mb-2">
-          <div class="col-sm-6 col-form-label">Invoice #: <b>' . htmlspecialchars($_inv_num) . '</b></div>
-          <div class="col-sm-6 col-form-label">AI Invoice #: ' . $_ai_inv_display . $_ai_inv_icon . '</div>
-        </div>
-        <div class="row form-input-flat mb-2">
-          <div class="col-sm-6 col-form-label">QBO Payment Terms: <b>' . $_qbo_term . '</b></div>
-          <div class="col-sm-6 col-form-label">AI Payment Terms: <b>' . $_inv_terms . '</b></div>
-        </div>
-        <div class="row form-input-flat mb-2">
-          <div class="col-sm-6 col-form-label">Amount Due: <b>' . $_amount_due . '</b></div>
-          <div class="col-sm-6 col-form-label">AI Amount Due: <b>' . $_ai_total . '</b></div>
-        </div>
-        <div class="row form-input-flat mb-2">
-          <div class="col-sm-6 col-form-label">AI Validation: ' . $_ai_validation . '</div>
-          <div class="col-sm-6 col-form-label"><button type="button" class="btn btn-sm btn-outline-primary btn-invoice-validate-po" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-refresh"></i> Re-run AI Validation</button></div>
-        </div>
-        <div class="row form-input-flat mt-3 mb-0">
-          <div class="col-12">';
+    <div class="po5-card">
+      <div class="po5-card-header">Invoice Details</div>
+      <div class="po5-data-grid">
+        <div class="po5-data-cell"><div class="po5-data-label">Date Ordered</div><div class="po5-data-value">' . $_date_ordered . '</div></div>
+        <div class="po5-data-cell"><div class="po5-data-label">Date Received</div><div class="po5-data-value">' . $_date_received . '</div></div>
+        <div class="po5-data-cell"><div class="po5-data-label">Invoice #</div><div class="po5-data-value">' . htmlspecialchars($_inv_num) . '</div></div>
+        <div class="po5-data-cell"><div class="po5-data-label">AI Invoice #</div><div class="po5-data-value">' . $_ai_inv_display . $_ai_inv_icon . '</div></div>
+        <div class="po5-data-cell"><div class="po5-data-label">QBO Payment Terms</div><div class="po5-data-value">' . $_qbo_term . '</div></div>
+        <div class="po5-data-cell"><div class="po5-data-label">AI Payment Terms</div><div class="po5-data-value">' . $_inv_terms . '</div></div>
+        <div class="po5-data-cell"><div class="po5-data-label">Amount Due</div><div class="po5-data-value">' . $_amount_due . '</div></div>
+        <div class="po5-data-cell"><div class="po5-data-label">AI Amount Due</div><div class="po5-data-value">' . $_ai_total . '</div></div>
+      </div>
+      <div class="po5-validation-row">
+        <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#999;">AI Validation</span>' . $_ai_validation . '</div>
+        <button type="button" class="btn btn-sm btn-outline-primary btn-invoice-validate-po" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '" style="white-space:nowrap;"><i class="fa fa-refresh mr-1"></i> Re-run AI Validation</button>
+      </div>
+      <div class="po5-push-row">';
     $status6_row = getRow(getRs("SELECT module_code FROM po_status WHERE po_status_id = 6"));
     $can_push_qbo = $status6_row && $_Session->HasModulePermission($status6_row['module_code']);
     if ($can_push_qbo) {
       echo '<button type="button" class="btn btn-lg btn-primary btn-block btn-po-qbo-push-advance" data-c="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '" data-store-id="' . (int)$t['store_id'] . '" data-po-id="' . (int)$_po_id . '"><i class="fa fa-external-link-alt mr-2"></i> Push to QBO and Advance</button>';
     }
     echo '
-          </div>
-        </div>
       </div>
     </div>
   </div>
