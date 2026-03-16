@@ -74,6 +74,54 @@ function tat_enrich_generate_description($product_name, $brand_name, $category_n
 // ============================================================
 
 /**
+ * Extract the Blaze flowerType from parenthetical hints in the product name.
+ * (I/H) → Indica-Dominant, (S/H) → Sativa-Dominant,
+ * (I) → Indica, (S) → Sativa, (H) → Hybrid.
+ * Returns one of the accepted Blaze values, or '' if unrecognised.
+ */
+function tat_extract_flower_type(string $name): string
+{
+    if (preg_match('/\(I\/H\)/i', $name)) return 'Indica-Dominant';
+    if (preg_match('/\(S\/H\)/i', $name)) return 'Sativa-Dominant';
+    if (preg_match('/\(I\)/i',    $name)) return 'Indica';
+    if (preg_match('/\(S\)/i',    $name)) return 'Sativa';
+    if (preg_match('/\(H\)/i',    $name)) return 'Hybrid';
+    return '';
+}
+
+/**
+ * Extract weight information from a product name (e.g., "3.5g", "100mg").
+ * Maps to Blaze weightPerUnit values; returns customGramType/customWeight only
+ * when weightPerUnit = "Custom Weight".
+ *
+ * Returns array with keys: weight_per_unit, custom_gram_type, custom_weight.
+ */
+function tat_extract_weight_info(string $name): array
+{
+    $grams = null;
+
+    // mg first (100mg → 0.1g using factor 0.001)
+    if (preg_match('/(\d+(?:\.\d+)?)\s*mg/i', $name, $m)) {
+        $grams = round((float) $m[1] * 0.001, 4);
+    }
+    // grams — word-boundary safe so "1g" doesn't clash with "10g"
+    elseif (preg_match('/(\d+(?:\.\d+)?)\s*g(?:ram)?s?(?!\w)/i', $name, $m)) {
+        $grams = (float) $m[1];
+    }
+
+    if ($grams === null) {
+        return ['weight_per_unit' => 'Each', 'custom_gram_type' => null, 'custom_weight' => null];
+    }
+
+    // Exact matches for standard Blaze units (epsilon comparison for floats)
+    if (abs($grams - 0.5) < 0.0001) return ['weight_per_unit' => 'Half Gram Unit',  'custom_gram_type' => null, 'custom_weight' => null];
+    if (abs($grams - 1.0) < 0.0001) return ['weight_per_unit' => 'Full Gram Unit',   'custom_gram_type' => null, 'custom_weight' => null];
+    if (abs($grams - 3.5) < 0.0001) return ['weight_per_unit' => 'Eighth Per Unit',  'custom_gram_type' => null, 'custom_weight' => null];
+
+    return ['weight_per_unit' => 'Custom Weight', 'custom_gram_type' => 'Gram', 'custom_weight' => $grams];
+}
+
+/**
  * Strip parenthetical strain codes like (I), (S), (H) from product name.
  */
 function tat_enrich_clean_name(string $name): string
@@ -396,24 +444,32 @@ $search_query  = null;
 $image_sources = [];
 $images        = tat_enrich_discover_images($product_name, $brand_name, $category_name, $source_found, $imageWarning, $search_query, $image_sources, $brand_id, $store_db);
 
+$flower_type = tat_extract_flower_type($product_name);
+$weight_info = tat_extract_weight_info($product_name);
+
 if ($descError && $description === '') {
     echo json_encode(['success' => false, 'error' => $descError]);
     exit;
 }
 
 echo json_encode([
-    'success'        => true,
-    'description'    => $description,
-    'images'         => $images,
-    'image_sources'  => $image_sources,   // per-image source label, parallel to images[]
-    'source_found'   => $source_found ?: 'Web Search',
-    'image_source'   => $source_found ?: 'Web Search',
-    'search_query'   => $search_query ?: '',
-    'warning'        => $imageWarning,
-    'brand'          => $brand_name,
-    'brand_id'       => $brand_id,
-    'category'       => $category_name,
-    'category_id'    => $category_id,
-    'brands'         => $brands,
-    'categories'     => $categories,
+    'success'          => true,
+    'description'      => $description,
+    'images'           => $images,
+    'image_sources'    => $image_sources,
+    'source_found'     => $source_found ?: 'Web Search',
+    'image_source'     => $source_found ?: 'Web Search',
+    'search_query'     => $search_query ?: '',
+    'warning'          => $imageWarning,
+    'brand'            => $brand_name,
+    'brand_id'         => $brand_id,
+    'category'         => $category_name,
+    'category_id'      => $category_id,
+    'brands'           => $brands,
+    'categories'       => $categories,
+    // Flower type & weight (pre-fill modal fields)
+    'flower_type'      => $flower_type,
+    'weight_per_unit'  => $weight_info['weight_per_unit'],
+    'custom_gram_type' => $weight_info['custom_gram_type'],
+    'custom_weight'    => $weight_info['custom_weight'],
 ]);

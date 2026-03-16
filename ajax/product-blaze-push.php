@@ -27,17 +27,22 @@ register_shutdown_function(function() {
     }
 });
 
-$product_name  = trim((string) ($_POST['name']          ?? ''));
-$description   = trim((string) ($_POST['description']   ?? ''));
-$price         = isset($_POST['price'])       && is_numeric($_POST['price'])       ? (float) $_POST['price']       : 0;
-$davis_price   = isset($_POST['davis_price']) && is_numeric($_POST['davis_price']) ? (float) $_POST['davis_price'] : null;
-$dixon_price   = isset($_POST['dixon_price']) && is_numeric($_POST['dixon_price']) ? (float) $_POST['dixon_price'] : null;
-$brand_id      = (int) ($_POST['brand_id']     ?? 0);
-$category_id   = (int) ($_POST['category_id']  ?? 0);
-$store_db      = preg_replace('/[^a-zA-Z0-9_]/', '', trim((string) ($_POST['store_db']  ?? '')));
-$vendor_id     = (int) ($_POST['vendor_id']    ?? 0);
-$po_product_id = (int) ($_POST['po_product_id'] ?? 0);
-$image_url     = trim((string) ($_POST['image_url'] ?? ''));
+$product_name    = trim((string) ($_POST['name']          ?? ''));
+$description     = trim((string) ($_POST['description']   ?? ''));
+$price           = isset($_POST['price'])       && is_numeric($_POST['price'])       ? (float) $_POST['price']       : 0;
+$davis_price     = isset($_POST['davis_price']) && is_numeric($_POST['davis_price']) ? (float) $_POST['davis_price'] : null;
+$dixon_price     = isset($_POST['dixon_price']) && is_numeric($_POST['dixon_price']) ? (float) $_POST['dixon_price'] : null;
+$brand_id        = (int) ($_POST['brand_id']     ?? 0);
+$category_id     = (int) ($_POST['category_id']  ?? 0);
+$store_db        = preg_replace('/[^a-zA-Z0-9_]/', '', trim((string) ($_POST['store_db']  ?? '')));
+$vendor_id       = (int) ($_POST['vendor_id']    ?? 0);
+$po_product_id   = (int) ($_POST['po_product_id'] ?? 0);
+$image_url       = trim((string) ($_POST['image_url'] ?? ''));
+$flower_type     = trim((string) ($_POST['flower_type']     ?? ''));
+$weight_per_unit = trim((string) ($_POST['weight_per_unit'] ?? 'Each')) ?: 'Each';
+$custom_gram_type = trim((string) ($_POST['custom_gram_type'] ?? 'Gram'));
+$custom_weight   = isset($_POST['custom_weight']) && is_numeric($_POST['custom_weight']) && (float) $_POST['custom_weight'] > 0
+                   ? (float) $_POST['custom_weight'] : null;
 
 if ($product_name === '') {
     echo json_encode(['success' => false, 'error' => 'Missing product name.']);
@@ -224,15 +229,23 @@ if ($image_url !== '') {
 
 // ---- Build Blaze ProductAddRequest payload ----
 $product_payload = [
-    'name'        => $product_name,
-    'description' => $description,
-    'unitPrice'   => $price,
-    'active'      => true,
+    'name'          => $product_name,
+    'description'   => $description,
+    'unitPrice'     => $price,
+    'active'        => true,
+    'weightPerUnit' => $weight_per_unit,
 ];
 
-if ($blaze_brand_id)    $product_payload['brandId']   = $blaze_brand_id;
+if ($blaze_brand_id)    $product_payload['brandId']    = $blaze_brand_id;
 if ($blaze_category_id) $product_payload['categoryId'] = $blaze_category_id;
 if ($blaze_vendor_id)   $product_payload['vendorId']   = $blaze_vendor_id;
+if ($flower_type !== '') $product_payload['flowerType'] = $flower_type;
+
+// customGramType and customWeight are only sent for Custom Weight
+if ($weight_per_unit === 'Custom Weight' && $custom_weight !== null) {
+    $product_payload['customGramType'] = $custom_gram_type ?: 'Gram';
+    $product_payload['customWeight']   = $custom_weight;
+}
 
 // ---- POST to create the product ----
 $blaze_endpoint = $api_url . 'products';

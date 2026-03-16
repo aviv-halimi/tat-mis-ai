@@ -428,17 +428,51 @@ else {
               </div>
 
               <div class="row" style="margin-bottom:8px;">
-                <div class="col-sm-6">
+                <div class="col-sm-4">
                   <label style="font-size:12px;margin-bottom:2px;">Brand</label>
                   <select id="enrichBrandSelect" class="form-control input-sm">
                     <option value="">-- Loading… --</option>
                   </select>
                 </div>
-                <div class="col-sm-6">
+                <div class="col-sm-4">
                   <label style="font-size:12px;margin-bottom:2px;">Category</label>
                   <select id="enrichCategorySelect" class="form-control input-sm">
                     <option value="">-- Loading… --</option>
                   </select>
+                </div>
+                <div class="col-sm-4">
+                  <label style="font-size:12px;margin-bottom:2px;">Flower Type</label>
+                  <select id="enrichFlowerType" class="form-control input-sm">
+                    <option value="">-- Unknown --</option>
+                    <option>Indica</option>
+                    <option>Sativa</option>
+                    <option>Hybrid</option>
+                    <option>Sativa Leaning</option>
+                    <option>Indica Leaning</option>
+                    <option>Indica-Dominant</option>
+                    <option>Sativa-Dominant</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="row" style="margin-bottom:8px;">
+                <div class="col-sm-4">
+                  <label style="font-size:12px;margin-bottom:2px;">Weight Per Unit</label>
+                  <select id="enrichWeightPerUnit" class="form-control input-sm">
+                    <option>Each</option>
+                    <option>Half Gram Unit</option>
+                    <option>Full Gram Unit</option>
+                    <option>Eighth Per Unit</option>
+                    <option>Custom Weight</option>
+                  </select>
+                </div>
+                <div class="col-sm-4" id="enrichCustomGramTypeWrap" style="display:none;">
+                  <label style="font-size:12px;margin-bottom:2px;">Gram Type</label>
+                  <input type="text" id="enrichCustomGramType" class="form-control input-sm" value="Gram" />
+                </div>
+                <div class="col-sm-4" id="enrichCustomWeightWrap" style="display:none;">
+                  <label style="font-size:12px;margin-bottom:2px;">Custom Weight (g)</label>
+                  <input type="number" id="enrichCustomWeight" class="form-control input-sm" step="0.001" min="0" placeholder="e.g. 7" />
                 </div>
               </div>
 
@@ -626,9 +660,14 @@ window.addEventListener('load', function() {
     $('#enrichBtnPushBlaze').hide();
     $('#enrichProductName').val(name);
     $('#enrichDefaultPrice').val(defPrice);
-    $('#enrichDavisPrice').val(davPrice);
-    $('#enrichDixonPrice').val(dixPrice);
+    $('#enrichDavisPrice').val(davPrice  > 0 ? davPrice  : '');
+    $('#enrichDixonPrice').val(dixPrice  > 0 ? dixPrice  : '');
     $('#enrichDescription').val('');
+    $('#enrichFlowerType').val('');
+    $('#enrichWeightPerUnit').val('Each');
+    $('#enrichCustomGramType').val('Gram');
+    $('#enrichCustomWeight').val('');
+    $('#enrichCustomGramTypeWrap, #enrichCustomWeightWrap').hide();
     $('#enrichWarning').hide().text('');
     $('#enrichStatusBadge')
       .show()
@@ -672,6 +711,20 @@ window.addEventListener('load', function() {
       /* Dropdowns */
       populateDropdown('enrichBrandSelect',    resp.brands || [],     resp.brand_id    || brandId);
       populateDropdown('enrichCategorySelect', resp.categories || [], resp.category_id || catId);
+
+      /* Flower type */
+      $('#enrichFlowerType').val(resp.flower_type || '');
+
+      /* Weight */
+      var wpu = resp.weight_per_unit || 'Each';
+      $('#enrichWeightPerUnit').val(wpu);
+      if (wpu === 'Custom Weight') {
+        $('#enrichCustomGramType').val(resp.custom_gram_type || 'Gram');
+        $('#enrichCustomWeight').val(resp.custom_weight  || '');
+        $('#enrichCustomGramTypeWrap, #enrichCustomWeightWrap').show();
+      } else {
+        $('#enrichCustomGramTypeWrap, #enrichCustomWeightWrap').hide();
+      }
 
       /* Image carousel */
       enrichImages       = resp.images        || [];
@@ -780,6 +833,12 @@ window.addEventListener('load', function() {
     this.value = '';
   });
 
+  /* ---- Weight per unit toggle ---- */
+  $(document).on('change', '#enrichWeightPerUnit', function() {
+    var isCustom = $(this).val() === 'Custom Weight';
+    $('#enrichCustomGramTypeWrap, #enrichCustomWeightWrap').toggle(isCustom);
+  });
+
   /* ---- Push to Blaze ---- */
   $(document).on('click', '#enrichBtnPushBlaze', function() {
     var $modal       = $('#enrichModal');
@@ -788,11 +847,15 @@ window.addEventListener('load', function() {
     var storeDb      = $modal.data('store_db')      || '';
     var vendorId     = $modal.data('vendor_id')     || 0;
     var poProductId  = $modal.data('po_product_id') || 0;
-    var davisPrice   = parseFloat($modal.data('davis_price')) || 0;
-    var dixonPrice   = parseFloat($modal.data('dixon_price')) || 0;
+    var davisPrice   = parseFloat($('#enrichDavisPrice').val())  || 0;
+    var dixonPrice   = parseFloat($('#enrichDixonPrice').val())  || 0;
     var name         = $('#enrichProductName').val().trim();
     var description  = $('#enrichDescription').val().trim();
     var price        = parseFloat($('#enrichDefaultPrice').val()) || 0;
+    var flowerType   = $('#enrichFlowerType').val();
+    var weightPerUnit   = $('#enrichWeightPerUnit').val()    || 'Each';
+    var customGramType  = $('#enrichCustomGramType').val()   || 'Gram';
+    var customWeight    = parseFloat($('#enrichCustomWeight').val()) || 0;
 
     if (!name) { alert('Product name is required before pushing to Blaze.'); return; }
 
@@ -805,17 +868,21 @@ window.addEventListener('load', function() {
       method: 'POST',
       dataType: 'json',
       data: {
-        name:          name,
-        description:   description,
-        price:         price,
-        davis_price:   davisPrice,
-        dixon_price:   dixonPrice,
-        brand_id:      brandId,
-        category_id:   categoryId,
-        store_db:      storeDb,
-        vendor_id:     vendorId,
-        po_product_id: poProductId,
-        image_url:     enrichImages.length ? enrichImages[enrichImgIdx] : ''
+        name:             name,
+        description:      description,
+        price:            price,
+        davis_price:      davisPrice,
+        dixon_price:      dixonPrice,
+        brand_id:         brandId,
+        category_id:      categoryId,
+        store_db:         storeDb,
+        vendor_id:        vendorId,
+        po_product_id:    poProductId,
+        image_url:        enrichImages.length ? enrichImages[enrichImgIdx] : '',
+        flower_type:      flowerType,
+        weight_per_unit:  weightPerUnit,
+        custom_gram_type: customGramType,
+        custom_weight:    customWeight
       }
     }).done(function(resp) {
       $('#enrichBtnPushBlaze').prop('disabled', false).html('<i class="fa fa-cloud-upload"></i> Push to Blaze');
