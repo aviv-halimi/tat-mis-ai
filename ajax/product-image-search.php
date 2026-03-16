@@ -76,6 +76,8 @@ if ($brand_id > 0 && $store_db !== '') {
     }
 }
 
+$brand_site_domain = null;
+
 if ($brand_folder_url !== null && $brand_folder_url !== '') {
     if (dbx_is_dropbox_url($brand_folder_url)) {
         $brand_dropbox_url = $brand_folder_url;
@@ -83,6 +85,10 @@ if ($brand_folder_url !== null && $brand_folder_url !== '') {
         $brand_drive_folder_id = $m[1];
     } elseif (preg_match('/^[A-Za-z0-9_\-]{20,}$/', $brand_folder_url)) {
         $brand_drive_folder_id = $brand_folder_url;
+    } elseif (filter_var($brand_folder_url, FILTER_VALIDATE_URL)) {
+        // Other URL (e.g. Brandfolder) — extract domain for Serper site: search
+        $parsed = parse_url($brand_folder_url);
+        $brand_site_domain = $parsed['host'] ?? null;
     }
 }
 
@@ -182,6 +188,15 @@ function pis_serper_search(string $query, string $apiKey, int $num = 10): array
     return $urls;
 }
 
+// --------------------------------------------------------
+// Step 2b: Non-Drive / non-Dropbox brand folder URL → Serper site: search
+// --------------------------------------------------------
+$brand_site_urls = [];
+if ($brand_site_domain !== null) {
+    $brand_site_q    = 'site:' . $brand_site_domain . ' "' . $search_name . '"';
+    $brand_site_urls = pis_serper_search($brand_site_q, $serper_key, 5);
+}
+
 $trusted_q    = '(site:weedmaps.com OR site:leafly.com OR site:dutchie.com) "' . $query . '"';
 $web_q        = '"' . $query . '" cannabis product packaging -site:pinterest.com';
 $trusted_urls = pis_serper_search($trusted_q, $serper_key, 5);
@@ -211,6 +226,14 @@ foreach ($master_drive_urls as $url) {
     }
 }
 
+foreach ($brand_site_urls as $url) {
+    if (!isset($seen[$url])) {
+        $all_urls[]      = $url;
+        $image_sources[] = 'Brand Site';
+        $seen[$url]      = true;
+    }
+}
+
 foreach ($trusted_urls as $url) {
     if (!isset($seen[$url])) {
         $all_urls[]      = $url;
@@ -236,6 +259,7 @@ if (empty($all_urls)) {
 $sources = [];
 if (!empty($brand_folder_urls)) $sources[] = $folder_label;
 if (!empty($master_drive_urls)) $sources[] = 'Google Drive';
+if (!empty($brand_site_urls))   $sources[] = 'Brand Site';
 if (!empty($trusted_urls))      $sources[] = 'Trusted Menu';
 if (!empty($web_urls))          $sources[] = 'Web Search';
 $image_source = implode(' + ', $sources) ?: 'Web Search';
