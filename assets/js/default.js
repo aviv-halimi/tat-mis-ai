@@ -577,6 +577,107 @@ function initAssets(select2) {
     doPush();
   });
 
+  $(document).on('click', '.btn-po-qbo-push-advance', function(e) {
+    e.preventDefault();
+    var c = $(this).data('c');
+    var storeId = $(this).data('store-id');
+    var $modal = $('#po-qbo-advance-modal');
+    var $steps = $modal.find('.po-qbo-advance-steps li');
+    var $msg = $modal.find('#po-qbo-advance-msg');
+    function setStep(n, state) {
+      var $li = $steps.filter('[data-step="' + n + '"]');
+      var $icon = $li.find('.step-icon');
+      if (state === 'pending') $icon.html('').removeClass('text-success text-danger');
+      if (state === 'loading') $icon.html('<i class="fa fa-spinner fa-spin"></i>').removeClass('text-success text-danger');
+      if (state === 'done') $icon.html('<i class="fa fa-check text-success"></i>');
+      if (state === 'error') $icon.html('<i class="fa fa-times text-danger"></i>');
+    }
+    function doPushThenAdvance() {
+      $modal.modal('show');
+      $msg.text('');
+      $steps.each(function() { setStep($(this).data('step'), 'pending'); });
+      setStep(1, 'loading');
+      $.ajax({ url: '/ajax/po-qbo-bill', type: 'POST', data: { c: c }, dataType: 'json' })
+        .done(function(data) {
+          if (data.need_mapping) {
+            $modal.modal('hide');
+            updateDialog2('po-qbo-map-vendor', 'Map vendor to QuickBooks', null, c);
+            return;
+          }
+          if (!data.success || !data.BillId) {
+            setStep(1, 'error');
+            $msg.text(data.response || 'Push to QBO failed.');
+            return;
+          }
+          setStep(1, 'done');
+          setStep(2, 'loading');
+          $.ajax({ url: '/ajax/po-status', type: 'POST', data: { po_code: c, back: 0 }, dataType: 'json' })
+            .done(function(d) {
+              if (!d.success && d.redirect !== '{refresh}') {
+                setStep(2, 'error');
+                $msg.text(d.response || 'Failed to update status.');
+                return;
+              }
+              setStep(2, 'done');
+              setStep(3, 'loading');
+              $msg.text('Finding next PO…');
+              $.ajax({ url: '/ajax/po-next-status5', type: 'POST', data: { po_code: c }, dataType: 'json' })
+                .done(function(nextRes) {
+                  setStep(3, 'done');
+                  if (!nextRes.success) {
+                    $msg.text(nextRes.error || 'Could not get next PO.');
+                    setTimeout(function() { window.location.href = '/pos'; }, 1500);
+                    return;
+                  }
+                  if (nextRes.redirect_url === '/pos' || !nextRes.next_po_code) {
+                    $msg.text('No more POs with status 5. Redirecting to list…');
+                    setTimeout(function() { window.location.href = '/pos'; }, 800);
+                    return;
+                  }
+                  if (nextRes.needs_ai_validation && nextRes.next_po_id) {
+                    $msg.text('Running AI validation for next PO…');
+                    $.ajax({
+                      url: '/ajax/invoice-validate-po',
+                      type: 'POST',
+                      data: { po_id: nextRes.next_po_id, po_code: nextRes.next_po_code, _r: Math.random() },
+                      dataType: 'json'
+                    }).done(function(aiRes) {
+                      $msg.text('Redirecting to next PO…');
+                      setTimeout(function() { window.location.href = nextRes.redirect_url; }, 500);
+                    }).fail(function() {
+                      $msg.text('AI validation failed; loading next PO anyway…');
+                      setTimeout(function() { window.location.href = nextRes.redirect_url; }, 1000);
+                    });
+                  } else {
+                    $msg.text('Redirecting to next PO…');
+                    setTimeout(function() { window.location.href = nextRes.redirect_url; }, 500);
+                  }
+                })
+                .fail(function() {
+                  setStep(3, 'error');
+                  $msg.text('Could not get next PO.');
+                  setTimeout(function() { window.location.href = '/pos'; }, 2000);
+                });
+            })
+            .fail(function() {
+              setStep(2, 'error');
+              $msg.text('Failed to update PO status.');
+            });
+        })
+        .fail(function(xhr, data) {
+          var resp = (xhr && xhr.responseJSON);
+          if (resp && resp.needs_authorization && resp.auth_url) {
+            $modal.modal('hide');
+            openQboAuthAndRetry(resp.auth_url, doPushThenAdvance);
+            return;
+          }
+          setStep(1, 'error');
+          $msg.text((resp && resp.response) || 'Push to QBO failed.');
+        });
+    }
+    doPushThenAdvance();
+  });
+
   $('.btn-po-status').off('click').on('click', function(e) {
     e.preventDefault();
     var $this = $(this);

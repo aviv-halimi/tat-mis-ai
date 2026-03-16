@@ -744,7 +744,7 @@ if (true) { //sizeof($rs)) {
       </div>
     </div>';
   }
-  if (sizeof($_ns)) {
+  if (sizeof($_ns) && (int)$t['po_status_id'] !== 5) {
     echo '
     <div class="panel mt-3">
       <div class="panel-body">
@@ -823,6 +823,79 @@ if ($t['po_status_id'] > 3) {
   $_inv_terms = ($_payment_terms !== '' && $_payment_terms !== null) ? (int)$_payment_terms . ' days' : '—';
   $_amount_due = ($t['po_status_id'] >= 5 && $po_amount_due !== null) ? '$' . number_format($po_amount_due, 2) : '—';
   $_ai_total = (isset($t['ai_total']) && $t['ai_total'] !== null && $t['ai_total'] !== '') ? '$' . number_format((float)$t['ai_total'], 2) : '—';
+  if ($t['po_status_id'] == 5) {
+    $_invoice_pdf_url = (str_len($_invoice_filename)) ? '/po-download-r/' . $po_code : '';
+    echo '
+<div class="row mt-3 po-status5-layout">
+  <div class="col-md-6 col-lg-5">';
+    if ($_invoice_pdf_url) {
+      echo '
+    <div class="panel panel-default">
+      <div class="panel-heading"><h4 class="panel-title">Invoice PDF</h4></div>
+      <div class="panel-body p-0">
+        <div class="pdf-viewer-wrap" style="height: 70vh; overflow: auto; position: relative;">
+          <iframe src="' . htmlspecialchars($_invoice_pdf_url) . '#toolbar=1" style="width: 100%; height: 100%; min-height: 600px; border: 0;" title="Invoice PDF"></iframe>
+        </div>
+      </div>
+    </div>';
+    } else {
+      echo '<div class="panel panel-default"><div class="panel-body text-muted">No invoice PDF uploaded.</div></div>';
+    }
+    echo '
+  </div>
+  <div class="col-md-6 col-lg-7">
+    <div class="panel mt-3">
+      <div class="panel-body">
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-6 col-form-label">Date Ordered: <b>' . $_date_ordered . '</b></div>
+          <div class="col-sm-6 col-form-label">Date Received: <b>' . $_date_received . '</b></div>
+        </div>
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-6 col-form-label">Invoice #: <b>' . htmlspecialchars($_inv_num) . '</b></div>
+          <div class="col-sm-6 col-form-label">AI Invoice #: ' . $_ai_inv_display . $_ai_inv_icon . '</div>
+        </div>
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-6 col-form-label">QBO Payment Terms: <b>' . $_qbo_term . '</b></div>
+          <div class="col-sm-6 col-form-label">AI Payment Terms: <b>' . $_inv_terms . '</b></div>
+        </div>
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-6 col-form-label">Amount Due: <b>' . $_amount_due . '</b></div>
+          <div class="col-sm-6 col-form-label">AI Amount Due: <b>' . $_ai_total . '</b></div>
+        </div>
+        <div class="row form-input-flat mb-2">
+          <div class="col-sm-6 col-form-label">AI Validation: ' . $_ai_validation . '</div>
+          <div class="col-sm-6 col-form-label"><button type="button" class="btn btn-sm btn-outline-primary btn-invoice-validate-po" data-po-id="' . (int)$_po_id . '" data-po-code="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '"><i class="fa fa-refresh"></i> Re-run AI Validation</button></div>
+        </div>
+        <div class="row form-input-flat mt-3 mb-0">
+          <div class="col-12">';
+    $status6_row = getRow(getRs("SELECT module_code FROM po_status WHERE po_status_id = 6"));
+    $can_push_qbo = $status6_row && $_Session->HasModulePermission($status6_row['module_code']);
+    if ($can_push_qbo) {
+      echo '<button type="button" class="btn btn-lg btn-primary btn-block btn-po-qbo-push-advance" data-c="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '" data-store-id="' . (int)$t['store_id'] . '" data-po-id="' . (int)$_po_id . '"><i class="fa fa-external-link-alt mr-2"></i> Push to QBO and Advance</button>';
+    }
+    echo '
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="po-qbo-advance-modal" class="modal fade" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Push to QBO and Advance</h5><button type="button" class="close" data-dismiss="modal"><span>&times;</span></button></div>
+      <div class="modal-body">
+        <ul class="list-group list-group-flush po-qbo-advance-steps">
+          <li class="list-group-item d-flex align-items-center" data-step="1"><span class="step-icon mr-2"></span> Push to QuickBooks</li>
+          <li class="list-group-item d-flex align-items-center" data-step="2"><span class="step-icon mr-2"></span> Update PO status to Invoiced</li>
+          <li class="list-group-item d-flex align-items-center" data-step="3"><span class="step-icon mr-2"></span> Load next PO or return to list</li>
+        </ul>
+        <p class="text-muted mb-0 mt-2 small" id="po-qbo-advance-msg"></p>
+      </div>
+    </div>
+  </div>
+</div>';
+  } else {
 echo '
 <div class="panel mt-3">
   <div class="panel-body">
@@ -896,6 +969,7 @@ echo '
     </div>
   </div>
 </div>';
+  }
 }
 
 
@@ -991,6 +1065,8 @@ if ($t['po_status_id'] > 2) {
     
   }
 if ($t['po_status_id'] == 5) {
+  // Status 5 uses "Push to QBO and Advance" in the right panel; no separate Push button here
+} else {
   $status6_row = getRow(getRs("SELECT module_code FROM po_status WHERE po_status_id = 6"));
   $can_push_qbo = $status6_row && $_Session->HasModulePermission($status6_row['module_code']);
   if ($can_push_qbo) {
