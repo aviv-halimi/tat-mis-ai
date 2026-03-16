@@ -820,9 +820,31 @@ if ($t['po_status_id'] > 3) {
   $_ai_validation = (isset($t['invoice_validated']) && (int)$t['invoice_validated'] === 1) ? '<span class="badge badge-success">Match</span>' : '<span class="badge badge-warning">No match</span>';
   $_qbo_bill = ($t['po_status_id'] >= 5 && $qbo_bill_id !== '') ? ($qbo_bill_url !== '' ? '<a href="' . htmlspecialchars($qbo_bill_url) . '" target="_blank" rel="noopener">#' . htmlspecialchars($qbo_bill_id) . '</a>' : '#' . htmlspecialchars($qbo_bill_id)) : ($t['po_status_id'] >= 5 ? '<span class="text-muted">(Not pushed to QBO)</span>' : '—');
   $_qbo_term = $t['po_status_id'] >= 5 ? htmlspecialchars($qbo_term_display) : '—';
-  $_inv_terms = ($_payment_terms !== '' && $_payment_terms !== null) ? (int)$_payment_terms . ' days' : '—';
+  $_inv_terms = ($_payment_terms !== '' && $_payment_terms !== null) ? 'Net ' . (int)$_payment_terms : '—';
   $_amount_due = ($t['po_status_id'] >= 5 && $po_amount_due !== null) ? '$' . number_format($po_amount_due, 2) : '—';
   $_ai_total = (isset($t['ai_total']) && $t['ai_total'] !== null && $t['ai_total'] !== '') ? '$' . number_format((float)$t['ai_total'], 2) : '—';
+
+  // Re-evaluate invoice_validated for status 5 on every page load without calling Gemini.
+  // Match = invoice numbers agree AND amounts are within $5.
+  $_ai_amount_icon = '';
+  if ((int)$t['po_status_id'] === 5) {
+    $__amount_val     = ($po_amount_due !== null) ? (float)$po_amount_due : null;
+    $__ai_val         = (isset($t['ai_total']) && $t['ai_total'] !== null && $t['ai_total'] !== '') ? (float)$t['ai_total'] : null;
+    $_ai_amount_match = ($__amount_val !== null && $__ai_val !== null && abs($__amount_val - $__ai_val) <= 5.0);
+    $_ai_amount_icon  = ($__ai_val !== null)
+      ? ($_ai_amount_match
+          ? '<i class="fa fa-check text-success ml-1" title="Amount matches"></i>'
+          : '<i class="fa fa-times text-danger ml-1" title="Amount does not match"></i>')
+      : '';
+    $new_validated = ($_ai_inv_match && $_ai_amount_match) ? 1 : 0;
+    if ((int)$t['invoice_validated'] !== $new_validated) {
+      setRs("UPDATE po SET invoice_validated = ? WHERE po_id = ?", array($new_validated, $_po_id));
+    }
+    $_ai_validation = ($new_validated === 1)
+      ? '<span class="badge badge-success">Match</span>'
+      : '<span class="badge badge-warning">No match</span>';
+  }
+
   if ($t['po_status_id'] == 5) {
     $_invoice_pdf_url = (str_len($_invoice_filename)) ? '/po-download-r/' . $po_code : '';
     echo '
@@ -868,7 +890,7 @@ if ($t['po_status_id'] > 3) {
         <div class="po5-data-cell"><div class="po5-data-label">QBO Payment Terms</div><div class="po5-data-value">' . $_qbo_term . '</div></div>
         <div class="po5-data-cell"><div class="po5-data-label">AI Payment Terms</div><div class="po5-data-value">' . $_inv_terms . '</div></div>
         <div class="po5-data-cell"><div class="po5-data-label">Amount Due</div><div class="po5-data-value">' . $_amount_due . '</div></div>
-        <div class="po5-data-cell"><div class="po5-data-label">AI Amount Due</div><div class="po5-data-value">' . $_ai_total . '</div></div>
+        <div class="po5-data-cell"><div class="po5-data-label">AI Amount Due</div><div class="po5-data-value">' . $_ai_total . $_ai_amount_icon . '</div></div>
       </div>
       <div class="po5-validation-row">
         <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#999;">AI Validation</span>' . $_ai_validation . '</div>
