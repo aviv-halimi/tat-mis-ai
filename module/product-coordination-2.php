@@ -468,7 +468,12 @@ else {
                 </div>
                 <div class="col-sm-4" id="enrichCustomGramTypeWrap" style="display:none;">
                   <label style="font-size:12px;margin-bottom:2px;">Gram Type</label>
-                  <input type="text" id="enrichCustomGramType" class="form-control input-sm" value="Gram" />
+                  <select id="enrichCustomGramType" class="form-control input-sm">
+                    <option>Gram</option>
+                    <option>Milligrams</option>
+                    <option>Fluid Ounce</option>
+                    <option>Ounce</option>
+                  </select>
                 </div>
                 <div class="col-sm-4" id="enrichCustomWeightWrap" style="display:none;">
                   <label style="font-size:12px;margin-bottom:2px;">Custom Weight (g)</label>
@@ -491,13 +496,13 @@ else {
                 <div class="col-sm-4">
                   <div class="form-group" style="margin-bottom:8px;">
                     <label style="font-size:12px;margin-bottom:2px;">Davis Price ($)</label>
-                    <input type="number" id="enrichDavisPrice" class="form-control input-sm" step="0.01" min="0" placeholder="0.00" />
+                    <input type="number" id="enrichDavisPrice" class="form-control input-sm" step="0.01" min="0" placeholder="None" />
                   </div>
                 </div>
                 <div class="col-sm-4">
                   <div class="form-group" style="margin-bottom:8px;">
                     <label style="font-size:12px;margin-bottom:2px;">Dixon Price ($)</label>
-                    <input type="number" id="enrichDixonPrice" class="form-control input-sm" step="0.01" min="0" placeholder="0.00" />
+                    <input type="number" id="enrichDixonPrice" class="form-control input-sm" step="0.01" min="0" placeholder="None" />
                   </div>
                 </div>
               </div>
