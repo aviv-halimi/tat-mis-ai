@@ -16,6 +16,22 @@ $footer = '
 <script>
 $(document).ready(function() {
 
+  function badgeHtml(status) {
+    var map = {
+      "drive_ok":           \'<span class="label label-success"><i class="fa fa-check-circle"></i> Drive – Accessible ✓</span>\',
+      "drive_no_access":    \'<span class="label label-warning"><i class="fa fa-lock"></i> Drive – Share with service account</span>\',
+      "drive_no_creds":     \'<span class="label label-info"><i class="fa fa-key"></i> Drive – Saved (deploy credentials to verify)</span>\',
+      "drive_error":        \'<span class="label label-danger"><i class="fa fa-exclamation-triangle"></i> Drive – Error verifying</span>\',
+      "dropbox_ok":         \'<span class="label label-success"><i class="fa fa-check-circle"></i> Dropbox – Accessible ✓</span>\',
+      "dropbox_no_access":  \'<span class="label label-warning"><i class="fa fa-lock"></i> Dropbox – Link not public</span>\',
+      "dropbox_error":      \'<span class="label label-danger"><i class="fa fa-exclamation-triangle"></i> Dropbox – Error verifying</span>\',
+      "other_saved":        \'<span class="label label-info"><i class="fa fa-link"></i> URL Saved</span>\',
+      "saved":              \'<span class="label label-success"><i class="fa fa-check"></i> Saved</span>\',
+      "cleared":            \'<span class="label label-default">—</span>\'
+    };
+    return map[status] || \'<span class="label label-success"><i class="fa fa-check"></i> Saved</span>\';
+  }
+
   /* ---- Save / validate a brand folder ---- */
   $(document).on("click", ".btn-bam-save", function() {
     var $btn    = $(this);
@@ -33,12 +49,15 @@ $(document).ready(function() {
       data: { brand_id: bid, brand_folder: folder }
     }).done(function(resp) {
       if (resp && resp.success) {
-        var badge = badgeHtml(resp.status);
-        $status.html(badge);
+        $status.html(badgeHtml(resp.status));
         if (resp.folder_id) {
           $btn.closest("tr").find(".bam-hint").text("Folder ID: " + resp.folder_id);
         } else if (!folder) {
           $btn.closest("tr").find(".bam-hint").text("");
+        }
+        // If server auto-converted dl=0→dl=1, update the input in place
+        if (resp.brand_folder && resp.brand_folder !== folder) {
+          $("#bam_folder_" + bid).val(resp.brand_folder);
         }
       } else {
         $status.html(\'<span class="label label-danger"><i class="fa fa-times"></i> \' +
@@ -75,17 +94,45 @@ $(document).ready(function() {
     });
   });
 
-  function badgeHtml(status) {
-    var map = {
-      "drive_ok":        \'<span class="label label-success"><i class="fa fa-check-circle"></i> Drive – Accessible ✓</span>\',
-      "drive_no_access": \'<span class="label label-warning"><i class="fa fa-lock"></i> Drive – Share with service account</span>\',
-      "drive_no_creds":  \'<span class="label label-info"><i class="fa fa-key"></i> Drive – Saved (deploy credentials to verify)</span>\',
-      "drive_error":     \'<span class="label label-danger"><i class="fa fa-exclamation-triangle"></i> Drive – Error verifying</span>\',
-      "other_saved":     \'<span class="label label-info"><i class="fa fa-link"></i> URL Saved</span>\',
-      "saved":           \'<span class="label label-success"><i class="fa fa-check"></i> Saved</span>\',
-      "cleared":         \'<span class="label label-default">—</span>\'
-    };
-    return map[status] || \'<span class="label label-success"><i class="fa fa-check"></i> Saved</span>\';
+  /* ---- Auto-validate all rows that already have a link on page load ----
+   * Runs sequentially with a 250 ms gap to avoid hammering the server.
+   * Uses validate_only=1 so no DB writes happen.                         */
+  var validationQueue = [];
+  $("#bam-table tbody tr").each(function() {
+    var $input = $(this).find(".bam-input");
+    var folder = $.trim($input.val());
+    if (!folder) return;
+    var bid = $input.attr("id").replace("bam_folder_", "");
+    validationQueue.push({ bid: bid, folder: folder });
+  });
+
+  function runValidationQueue(queue, idx) {
+    if (idx >= queue.length) return;
+    var item    = queue[idx];
+    var $status = $("#bam_status_" + item.bid);
+    $status.html(\'<span class="label label-default"><i class="fa fa-spinner fa-spin"></i></span>\');
+
+    $.ajax({
+      url: "ajax/brand-folder-save.php",
+      method: "POST",
+      dataType: "json",
+      data: { brand_id: item.bid, brand_folder: item.folder, validate_only: 1 }
+    }).done(function(resp) {
+      if (resp && resp.success) {
+        $status.html(badgeHtml(resp.status));
+        // Update input if dl=0 was auto-converted to dl=1
+        if (resp.brand_folder && resp.brand_folder !== item.folder) {
+          $("#bam_folder_" + item.bid).val(resp.brand_folder);
+        }
+      }
+    }).always(function() {
+      setTimeout(function() { runValidationQueue(queue, idx + 1); }, 250);
+    });
+  }
+
+  // Short delay so page rendering completes before we start firing AJAX
+  if (validationQueue.length) {
+    setTimeout(function() { runValidationQueue(validationQueue, 0); }, 600);
   }
 
 });
@@ -133,7 +180,7 @@ echo '
       <thead>
         <tr class="inverse">
           <th style="width:200px;">Brand</th>
-          <th>Drive / Asset Folder URL or ID</th>
+          <th>Drive / Dropbox / Asset Folder URL or ID</th>
           <th style="width:230px;" class="text-center">Status</th>
           <th style="width:110px;" class="text-center">Action</th>
         </tr>
@@ -157,12 +204,14 @@ foreach ($brands as $b) {
         }
     }
 
-    // Initial status badge
+    // Initial status badge (will be overwritten by JS auto-validation shortly after load)
     if (!$hasFolder) {
         $statusBadge = '<span class="label label-default">—</span>';
+    } elseif (str_contains((string)($b['brand_folder'] ?? ''), 'dropbox.com')) {
+        $statusBadge = '<span class="label label-default"><i class="fa fa-spinner fa-spin"></i></span>';
     } elseif (str_contains((string)($b['brand_folder'] ?? ''), 'drive.google.com')
            || preg_match('#^[A-Za-z0-9_\-]{20,}$#', (string)($b['brand_folder'] ?? ''))) {
-        $statusBadge = '<span class="label label-info"><i class="fa fa-google"></i> Drive – Click Save to Verify</span>';
+        $statusBadge = '<span class="label label-default"><i class="fa fa-spinner fa-spin"></i></span>';
     } else {
         $statusBadge = '<span class="label label-info"><i class="fa fa-link"></i> URL Saved</span>';
     }
@@ -175,7 +224,7 @@ foreach ($brands as $b) {
                    id="bam_folder_' . $bid . '"
                    class="form-control input-sm bam-input"
                    value="' . $folder . '"
-                   placeholder="https://drive.google.com/drive/folders/… or paste a folder ID" />
+                   placeholder="https://drive.google.com/drive/folders/… or https://www.dropbox.com/sh/…" />
             <div class="bam-hint">' . htmlspecialchars($hintText, ENT_QUOTES, 'UTF-8') . '</div>
           </td>
           <td class="text-center bam-status">
@@ -200,10 +249,12 @@ echo '
 
   <div class="panel-footer" style="font-size:11px;color:#888;">
     <i class="fa fa-info-circle"></i>
-    Paste a Google Drive <strong>folder</strong> URL (e.g. <code>https://drive.google.com/drive/folders/ABC123…</code>) or a raw folder ID.
-    The service account <code>google-drive-service@gen-lang-client-0619832283.iam.gserviceaccount.com</code> must be shared on the folder.
-    A green badge means the folder is also publicly accessible (no sign-in required).
-    An orange badge means only the service account can read it — enrichment will still work, but share the folder publicly for the best results.
+    Paste a <strong>Google Drive</strong> folder URL (e.g. <code>https://drive.google.com/drive/folders/ABC123…</code>), raw folder ID, or a
+    <strong>Dropbox</strong> shared-folder link (e.g. <code>https://www.dropbox.com/sh/…</code>).
+    <br>
+    <strong>Google Drive:</strong> Share the folder with <code>google-drive-service@gen-lang-client-0619832283.iam.gserviceaccount.com</code>.
+    <strong>Dropbox:</strong> Set sharing to "Anyone with the link". Dropbox links with <code>?dl=0</code> are auto-converted to <code>?dl=1</code> on save.
+    Badges are automatically verified for all configured brands when the page loads.
   </div>
 </div>';
 

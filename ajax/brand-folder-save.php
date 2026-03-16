@@ -21,12 +21,14 @@
  */
 require_once dirname(__FILE__) . '/../_config.php';
 require_once BASE_PATH . 'inc/GoogleDriveHelper.php';
+require_once BASE_PATH . 'inc/DropboxHelper.php';
 
 header('Cache-Control: no-cache');
 header('Content-type: application/json');
 
-$brand_id     = isset($_POST['brand_id'])     ? (int)    trim($_POST['brand_id'])     : 0;
-$brand_folder = isset($_POST['brand_folder']) ? trim((string) $_POST['brand_folder']) : '';
+$brand_id      = isset($_POST['brand_id'])     ? (int)    trim($_POST['brand_id'])     : 0;
+$brand_folder  = isset($_POST['brand_folder']) ? trim((string) $_POST['brand_folder']) : '';
+$validate_only = !empty($_POST['validate_only']); // skip DB write when true
 
 if ($brand_id <= 0) {
     echo json_encode(['success' => false, 'error' => 'Invalid brand ID.']);
@@ -37,9 +39,10 @@ if ($brand_id <= 0) {
 $store1    = getRow(getRs("SELECT db FROM store WHERE store_id = 1 LIMIT 1"));
 $store1_db = $store1['db'] ?? 'blaze1';
 
-// ---- Normalise / extract folder ID ----
+// ---- Normalise / detect URL type ----
 $folder_id    = null;
 $is_drive     = false;
+$is_dropbox   = false;
 $is_other_url = false;
 
 if ($brand_folder !== '') {
@@ -54,23 +57,30 @@ if ($brand_folder !== '') {
     } elseif (preg_match('/^[A-Za-z0-9_\-]{20,}$/', $brand_folder)) {
         $is_drive  = true;
         $folder_id = $brand_folder;
+    } elseif (dbx_is_dropbox_url($brand_folder)) {
+        $is_dropbox = true;
+        // Auto-convert preview links (?dl=0) to direct-download links (?dl=1)
+        $brand_folder = dbx_to_direct_url($brand_folder);
     } elseif (filter_var($brand_folder, FILTER_VALIDATE_URL)) {
         $is_other_url = true;
     }
 }
 
-// ---- Validate Drive folder using the service account ----
+// ---- Validate ----
 $status = 'saved';
 
 if ($brand_folder === '') {
     $status = 'cleared';
+
+} elseif ($is_dropbox) {
+    $status = dbx_test_accessibility($brand_folder);
+    // Returns 'dropbox_ok' | 'dropbox_no_access' | 'dropbox_error'
 
 } elseif ($is_drive && $folder_id !== null) {
 
     $creds_path = BASE_PATH . 'credentials/service-account.json';
 
     if (!file_exists($creds_path)) {
-        // Credentials file not on server — save without validation
         $status = 'drive_no_creds';
     } else {
         $creds = json_decode((string) file_get_contents($creds_path), true);
@@ -80,19 +90,14 @@ if ($brand_folder === '') {
         } else {
             try {
                 $service = gd_make_drive_service($creds);
-
-                // Try to list one file inside the folder.
-                // Returns 200 for any folder the service account can read,
-                // including "anyone with the link" folders.
-                $result = $service->files->listFiles([
+                $service->files->listFiles([
                     'q'                         => "'{$folder_id}' in parents and trashed = false",
                     'pageSize'                  => 1,
                     'fields'                    => 'files(id)',
                     'supportsAllDrives'         => true,
                     'includeItemsFromAllDrives' => true,
                 ]);
-                $status = 'drive_ok';   // service account can access it
-
+                $status = 'drive_ok';
             } catch (\Google_Service_Exception $e) {
                 $status = ($e->getCode() === 403 || $e->getCode() === 404)
                         ? 'drive_no_access'
@@ -104,22 +109,24 @@ if ($brand_folder === '') {
     }
 
 } elseif ($is_drive) {
-    // Drive URL but couldn't extract folder ID
     $status = 'drive_error';
 
 } elseif ($is_other_url) {
     $status = 'other_saved';
 }
 
-// ---- Persist to DB ----
-$save_value = $brand_folder !== '' ? $brand_folder : null;
-setRs(
-    "UPDATE `{$store1_db}`.brand SET brand_folder = ? WHERE brand_id = ?",
-    [$save_value, $brand_id]
-);
+// ---- Persist to DB (skipped when validate_only=1) ----
+if (!$validate_only) {
+    $save_value = $brand_folder !== '' ? $brand_folder : null;
+    setRs(
+        "UPDATE `{$store1_db}`.brand SET brand_folder = ? WHERE brand_id = ?",
+        [$save_value, $brand_id]
+    );
+}
 
 echo json_encode([
-    'success'   => true,
-    'status'    => $status,
-    'folder_id' => $folder_id,
+    'success'        => true,
+    'status'         => $status,
+    'folder_id'      => $folder_id,
+    'brand_folder'   => $brand_folder, // may differ from input if dl=0 was converted to dl=1
 ]);

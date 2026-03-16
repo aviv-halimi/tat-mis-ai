@@ -51,6 +51,13 @@ define('INVOICE_VALIDATE_PHP_CLI', '/opt/plesk/php/8.3/bin/php');
 
 # Optional: for invoice validation with Gemini. Set in env as GEMINI_API_KEY or uncomment below.
 // define('GEMINI_API_KEY', '');
+
+# Dropbox API access token — needed for brand-folder file listing during enrichment.
+# Generate at https://www.dropbox.com/developers/apps → your app → "Generate access token"
+# Set as a Plesk environment variable DROPBOX_ACCESS_TOKEN or uncomment the line below.
+if (!defined('DROPBOX_ACCESS_TOKEN')) {
+    define('DROPBOX_ACCESS_TOKEN', (string) (getenv('DROPBOX_ACCESS_TOKEN') ?: ''));
+}
 # Optional: use a different model for PO menu sync only. If unset, uses GEMINI_MODEL (e.g. gemini-2.0-flash).
 # Some keys/regions only support certain models; if you get 404, leave this commented. See doc/po-menu-sync-504-timeout.md.
 // define('GEMINI_PO_MENU_MODEL', 'gemini-1.5-flash');

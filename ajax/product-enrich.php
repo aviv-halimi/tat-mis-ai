@@ -1,6 +1,7 @@
 <?php
 require_once dirname(__FILE__) . '/../_config.php';
 require_once BASE_PATH . 'inc/GoogleDriveHelper.php';
+require_once BASE_PATH . 'inc/DropboxHelper.php';
 
 header('Cache-Control: no-cache');
 header('Content-type: application/json');
@@ -267,37 +268,59 @@ function tat_enrich_discover_images(
         }
     }
 
-    if ($brand_folder_url !== null && $brand_folder_url !== '') {
-        $brand_drive_folder_id = tat_extract_drive_folder_id($brand_folder_url);
+    $brand_dropbox_url = null;
 
-        // Non-Drive URL: extract domain for Serper site: search
-        if ($brand_drive_folder_id === null && filter_var($brand_folder_url, FILTER_VALIDATE_URL)) {
-            $parsed = parse_url($brand_folder_url);
-            $brand_site_domain = $parsed['host'] ?? null;
+    if ($brand_folder_url !== null && $brand_folder_url !== '') {
+        if (dbx_is_dropbox_url($brand_folder_url)) {
+            $brand_dropbox_url = $brand_folder_url;
+        } else {
+            $brand_drive_folder_id = tat_extract_drive_folder_id($brand_folder_url);
+
+            // Non-Drive, non-Dropbox URL: extract domain for Serper site: search
+            if ($brand_drive_folder_id === null && filter_var($brand_folder_url, FILTER_VALIDATE_URL)) {
+                $parsed = parse_url($brand_folder_url);
+                $brand_site_domain = $parsed['host'] ?? null;
+            }
         }
     }
 
     // --------------------------------------------------------
-    // Step B2: Google Drive image search via Gemini (up to 5 per folder)
-    //   Priority 1: brand-specific Drive folder (if set)
-    //   Priority 2: global master Drive folder (only if brand folder gave nothing)
+    // Step B2: Brand folder image search (Drive OR Dropbox) + master Drive fallback
+    //
+    //   Priority 1a: Brand Dropbox Folder  — if brand_folder is a Dropbox link
+    //   Priority 1b: Brand Drive Folder    — if brand_folder is a Google Drive link
+    //   Priority 2:  Global master Drive   — only when priority 1 found nothing
     // --------------------------------------------------------
-    $brand_drive_urls  = [];
-    $master_drive_urls = [];
-    $drive_service_obj = null;   // lazy-init; reused across both folder searches
+    $brand_folder_urls    = [];   // from brand-specific folder (Drive or Dropbox)
+    $brand_folder_source  = '';   // 'Brand Drive Folder' or 'Brand Dropbox Folder'
+    $master_drive_urls    = [];
+    $drive_service_obj    = null; // lazy-init; reused across both Drive searches
 
-    $creds_path = BASE_PATH . 'credentials/service-account.json';
-    if (file_exists($creds_path)) {
-        $creds = json_decode((string) file_get_contents($creds_path), true);
-        if (is_array($creds) && !empty($creds['private_key'])) {
+    $gemini_key = getenv('GEMINI_API_KEY');
+    if ($gemini_key === false || $gemini_key === '') {
+        $gemini_key = (defined('GEMINI_API_KEY') && GEMINI_API_KEY !== '') ? GEMINI_API_KEY : '';
+    }
 
-            $gemini_key = getenv('GEMINI_API_KEY');
-            if ($gemini_key === false || $gemini_key === '') {
-                $gemini_key = (defined('GEMINI_API_KEY') && GEMINI_API_KEY !== '') ? GEMINI_API_KEY : '';
+    // --- Priority 1a: Brand Dropbox Folder ---
+    if ($brand_dropbox_url !== null && $gemini_key !== '') {
+        $dbx_token = defined('DROPBOX_ACCESS_TOKEN') ? DROPBOX_ACCESS_TOKEN : '';
+        $dbx_files = dbx_get_file_list(dbx_to_direct_url($brand_dropbox_url), $dbx_token);
+        if (!empty($dbx_files)) {
+            $matched_urls = dbx_gemini_match_multi($cleanName, (string) $brand_name, $dbx_files, $gemini_key, 5);
+            foreach ($matched_urls as $u) {
+                if ($u !== null && $u !== '') $brand_folder_urls[] = $u;
             }
+        }
+        if (!empty($brand_folder_urls)) $brand_folder_source = 'Brand Dropbox Folder';
+    }
 
-            if ($gemini_key !== '') {
-                // --- Attempt 1: brand-specific folder (up to 5 images) ---
+    // --- Priority 1b: Brand Google Drive Folder ---
+    if (empty($brand_folder_urls)) {
+        $creds_path = BASE_PATH . 'credentials/service-account.json';
+        if (file_exists($creds_path)) {
+            $creds = json_decode((string) file_get_contents($creds_path), true);
+            if (is_array($creds) && !empty($creds['private_key']) && $gemini_key !== '') {
+
                 if ($brand_drive_folder_id !== null) {
                     $brand_index = gd_get_index($creds, $brand_drive_folder_id);
                     if (!empty($brand_index)) {
@@ -306,14 +329,15 @@ function tat_enrich_discover_images(
                             $drive_service_obj = gd_make_drive_service($creds);
                             foreach ($file_ids as $fid) {
                                 $url = gd_download_and_resize($drive_service_obj, $fid, ENRICHMENT_TMP_DIR, ENRICHMENT_TMP_URL);
-                                if ($url !== null) $brand_drive_urls[] = $url;
+                                if ($url !== null) $brand_folder_urls[] = $url;
                             }
                         }
                     }
                 }
+                if (!empty($brand_folder_urls)) $brand_folder_source = 'Brand Drive Folder';
 
-                // --- Attempt 2: global master folder (up to 5 images, only if brand gave nothing) ---
-                if (empty($brand_drive_urls)) {
+                // --- Priority 2: Global master Drive folder (only if brand folder gave nothing) ---
+                if (empty($brand_folder_urls)) {
                     $master_index = gd_get_index($creds, GD_ROOT_FOLDER_ID);
                     if (!empty($master_index)) {
                         $file_ids = gd_gemini_match_multi($cleanName, (string) $brand_name, $master_index, $gemini_key, 5);
@@ -328,6 +352,7 @@ function tat_enrich_discover_images(
                 }
             }
         }
+
     }
 
     // --------------------------------------------------------
@@ -350,16 +375,17 @@ function tat_enrich_discover_images(
 
     // --------------------------------------------------------
     // Combine all sources — up to 5 per source, deduped
-    // Order: Brand Drive → Master Drive → Brand Site → Trusted Menu → Web
+    // Order: Brand Folder (Drive or Dropbox) → Master Drive → Brand Site → Trusted Menu → Web
     // --------------------------------------------------------
     $all_urls      = [];
     $image_sources = [];
     $seen          = [];
 
-    foreach ($brand_drive_urls as $url) {
+    $folder_label = $brand_folder_source ?: 'Brand Drive Folder';
+    foreach ($brand_folder_urls as $url) {
         if (!isset($seen[$url])) {
             $all_urls[]      = $url;
-            $image_sources[] = 'Brand Drive Folder';
+            $image_sources[] = $folder_label;
             $seen[$url]      = true;
         }
     }
@@ -403,7 +429,7 @@ function tat_enrich_discover_images(
 
     // Overall combined source label (for status badge)
     $sources = [];
-    if (!empty($brand_drive_urls))  $sources[] = 'Brand Drive Folder';
+    if (!empty($brand_folder_urls)) $sources[] = $folder_label;
     if (!empty($master_drive_urls)) $sources[] = 'Google Drive';
     if (!empty($brand_site_urls))   $sources[] = 'Brand Site';
     if (!empty($trusted_urls))      $sources[] = 'Trusted Menu';
