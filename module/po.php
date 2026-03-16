@@ -826,8 +826,9 @@ if ($t['po_status_id'] > 3) {
   if ($t['po_status_id'] == 5) {
     $_invoice_pdf_url = (str_len($_invoice_filename)) ? '/po-download-r/' . $po_code : '';
     echo '
+<style>.po-status5-layout { display: flex; gap: 1rem; margin-top: 1rem; } .po-status5-layout .po-status5-pdf-col { flex: 1; min-width: 0; } .po-status5-layout .po-status5-info-col { flex: 0 0 340px; max-width: 340px; }</style>
 <div class="row mt-3 po-status5-layout">
-  <div class="col-md-6 col-lg-5">';
+  <div class="po-status5-pdf-col">';
     if ($_invoice_pdf_url) {
       echo '
     <div class="panel panel-default">
@@ -843,7 +844,7 @@ if ($t['po_status_id'] > 3) {
     }
     echo '
   </div>
-  <div class="col-md-6 col-lg-7">
+  <div class="po-status5-info-col">
     <div class="panel mt-3">
       <div class="panel-body">
         <div class="row form-input-flat mb-2">
