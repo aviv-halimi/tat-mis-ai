@@ -185,21 +185,123 @@ function _dbx_list_one_folder(string $api_link, string $path, string $token): ar
 }
 
 /**
- * Lists all image files inside a Dropbox shared folder, with manual recursion.
+ * Internal: ask Gemini to pick the ONE subfolder most likely to contain
+ * images for $hint from the provided list. Returns the matched folder or null.
+ */
+function _dbx_gemini_pick_folder(array $subfolders, string $hint, string $gemini_key): ?array
+{
+    if (empty($subfolders) || $gemini_key === '' || $hint === '') return null;
+
+    $folder_list = implode("\n", array_map(fn($f) => $f['path'] . ' | ' . $f['name'], $subfolders));
+    $model  = (defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-2.0-flash';
+    $prompt =
+        "A Dropbox brand-asset folder for a cannabis company is organised into subfolders.\n" .
+        "We are looking for product images matching: \"{$hint}\"\n" .
+        "Available subfolders:\n{$folder_list}\n\n" .
+        "Return the path (the part before ' | ') of the ONE subfolder most likely to lead to " .
+        "images for this product. Consider both the product/strain name AND generic image-type " .
+        "folders (e.g. 'Product Images', 'Product (by Strain)'). " .
+        "If nothing is even remotely relevant, return NULL.";
+
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models/' .
+           urlencode($model) . ':generateContent?key=' . urlencode($gemini_key);
+    $ch  = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        CURLOPT_POSTFIELDS     => (string) json_encode([
+            'contents'         => [['parts' => [['text' => $prompt]]]],
+            'generationConfig' => ['temperature' => 0, 'maxOutputTokens' => 128],
+        ]),
+        CURLOPT_TIMEOUT => 30,
+    ]);
+    $gresp  = (string) curl_exec($ch);
+    curl_close($ch);
+    $gjson  = json_decode($gresp, true);
+    $result = trim((string) ($gjson['candidates'][0]['content']['parts'][0]['text'] ?? ''));
+
+    if ($result === '' || strtoupper(trim($result)) === 'NULL') return null;
+
+    $result_lower = strtolower($result);
+    foreach ($subfolders as $sf) {
+        if (str_contains($result_lower, strtolower($sf['path'])) ||
+            str_contains($result_lower, strtolower($sf['name']))) {
+            return $sf;
+        }
+    }
+    return null;
+}
+
+/**
+ * Recursively lists all image files in a Dropbox shared folder.
+ * At each level that contains subfolders, Gemini picks the most relevant one
+ * to explore first (deep-first guided search), then falls through to the others.
+ * This lets it drill through arbitrary nesting (e.g. root → 3_Product Images →
+ * Product (by Strain) → Banana Belt) without hard-coding depth limits.
  *
- * Strategy:
- *   1. List root → collect files + subfolders.
- *   2. If subfolders exist and $gemini_hint is provided, ask Gemini which
- *      subfolder name best matches the product — traverse the winner first.
- *   3. Fall back to traversing all remaining subfolders (up to $max_folders).
+ * @param  string  $api_link         dl=-stripped shared link (with rlkey)
+ * @param  string  $folder_path      Current folder path relative to shared-folder root
+ * @param  string  $token            Dropbox API access token
+ * @param  string|null $gemini_key   Enables Gemini-guided folder selection when set
+ * @param  string  $gemini_hint      Product/brand search string for Gemini
+ * @param  int     &$folders_visited Running count of API calls (pass by reference)
+ * @param  int     $max_folders      Hard cap on total API folder-listing calls
+ * @return array<array{name:string,path:string}>
+ */
+function _dbx_traverse(
+    string  $api_link,
+    string  $folder_path,
+    string  $token,
+    ?string $gemini_key,
+    string  $gemini_hint,
+    int    &$folders_visited,
+    int     $max_folders
+): array {
+    if ($folders_visited >= $max_folders) return [];
+
+    $result = _dbx_list_one_folder($api_link, $folder_path, $token);
+    $folders_visited++;
+
+    $files      = $result['files'];
+    $subfolders = $result['folders'];
+
+    if (empty($subfolders)) return $files;
+
+    // Ask Gemini to pick the best subfolder to explore first
+    $best      = null;
+    $gemini_ok = $gemini_key !== null && $gemini_key !== '' && $gemini_hint !== '';
+    if ($gemini_ok) {
+        $best = _dbx_gemini_pick_folder($subfolders, $gemini_hint, $gemini_key);
+    }
+
+    // Order: best first, then the rest
+    $others  = array_values(array_filter($subfolders, fn($sf) => $sf !== $best));
+    $ordered = $best ? array_merge([$best], $others) : $subfolders;
+
+    foreach ($ordered as $sf) {
+        if ($folders_visited >= $max_folders) break;
+        $sub_files = _dbx_traverse(
+            $api_link, $sf['path'], $token,
+            $gemini_key, $gemini_hint,
+            $folders_visited, $max_folders
+        );
+        $files = array_merge($files, $sub_files);
+    }
+
+    return $files;
+}
+
+/**
+ * Public entry point: lists all image files in a Dropbox shared folder.
+ * Uses Gemini to guide folder selection at each nesting level, so it finds
+ * deeply-nested strain images without having to blindly crawl every subfolder.
  *
- * Returned entries:  [ 'name' => 'product.jpg', 'path' => '/product.jpg' ]
- *
- * @param  string      $shared_link
- * @param  string      $token
- * @param  string|null $gemini_key   When provided, Gemini picks the best subfolder
- * @param  string      $gemini_hint  Product/brand name for Gemini folder selection
- * @param  int         $max_folders  Safety cap on number of subfolders to traverse
+ * @param  string      $shared_link  Full shared-folder URL (any dl= value)
+ * @param  string      $token        Dropbox API access token
+ * @param  string|null $gemini_key   Enables guided traversal when provided
+ * @param  string      $gemini_hint  Product/brand name for guidance
+ * @param  int         $max_folders  Safety cap on total API calls (default 30)
  * @return array<array{name:string,path:string}>
  */
 function dbx_get_file_list(
@@ -207,86 +309,14 @@ function dbx_get_file_list(
     string  $token,
     ?string $gemini_key  = null,
     string  $gemini_hint = '',
-    int     $max_folders = 50
+    int     $max_folders = 30
 ): array {
     if ($token === '') return [];
 
     $api_link        = dbx_strip_dl_param($shared_link);
-    $all_files       = [];
     $folders_visited = 0;
 
-    // -- Step 1: list root --
-    $root = _dbx_list_one_folder($api_link, '', $token);
-    $folders_visited++;
-    $all_files   = $root['files'];
-    $subfolders  = $root['folders'];   // [{name, path}]
-
-    if (empty($subfolders)) {
-        return $all_files;
-    }
-
-    // -- Step 2: Gemini folder selection --
-    $prioritised = [];
-    if ($gemini_key !== null && $gemini_key !== '' && $gemini_hint !== '' && !empty($subfolders)) {
-        $folder_list = implode("\n", array_map(fn($f) => $f['path'] . ' | ' . $f['name'], $subfolders));
-        $model       = (defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-2.0-flash';
-        $prompt      =
-            "A Dropbox folder for a cannabis company is organised into brand/strain subfolders.\n" .
-            "Product to find: \"{$gemini_hint}\"\n" .
-            "Available subfolders:\n{$folder_list}\n\n" .
-            "Return the path (the part before ' | ') of the ONE subfolder most likely to contain images for this product. " .
-            "If none match at all, return NULL.";
-
-        $url = 'https://generativelanguage.googleapis.com/v1beta/models/' .
-               urlencode($model) . ':generateContent?key=' . urlencode($gemini_key);
-        $ch  = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
-            CURLOPT_POSTFIELDS     => (string) json_encode([
-                'contents'         => [['parts' => [['text' => $prompt]]]],
-                'generationConfig' => ['temperature' => 0, 'maxOutputTokens' => 64],
-            ]),
-            CURLOPT_TIMEOUT => 30,
-        ]);
-        $gresp  = (string) curl_exec($ch);
-        curl_close($ch);
-        $gjson  = json_decode($gresp, true);
-        $gresult = trim((string) ($gjson['candidates'][0]['content']['parts'][0]['text'] ?? ''));
-
-        if ($gresult !== '' && strtoupper($gresult) !== 'NULL') {
-            // Find the subfolder whose path Gemini returned
-            foreach ($subfolders as $sf) {
-                if (str_contains(strtolower($gresult), strtolower($sf['path'])) ||
-                    str_contains(strtolower($gresult), strtolower($sf['name']))) {
-                    $prioritised[] = $sf;
-                    break;
-                }
-            }
-        }
-    }
-
-    // -- Step 3: traverse subfolders (prioritised first, then remaining) --
-    $remaining = array_filter($subfolders, fn($sf) => !in_array($sf, $prioritised, true));
-    $ordered   = array_merge($prioritised, array_values($remaining));
-
-    foreach ($ordered as $sf) {
-        if ($folders_visited >= $max_folders) break;
-        $result = _dbx_list_one_folder($api_link, $sf['path'], $token);
-        $folders_visited++;
-        $all_files = array_merge($all_files, $result['files']);
-
-        // Recurse one level deeper if needed (grandchildren)
-        foreach ($result['folders'] as $child) {
-            if ($folders_visited >= $max_folders) break;
-            $child_result = _dbx_list_one_folder($api_link, $child['path'], $token);
-            $folders_visited++;
-            $all_files = array_merge($all_files, $child_result['files']);
-        }
-    }
-
-    return $all_files;
+    return _dbx_traverse($api_link, '', $token, $gemini_key, $gemini_hint, $folders_visited, $max_folders);
 }
 
 // ============================================================

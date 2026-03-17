@@ -280,7 +280,8 @@ if ($file_list === null) {
     log_line('info', 'Root entry dump (with constructed paths):', $detail);
 
     // ---- now use the helper for the full traversal with Gemini folder selection ----
-    log_line('info', 'Phase 2: Full traversal with Gemini-guided subfolder selection…');
+    log_line('info', 'Phase 2: Full traversal with Gemini-guided subfolder selection (recursive, any depth)…');
+    log_line('info', 'At each folder level that contains subfolders, Gemini picks the most relevant one first.');
 
     $file_list = dbx_get_file_list(
         $input_link,
@@ -288,6 +289,16 @@ if ($file_list === null) {
         $gemini_key,
         $input_query
     );
+
+    // Show which folders were actually visited (from the cache, which captures full index)
+    $unique_dirs = [];
+    foreach ($file_list as $f) {
+        $dir = dirname($f['path']);
+        $unique_dirs[$dir] = true;
+    }
+    if (!empty($unique_dirs)) {
+        log_line('info', 'Folders that yielded image files:', implode("\n", array_keys($unique_dirs)));
+    }
 
     $list_ms = round((microtime(true) - $list_start) * 1000);
 
