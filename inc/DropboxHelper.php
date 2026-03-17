@@ -90,30 +90,36 @@ function dbx_test_accessibility(string $url): string
 // ============================================================
 
 /**
+ * Strips the dl= parameter from a Dropbox URL while preserving all other
+ * query parameters (e.g. rlkey, e=2). Used internally for API calls.
+ */
+function dbx_strip_dl_param(string $url): string
+{
+    $url = preg_replace('/([?&])dl=\d+(&?)/', '$1$2', $url);
+    return rtrim($url, '?&');
+}
+
+/**
  * Lists all image files inside a Dropbox shared folder, recursively.
  * Uses the Dropbox API v2 `files/list_folder` with a shared_link parameter.
  *
- * Returned file entries are normalized to:
- *   [ 'name' => 'product.jpg', 'path' => '/product.jpg', 'download_url' => 'https://…?dl=1' ]
+ * Returned entries:
+ *   [ 'name' => 'product.jpg', 'path' => '/product.jpg' ]
  *
- * The download_url is constructed as:
- *   {shared_link_base}{path}?dl=1
- * which Dropbox resolves correctly for public shared-folder links.
+ * NOTE: No download_url is constructed here because Dropbox's newer /scl/fo/
+ * link format requires using the sharing/get_shared_link_file API endpoint
+ * for reliable per-file downloads (see dbx_download_file).
  *
  * @param  string $shared_link  Any form of the Dropbox shared-folder URL
  * @param  string $token        Dropbox API access token (from app console)
- * @return array<array{name:string,path:string,download_url:string}>
+ * @return array<array{name:string,path:string}>
  */
 function dbx_get_file_list(string $shared_link, string $token): array
 {
     if ($token === '') return [];
 
-    // Normalize: strip dl= param for API call (API wants the bare shared link)
-    $api_link  = preg_replace('/([?&])dl=\d+[&]?/', '$1', $shared_link);
-    $api_link  = rtrim($api_link, '?&');
-
-    $link_base = dbx_link_base($shared_link);  // base for constructing per-file URLs
-
+    // Strip dl= but keep rlkey and other params — the API needs the bare link
+    $api_link   = dbx_strip_dl_param($shared_link);
     $image_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff'];
 
     $files    = [];
@@ -163,18 +169,10 @@ function dbx_get_file_list(string $shared_link, string $token): array
             $path = (string) ($entry['path_lower'] ?? '');
             if ($name === '' || $path === '') continue;
 
-            // Only index image files
             $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
             if (!in_array($ext, $image_exts, true)) continue;
 
-            // path_lower is relative to the shared folder root (starts with /)
-            $download_url = $link_base . $path . '?dl=1';
-
-            $files[] = [
-                'name'         => $name,
-                'path'         => $path,
-                'download_url' => $download_url,
-            ];
+            $files[] = ['name' => $name, 'path' => $path];
         }
 
         $has_more = (bool) ($data['has_more'] ?? false);
@@ -185,23 +183,117 @@ function dbx_get_file_list(string $shared_link, string $token): array
 }
 
 // ============================================================
-// 4. GEMINI FUZZY MATCH
+// 4. FILE DOWNLOAD  (server-side, via sharing/get_shared_link_file)
 // ============================================================
 
 /**
- * Sends the Dropbox file list to Gemini and returns up to $max
- * direct-download URLs ranked best-to-worst for the given product.
+ * Downloads a single file from a Dropbox shared folder using the Dropbox API.
  *
- * Uses the same pre-filter + prompt strategy as gd_gemini_match_multi()
- * in GoogleDriveHelper.php, but with file paths as identifiers instead
- * of Drive file IDs.
+ * Uses `sharing/get_shared_link_file` which:
+ *   - Works with both legacy /sh/ and newer /scl/fo/ link formats
+ *   - Preserves rlkey and other params automatically
+ *   - Does NOT require constructing a per-file download URL
+ *
+ * @param  string $shared_link  Full shared folder URL (rlkey etc. preserved)
+ * @param  string $file_path    Path relative to folder root, e.g. '/product.jpg'
+ * @param  string $token        Dropbox API access token
+ * @return string|false         Raw file bytes, or false on failure
+ */
+function dbx_download_file(string $shared_link, string $file_path, string $token): string|false
+{
+    if ($token === '') return false;
+
+    $api_link = dbx_strip_dl_param($shared_link);
+    $arg      = json_encode(['url' => $api_link, 'path' => $file_path]);
+
+    $ch = curl_init('https://content.dropboxapi.com/2/sharing/get_shared_link_file');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => '',   // empty body; params go in the header
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Bearer ' . $token,
+            'Dropbox-API-Arg: ' . $arg,
+        ],
+        CURLOPT_TIMEOUT        => 60,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_SSL_VERIFYPEER => false,
+    ]);
+    $resp     = curl_exec($ch);
+    $http     = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curl_err = curl_error($ch);
+    curl_close($ch);
+
+    if ($curl_err || $http >= 300 || !$resp || strlen($resp) < 64) return false;
+    return $resp;
+}
+
+/**
+ * Downloads a Dropbox file and saves a resized 800×800 JPEG locally.
+ * Mirrors gd_download_and_resize() from GoogleDriveHelper.php.
+ *
+ * @return string|null  Public URL to the saved image, or null on failure
+ */
+function dbx_download_and_resize(
+    string $shared_link,
+    string $file_path,
+    string $file_name,
+    string $token,
+    string $tmp_dir,
+    string $tmp_url
+): ?string {
+    $bytes = dbx_download_file($shared_link, $file_path, $token);
+    if ($bytes === false) return null;
+
+    $src = @imagecreatefromstring($bytes);
+    if (!$src) return null;
+
+    $sw = imagesx($src);
+    $sh = imagesy($src);
+
+    $canvas = imagecreatetruecolor(800, 800);
+    $white  = imagecolorallocate($canvas, 255, 255, 255);
+    imagefill($canvas, 0, 0, $white);
+
+    $ratio = min(800 / $sw, 800 / $sh);
+    $dw    = (int) round($sw * $ratio);
+    $dh    = (int) round($sh * $ratio);
+    $dx    = (int) round((800 - $dw) / 2);
+    $dy    = (int) round((800 - $dh) / 2);
+
+    imagecopyresampled($canvas, $src, $dx, $dy, 0, 0, $dw, $dh, $sw, $sh);
+    imagedestroy($src);
+
+    @mkdir($tmp_dir, 0755, true);
+
+    $base     = preg_replace('/[^A-Za-z0-9_\-]/', '_', pathinfo($file_name, PATHINFO_FILENAME));
+    $safe     = 'dbx_' . $base . '_' . substr(md5($file_path), 0, 8) . '.jpg';
+    $out_path = rtrim($tmp_dir, '/\\') . DIRECTORY_SEPARATOR . $safe;
+    $out_url  = rtrim($tmp_url, '/') . '/' . $safe;
+
+    $ok = imagejpeg($canvas, $out_path, 90);
+    imagedestroy($canvas);
+
+    return $ok ? $out_url : null;
+}
+
+// ============================================================
+// 5. GEMINI FUZZY MATCH
+// ============================================================
+
+/**
+ * Sends the Dropbox file list to Gemini and returns up to $max matched files,
+ * ranked best-to-worst, as [ ['path' => '...', 'name' => '...'], ... ].
+ *
+ * Callers then pass each result to dbx_download_and_resize() to get a local URL.
+ * This mirrors the Drive pattern (gd_gemini_match_multi → gd_download_and_resize).
  *
  * @param  string $product_name
  * @param  string $brand_name
- * @param  array  $file_list   From dbx_get_file_list()
+ * @param  array  $file_list   From dbx_get_file_list()  [{name, path}]
  * @param  string $gemini_key
- * @param  int    $max         Maximum number of URLs to return
- * @return array<string>       Direct download URLs
+ * @param  int    $max
+ * @return array<array{path:string,name:string}>
  */
 function dbx_gemini_match_multi(
     string $product_name,
@@ -212,7 +304,7 @@ function dbx_gemini_match_multi(
 ): array {
     if (empty($file_list) || $gemini_key === '') return [];
 
-    // Pre-filter by keyword overlap (at least one 3+ char word matches filename)
+    // Pre-filter: keep files where at least one 3+ char keyword appears in the name
     $search_words = array_filter(
         preg_split('/\s+/', strtolower(trim($brand_name . ' ' . $product_name))),
         fn(string $w) => strlen($w) >= 3
@@ -235,7 +327,7 @@ function dbx_gemini_match_multi(
 
     if (count($index) > 500) $index = array_slice($index, 0, 500);
 
-    // Build list: path | name  (path is the unique identifier Gemini returns)
+    // Gemini gets: path | name  (path is the unique identifier it returns)
     $filename_list = implode(
         "\n",
         array_map(fn(array $f) => $f['path'] . ' | ' . $f['name'], $index)
@@ -280,28 +372,27 @@ function dbx_gemini_match_multi(
 
     if ($result === '' || strtoupper(trim($result)) === 'NULL') return [];
 
-    // Build path → download_url lookup
-    $path_to_url = [];
+    // Build path → file-info lookup for fast resolution
+    $path_map = [];
     foreach ($index as $f) {
-        $path_to_url[$f['path']] = $f['download_url'];
+        $path_map[$f['path']] = $f;
     }
 
-    // Extract file paths from Gemini's response (lines starting with /)
-    $matched_urls = [];
+    // Extract paths from Gemini's response (each starts with /)
+    $matched = [];
     foreach (preg_split('/\r?\n/', $result) as $line) {
         $line = trim($line);
-        // Gemini may include surrounding text; extract the path-like token
         if (preg_match('#(/[^\s|,]+)#', $line, $m)) {
             $path = strtolower(rtrim(trim($m[1]), '.,;'));
-            if (isset($path_to_url[$path])) {
-                $url = $path_to_url[$path];
-                if (!in_array($url, $matched_urls, true)) {
-                    $matched_urls[] = $url;
+            if (isset($path_map[$path])) {
+                $entry = $path_map[$path];
+                if (!in_array($entry, $matched, true)) {
+                    $matched[] = $entry;
                 }
             }
         }
-        if (count($matched_urls) >= $max) break;
+        if (count($matched) >= $max) break;
     }
 
-    return $matched_urls;
+    return $matched;   // [ ['path' => '...', 'name' => '...'], ... ]
 }

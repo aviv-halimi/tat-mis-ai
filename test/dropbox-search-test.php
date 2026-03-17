@@ -145,19 +145,10 @@ if (!dbx_is_dropbox_url($input_link)) {
 log_line('ok',   'Dropbox link: "' . $input_link . '"');
 log_line('ok',   'Search query: "' . $input_query . '"');
 
-// Normalise: strip dl param for API call; build direct-download base
-$direct_url = dbx_to_direct_url($input_link);
-$api_link   = preg_replace('/([?&])dl=\d+[&]?/', '$1', $input_link);
-$api_link   = rtrim($api_link, '?&');
-$link_base  = rtrim((string) preg_replace('/[?#].*$/', '', $input_link), '/');
-
-if ($direct_url !== $input_link) {
-    log_line('info', 'Normalised to direct-download URL: "' . $direct_url . '"');
-} else {
-    log_line('info', 'URL already has ?dl=1.');
-}
-log_line('info', 'API link (dl param stripped): "' . $api_link . '"');
-log_line('info', 'Link base (for per-file URLs): "' . $link_base . '"');
+// Normalise: strip dl= but keep rlkey and other params
+$api_link = dbx_strip_dl_param($input_link);
+log_line('info', 'API link (dl= stripped, rlkey preserved): "' . $api_link . '"');
+log_line('info', 'Files will be downloaded server-side via sharing/get_shared_link_file — no direct URL construction needed.');
 
 // ================================================================
 // STEP 2: Accessibility check (no token required)
@@ -202,8 +193,10 @@ log_line('ok', 'Token found (' . strlen($dbx_token) . ' chars, prefix: ' . subst
 // ================================================================
 log_line('step', 'STEP 4 — List files in Dropbox folder (API v2 files/list_folder)');
 
+// Compute a stable API link (dl= stripped but rlkey kept) — matches what DropboxHelper uses
+$api_link   = dbx_strip_dl_param($input_link);
+
 // Check per-folder cache
-$safe_base  = preg_replace('/[^A-Za-z0-9_\-]/', '', $link_base);
 $cache_file = DBX_TEST_TMP_DIR . '/.dbx_index_' . md5($api_link) . '.json';
 $cache_ttl  = 4 * 3600;
 $file_list  = null;
@@ -302,8 +295,7 @@ if ($file_list === null) {
             if ($name === '' || $path === '') continue;
             $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
             if (!in_array($ext, $image_exts, true)) continue;
-            $download_url = $link_base . $path . '?dl=1';
-            $file_list[]  = ['name' => $name, 'path' => $path, 'download_url' => $download_url];
+            $file_list[]  = ['name' => $name, 'path' => $path];
             $img_on_page++;
         }
 
@@ -335,7 +327,7 @@ if ($file_list === null) {
 
 // Show a sample of the index
 $sample = array_slice($file_list, 0, 10);
-$sample_text = implode("\n", array_map(fn($f) => $f['path'] . '  →  ' . $f['download_url'], $sample));
+$sample_text = implode("\n", array_map(fn($f) => $f['path'] . '  |  ' . $f['name'], $sample));
 if (count($file_list) > 10) $sample_text .= "\n… and " . (count($file_list) - 10) . ' more';
 log_line('info', 'File index sample:', $sample_text);
 
@@ -453,27 +445,26 @@ if ($raw_result === '' || strtoupper(trim($raw_result)) === 'NULL') {
 }
 
 // ================================================================
-// STEP 8: Map Gemini paths → download URLs
+// STEP 8: Map Gemini paths → file entries
 // ================================================================
-log_line('step', 'STEP 8 — Map Gemini paths → download URLs');
+log_line('step', 'STEP 8 — Map Gemini paths → file entries');
 
-$path_to_url = [];
+$path_map = [];
 foreach ($gemini_index as $f) {
-    $path_to_url[$f['path']] = ['url' => $f['download_url'], 'name' => $f['name']];
+    $path_map[$f['path']] = $f;
 }
 
 $matched = [];
 foreach (preg_split('/\r?\n/', $raw_result) as $line) {
     $line = trim($line);
     if ($line === '') continue;
-    // Extract path token (starts with /)
     if (preg_match('#(/[^\s|,]+)#', $line, $m)) {
         $path = strtolower(rtrim(trim($m[1]), '.,;'));
-        if (isset($path_to_url[$path])) {
-            $entry = $path_to_url[$path];
+        if (isset($path_map[$path])) {
+            $entry = $path_map[$path];
             if (!isset($matched[$path])) {
                 $matched[$path] = $entry;
-                log_line('ok', 'Mapped: "' . $path . '" → "' . $entry['name'] . '"', $entry['url']);
+                log_line('ok', 'Mapped: "' . $path . '" → "' . $entry['name'] . '"');
             }
         } else {
             log_line('warn', 'Path not found in index (possible Gemini hallucination): "' . $path . '"');
@@ -487,20 +478,57 @@ if (empty($matched)) {
     echo '</div></body></html>'; exit;
 }
 
-log_line('ok', count($matched) . ' match(es) resolved to download URLs.');
+log_line('ok', count($matched) . ' match(es) identified. Downloading via sharing/get_shared_link_file…');
+
+// ================================================================
+// STEP 9: Download + resize each matched file (server-side)
+// ================================================================
+log_line('step', 'STEP 9 — Download & resize matched files (Dropbox API → local 800×800 JPEG)');
+log_line('info', 'Using endpoint: POST https://content.dropboxapi.com/2/sharing/get_shared_link_file');
+
+@mkdir(DBX_TEST_TMP_DIR, 0755, true);
+
+$result_images = [];
+foreach ($matched as $path => $entry) {
+    $dl_start = microtime(true);
+    log_line('info', 'Downloading "' . $entry['name'] . '" (path: ' . $path . ')…');
+
+    $local_url = dbx_download_and_resize(
+        $input_link,
+        $entry['path'],
+        $entry['name'],
+        $dbx_token,
+        DBX_TEST_TMP_DIR,
+        DBX_TEST_TMP_URL
+    );
+
+    $dl_ms = round((microtime(true) - $dl_start) * 1000);
+
+    if ($local_url === null) {
+        log_line('error', 'Download/resize failed for "' . $entry['name'] . '" in ' . $dl_ms . ' ms.');
+        log_line('info', 'Possible causes: token lacks access, file is not an image GD can decode (PDF/SVG), or tmp dir is not writable.');
+    } else {
+        log_line('ok', 'Saved in ' . $dl_ms . ' ms → ' . $local_url);
+        $result_images[] = ['url' => $local_url, 'name' => $entry['name']];
+    }
+}
+
+if (empty($result_images)) {
+    log_line('error', 'All downloads failed. Check token permissions and tmp directory writeability.');
+    echo '</div></body></html>'; exit;
+}
 
 // ================================================================
 // RESULT — render images
 // ================================================================
-echo '<div class="log-step" style="margin-top:16px;">🏁 RESULT — ' . count($matched) . ' match(es) from Brand Dropbox Folder</div>';
+echo '<div class="log-step" style="margin-top:16px;">🏁 RESULT — ' . count($result_images) . ' image(s) from Brand Dropbox Folder</div>';
 echo '<div class="results-grid">';
-foreach ($matched as $path => $entry) {
-    $img_url  = htmlspecialchars($entry['url']);
-    $img_name = htmlspecialchars($entry['name']);
+foreach ($result_images as $img) {
+    $img_url  = htmlspecialchars($img['url']);
+    $img_name = htmlspecialchars($img['name']);
     echo '
     <div class="result-card">
-      <img src="' . $img_url . '" alt="' . $img_name . '" loading="lazy"
-           onerror="this.style.background=\'#333\';this.alt=\'Image failed to load\';">
+      <img src="' . $img_url . '" alt="' . $img_name . '" loading="lazy">
       <div class="caption">
         <a href="' . $img_url . '" target="_blank">' . $img_name . '</a>
       </div>

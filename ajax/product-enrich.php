@@ -304,11 +304,19 @@ function tat_enrich_discover_images(
     // --- Priority 1a: Brand Dropbox Folder ---
     if ($brand_dropbox_url !== null && $gemini_key !== '') {
         $dbx_token = defined('DROPBOX_ACCESS_TOKEN') ? DROPBOX_ACCESS_TOKEN : '';
-        $dbx_files = dbx_get_file_list(dbx_to_direct_url($brand_dropbox_url), $dbx_token);
+        $dbx_files = dbx_get_file_list($brand_dropbox_url, $dbx_token);
         if (!empty($dbx_files)) {
-            $matched_urls = dbx_gemini_match_multi($cleanName, (string) $brand_name, $dbx_files, $gemini_key, 5);
-            foreach ($matched_urls as $u) {
-                if ($u !== null && $u !== '') $brand_folder_urls[] = $u;
+            $matched_files = dbx_gemini_match_multi($cleanName, (string) $brand_name, $dbx_files, $gemini_key, 5);
+            foreach ($matched_files as $mf) {
+                $local_url = dbx_download_and_resize(
+                    $brand_dropbox_url,
+                    $mf['path'],
+                    $mf['name'],
+                    $dbx_token,
+                    ENRICHMENT_TMP_DIR,
+                    ENRICHMENT_TMP_URL
+                );
+                if ($local_url !== null) $brand_folder_urls[] = $local_url;
             }
         }
         if (!empty($brand_folder_urls)) $brand_folder_source = 'Brand Dropbox Folder';
