@@ -158,7 +158,7 @@ if (sizeof($rs)) {
 			<th>Dixon Price</th>
             <th>Created</th>
             <th>Transferred</th>
-            <th>Actions</th>
+            <th data-priority="1" style="white-space:nowrap;">Actions</th>
         </tr>
     </thead>
     <tbody>
@@ -313,7 +313,7 @@ if (sizeof($rs)) {
         <label for="disaggregate_1"><span></span></label></span></td>
         <td style="text-align:center;"  data-sort="' . $r['is_transferred'] .'"><span class="nowrap po-product-transferred"><input data-type="transferred" data-id="' . $r['po_product_id'] . '" type="checkbox" value="' . $r['po_product_id'] . '" id="transferred_' . $r['po_product_id'] . '" name="disaggregate_ids[]" data-render="switchery" data-theme="info"' . iif($r['is_transferred'], ' checked') .' />
         <label for="disaggregate_1"><span></span></label></span></td>
-        <td style="text-align:center;">';
+        <td style="text-align:center;white-space:nowrap;vertical-align:middle;">';
 
         // Sync status badge
         $pushStatus = $r['push_status'] ?? null;

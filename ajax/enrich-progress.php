@@ -12,6 +12,11 @@
  */
 require_once dirname(__FILE__) . '/../_config.php';
 
+// Release the PHP session lock immediately — this file only reads a temp file
+// and never writes session data. Without this, product-enrich.php's session
+// lock blocks every poll request until the entire enrichment finishes.
+session_write_close();
+
 header('Cache-Control: no-cache, no-store');
 header('Content-Type: application/json');
 

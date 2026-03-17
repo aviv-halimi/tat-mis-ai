@@ -24,6 +24,11 @@ if ($po_product_id <= 0 || $product_name === '') {
     exit;
 }
 
+// Release the session lock now — auth is verified, and the rest of this script
+// only does DB queries, API calls, and file writes. Releasing the lock lets the
+// browser's concurrent polling requests to enrich-progress.php run freely.
+session_write_close();
+
 // ── Progress helpers ──────────────────────────────────────────────────────────
 define('ENRICH_PROGRESS_DIR', BASE_PATH . 'public/tmp/enrichment');
 
