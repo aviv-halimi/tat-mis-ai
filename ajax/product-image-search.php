@@ -16,6 +16,22 @@ require_once BASE_PATH . 'inc/DropboxHelper.php';
 header('Cache-Control: no-cache');
 header('Content-type: application/json');
 
+// Catch PHP errors / exceptions and return them as JSON so the caller
+// never receives a broken response that jQuery can't parse.
+set_error_handler(function(int $errno, string $errstr, string $errfile, int $errline): bool {
+    if (!($errno & error_reporting())) return false;
+    $short = basename($errfile) . ':' . $errline . ' — ' . $errstr;
+    echo json_encode(['success' => false, 'error' => 'PHP error: ' . $short]);
+    exit;
+});
+register_shutdown_function(function(): void {
+    $e = error_get_last();
+    if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        if (!headers_sent()) header('Content-type: application/json');
+        echo json_encode(['success' => false, 'error' => 'Fatal: ' . basename($e['file']) . ':' . $e['line'] . ' — ' . $e['message']]);
+    }
+});
+
 $query    = trim((string) ($_POST['query']    ?? ''));
 $name     = trim((string) ($_POST['name']     ?? ''));
 $brand    = trim((string) ($_POST['brand']    ?? ''));

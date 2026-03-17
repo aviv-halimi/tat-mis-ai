@@ -484,6 +484,18 @@ function dbx_download_and_resize(
     string $tmp_dir,
     string $tmp_url
 ): ?string {
+    // Build output path first so we can skip the download if a fresh copy exists
+    @mkdir($tmp_dir, 0755, true);
+    $base     = preg_replace('/[^A-Za-z0-9_\-]/', '_', pathinfo($file_name, PATHINFO_FILENAME));
+    $safe     = 'dbx_' . $base . '_' . substr(md5($file_path), 0, 8) . '.jpg';
+    $out_path = rtrim($tmp_dir, '/\\') . DIRECTORY_SEPARATOR . $safe;
+    $out_url  = rtrim($tmp_url, '/') . '/' . $safe;
+
+    // Return cached version if it was written in the last 4 hours
+    if (file_exists($out_path) && (time() - filemtime($out_path)) < 4 * 3600) {
+        return $out_url;
+    }
+
     $bytes = dbx_download_file($shared_link, $file_path, $token);
     if ($bytes === false) return null;
 
@@ -505,13 +517,6 @@ function dbx_download_and_resize(
 
     imagecopyresampled($canvas, $src, $dx, $dy, 0, 0, $dw, $dh, $sw, $sh);
     imagedestroy($src);
-
-    @mkdir($tmp_dir, 0755, true);
-
-    $base     = preg_replace('/[^A-Za-z0-9_\-]/', '_', pathinfo($file_name, PATHINFO_FILENAME));
-    $safe     = 'dbx_' . $base . '_' . substr(md5($file_path), 0, 8) . '.jpg';
-    $out_path = rtrim($tmp_dir, '/\\') . DIRECTORY_SEPARATOR . $safe;
-    $out_url  = rtrim($tmp_url, '/') . '/' . $safe;
 
     $ok = imagejpeg($canvas, $out_path, 90);
     imagedestroy($canvas);
