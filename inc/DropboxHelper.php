@@ -293,15 +293,23 @@ function _dbx_traverse(
 }
 
 /**
- * Public entry point: lists all image files in a Dropbox shared folder.
- * Uses Gemini to guide folder selection at each nesting level, so it finds
- * deeply-nested strain images without having to blindly crawl every subfolder.
+ * Public entry point: returns image files in a Dropbox shared folder
+ * that match $gemini_hint.
+ *
+ * Strategy (fastest first, automatic fallback):
+ *
+ *  1. files/search_v2  — native Dropbox filename search; single API call;
+ *                         works when the folder is added to the token-owner's
+ *                         Dropbox account (most common case).
+ *  2. Recursive folder traversal + Gemini-guided subfolder selection —
+ *                         used as fallback when search returns nothing (e.g.
+ *                         the folder lives only as a shared link, not mounted).
  *
  * @param  string      $shared_link  Full shared-folder URL (any dl= value)
  * @param  string      $token        Dropbox API access token
- * @param  string|null $gemini_key   Enables guided traversal when provided
- * @param  string      $gemini_hint  Product/brand name for guidance
- * @param  int         $max_folders  Safety cap on total API calls (default 30)
+ * @param  string|null $gemini_key   Enables guided traversal fallback + ranking
+ * @param  string      $gemini_hint  Product/brand name used for search + guidance
+ * @param  int         $max_folders  Safety cap for fallback traversal
  * @return array<array{name:string,path:string}>
  */
 function dbx_get_file_list(
@@ -313,10 +321,78 @@ function dbx_get_file_list(
 ): array {
     if ($token === '') return [];
 
+    // ── Strategy 1: files/search_v2 (single API call) ────────────────────────
+    if ($gemini_hint !== '') {
+        $results = _dbx_search($gemini_hint, $token);
+        if (!empty($results)) {
+            return $results;
+        }
+    }
+
+    // ── Strategy 2: recursive folder traversal with Gemini-guided navigation ──
     $api_link        = dbx_strip_dl_param($shared_link);
     $folders_visited = 0;
-
     return _dbx_traverse($api_link, '', $token, $gemini_key, $gemini_hint, $folders_visited, $max_folders);
+}
+
+/**
+ * Searches the token-owner's Dropbox for image files whose name contains $query.
+ * Uses the files/search_v2 endpoint — O(1) API calls regardless of folder depth.
+ *
+ * Returns [] when the search call fails or yields no image results, so callers
+ * can transparently fall back to folder traversal.
+ *
+ * @return array<array{name:string,path:string}>
+ */
+function _dbx_search(string $query, string $token): array
+{
+    $image_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff'];
+
+    $ch = curl_init('https://api.dropboxapi.com/2/files/search_v2');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode([
+            'query'   => $query,
+            'options' => [
+                'file_extensions'      => $image_exts,
+                'file_status'          => 'active',
+                'filename_only'        => true,
+                'max_results'          => 50,
+            ],
+        ]),
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Bearer ' . $token,
+            'Content-Type: application/json',
+        ],
+        CURLOPT_TIMEOUT        => 20,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_SSL_VERIFYPEER => false,
+    ]);
+    $resp = curl_exec($ch);
+    $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if (!$resp || $http >= 300) return [];
+
+    $data    = json_decode($resp, true);
+    $matches = (array) ($data['matches'] ?? []);
+    $files   = [];
+
+    foreach ($matches as $match) {
+        $meta = $match['metadata']['metadata'] ?? $match['metadata'] ?? [];
+        $tag  = (string) ($meta['.tag']      ?? '');
+        $name = (string) ($meta['name']       ?? '');
+        $path = (string) ($meta['path_lower'] ?? '');
+
+        if ($tag !== 'file' || $name === '' || $path === '') continue;
+        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+        if (!in_array($ext, $image_exts, true)) continue;
+
+        $files[] = ['name' => $name, 'path' => $path];
+    }
+
+    return $files;
 }
 
 // ============================================================

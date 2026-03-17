@@ -219,96 +219,143 @@ if (!$force_recrawl && file_exists($cache_file)) {
 }
 
 if ($file_list === null) {
-    log_line('info', 'Phase 1: Listing root of shared folder to see what\'s there…');
-    log_line('info', 'API endpoint: POST https://api.dropboxapi.com/2/files/list_folder  (path="", recursive=false)');
-
     $list_start = microtime(true);
 
-    // ---- list root inline so we can show detailed entry-level debug ----
-    $root_ch = curl_init('https://api.dropboxapi.com/2/files/list_folder');
-    curl_setopt_array($root_ch, [
+    // ── Strategy 1: files/search_v2 (fastest — single API call) ──────────────
+    log_line('step', 'Phase 1 (fast path) — files/search_v2: native Dropbox filename search (1 API call)');
+    log_line('info', 'Query: "' . $input_query . '"  |  file_extensions: jpg/jpeg/png/gif/webp  |  filename_only: true');
+
+    $search_ch = curl_init('https://api.dropboxapi.com/2/files/search_v2');
+    curl_setopt_array($search_ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_POST           => true,
         CURLOPT_POSTFIELDS     => json_encode([
-            'path'                           => '',
-            'shared_link'                    => ['url' => $api_link],
-            'recursive'                      => false,
-            'include_non_downloadable_files' => false,
+            'query'   => $input_query,
+            'options' => [
+                'file_extensions' => ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff'],
+                'file_status'     => 'active',
+                'filename_only'   => true,
+                'max_results'     => 50,
+            ],
         ]),
         CURLOPT_HTTPHEADER     => [
             'Authorization: Bearer ' . $dbx_token,
             'Content-Type: application/json',
         ],
-        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_TIMEOUT        => 20,
         CURLOPT_SSL_VERIFYPEER => false,
     ]);
-    $root_resp = curl_exec($root_ch);
-    $root_http = (int) curl_getinfo($root_ch, CURLINFO_HTTP_CODE);
-    $root_err  = curl_error($root_ch);
-    curl_close($root_ch);
+    $search_resp = curl_exec($search_ch);
+    $search_http = (int) curl_getinfo($search_ch, CURLINFO_HTTP_CODE);
+    $search_err  = curl_error($search_ch);
+    curl_close($search_ch);
 
-    if ($root_err || $root_http >= 300) {
-        $err_body = json_decode((string) $root_resp, true);
-        log_line('error', "Root listing failed (HTTP {$root_http}).", $err_body['error_summary'] ?? (string) $root_resp);
-        echo '</div></body></html>'; exit;
+    $search_files = [];
+    if ($search_err || $search_http >= 300) {
+        $err = json_decode((string) $search_resp, true);
+        log_line('warn', "files/search_v2 failed (HTTP {$search_http}) — will fall back to folder traversal.",
+                 $err['error_summary'] ?? (string) $search_resp);
+    } else {
+        $s_data = json_decode($search_resp, true);
+        foreach ((array) ($s_data['matches'] ?? []) as $m) {
+            $meta = $m['metadata']['metadata'] ?? $m['metadata'] ?? [];
+            $tag  = (string) ($meta['.tag']      ?? '');
+            $name = (string) ($meta['name']       ?? '');
+            $path = (string) ($meta['path_lower'] ?? '');
+            if ($tag !== 'file' || $name === '' || $path === '') continue;
+            $ext  = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+            if (!in_array($ext, ['jpg','jpeg','png','gif','webp','bmp','tif','tiff'], true)) continue;
+            $search_files[] = ['name' => $name, 'path' => $path];
+        }
+        if (!empty($search_files)) {
+            $search_ms = round((microtime(true) - $list_start) * 1000);
+            log_line('ok', sprintf('✨ Search found %d image file(s) in %d ms — no folder traversal needed!',
+                count($search_files), $search_ms));
+            $detail = '';
+            foreach ($search_files as $sf) $detail .= $sf['path'] . "\n";
+            log_line('info', 'Matched paths:', rtrim($detail));
+            $file_list = $search_files;
+        } else {
+            log_line('warn', sprintf('Search returned 0 image matches (HTTP %d) — will try folder traversal.', $search_http));
+        }
     }
 
-    $root_data    = json_decode($root_resp, true);
-    $root_entries = (array) ($root_data['entries'] ?? []);
-    log_line('ok', count($root_entries) . ' entries returned from root. Showing all:');
+    // ── Strategy 2: Recursive folder traversal (fallback) ────────────────────
+    if (empty($file_list)) {
+        log_line('step', 'Phase 2 (fallback) — Gemini-guided recursive folder traversal');
+        log_line('info', 'Listing root of shared folder…');
+        log_line('info', 'API endpoint: POST https://api.dropboxapi.com/2/files/list_folder  (path="", recursive=false)');
 
-    // Show every entry for diagnosis, including the constructed path we'll use
-    $detail = '';
-    foreach ($root_entries as $e) {
-        $ename       = (string) ($e['name']         ?? '');
-        $path_lower  = (string) ($e['path_lower']   ?? '');
-        $path_disp   = (string) ($e['path_display'] ?? '');
-        if ($path_lower !== '')          $used_path = $path_lower;
-        elseif ($path_disp !== '')       $used_path = strtolower($path_disp);
-        elseif ($ename !== '')           $used_path = '/' . strtolower($ename);
-        else                             $used_path = '(cannot determine)';
+        // ---- list root inline so we can show detailed entry-level debug ----
+        $root_ch = curl_init('https://api.dropboxapi.com/2/files/list_folder');
+        curl_setopt_array($root_ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode([
+                'path'                           => '',
+                'shared_link'                    => ['url' => $api_link],
+                'recursive'                      => false,
+                'include_non_downloadable_files' => false,
+            ]),
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: Bearer ' . $dbx_token,
+                'Content-Type: application/json',
+            ],
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_SSL_VERIFYPEER => false,
+        ]);
+        $root_resp = curl_exec($root_ch);
+        $root_http = (int) curl_getinfo($root_ch, CURLINFO_HTTP_CODE);
+        $root_err  = curl_error($root_ch);
+        curl_close($root_ch);
 
-        $detail .= sprintf(
-            ".tag=%-8s  name=%-44s  path_lower=%-20s  path_display=%-20s  → will use: %s\n",
-            $e['.tag']       ?? '?',
-            $ename,
-            $path_lower ?: '(empty)',
-            $path_disp  ?: '(empty)',
-            $used_path
-        );
-    }
-    log_line('info', 'Root entry dump (with constructed paths):', $detail);
+        if ($root_err || $root_http >= 300) {
+            $err_body = json_decode((string) $root_resp, true);
+            log_line('error', "Root listing failed (HTTP {$root_http}).", $err_body['error_summary'] ?? (string) $root_resp);
+            echo '</div></body></html>'; exit;
+        }
 
-    // ---- now use the helper for the full traversal with Gemini folder selection ----
-    log_line('info', 'Phase 2: Full traversal with Gemini-guided subfolder selection (recursive, any depth)…');
-    log_line('info', 'At each folder level that contains subfolders, Gemini picks the most relevant one first.');
+        $root_data    = json_decode($root_resp, true);
+        $root_entries = (array) ($root_data['entries'] ?? []);
+        log_line('ok', count($root_entries) . ' entries returned from root. Showing all:');
 
-    $file_list = dbx_get_file_list(
-        $input_link,
-        $dbx_token,
-        $gemini_key,
-        $input_query
-    );
+        $detail = '';
+        foreach ($root_entries as $e) {
+            $ename      = (string) ($e['name']         ?? '');
+            $path_lower = (string) ($e['path_lower']   ?? '');
+            $path_disp  = (string) ($e['path_display'] ?? '');
+            if ($path_lower !== '')     $used_path = $path_lower;
+            elseif ($path_disp !== '')  $used_path = strtolower($path_disp);
+            elseif ($ename !== '')      $used_path = '/' . strtolower($ename);
+            else                        $used_path = '(cannot determine)';
 
-    // Show which folders were actually visited (from the cache, which captures full index)
-    $unique_dirs = [];
-    foreach ($file_list as $f) {
-        $dir = dirname($f['path']);
-        $unique_dirs[$dir] = true;
-    }
-    if (!empty($unique_dirs)) {
-        log_line('info', 'Folders that yielded image files:', implode("\n", array_keys($unique_dirs)));
+            $detail .= sprintf(
+                ".tag=%-8s  name=%-44s  path_lower=%-20s  path_display=%-20s  → will use: %s\n",
+                $e['.tag']  ?? '?', $ename,
+                $path_lower ?: '(empty)', $path_disp ?: '(empty)', $used_path
+            );
+        }
+        log_line('info', 'Root entry dump (with constructed paths):', $detail);
+        log_line('info', 'At each folder level, Gemini picks the most relevant subfolder first.');
+
+        $file_list = dbx_get_file_list($input_link, $dbx_token, $gemini_key, $input_query);
+
+        $unique_dirs = [];
+        foreach ($file_list as $f) $unique_dirs[dirname($f['path'])] = true;
+        if (!empty($unique_dirs)) {
+            log_line('info', 'Folders that yielded image files:', implode("\n", array_keys($unique_dirs)));
+        }
     }
 
     $list_ms = round((microtime(true) - $list_start) * 1000);
 
     if (empty($file_list)) {
-        log_line('warn', "Traversal complete in {$list_ms} ms — 0 image files found.");
-        log_line('info', 'Possible causes: all entries are non-image types, or the token lacks access to the subfolders.');
+        log_line('warn', "Both strategies complete in {$list_ms} ms — 0 image files found.");
+        log_line('info', 'Possible causes: the query matches no filenames, the token lacks access, or all entries are non-image types.');
         echo '</div></body></html>'; exit;
     }
 
-    log_line('ok', sprintf('Traversal complete in %d ms — %d image file(s) indexed.', $list_ms, count($file_list)));
+    log_line('ok', sprintf('File discovery complete in %d ms — %d image file(s) found.', $list_ms, count($file_list)));
 
     @mkdir(DBX_TEST_TMP_DIR, 0755, true);
     file_put_contents($cache_file, (string) json_encode(['built_at' => time(), 'files' => $file_list]));
