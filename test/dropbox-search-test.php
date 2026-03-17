@@ -526,32 +526,100 @@ log_line('info', 'Using endpoint: POST https://content.dropboxapi.com/2/sharing/
 @mkdir(DBX_TEST_TMP_DIR, 0755, true);
 
 $result_images = [];
+$first_error   = '';   // capture raw API error from the first failure for diagnosis
+
 foreach ($matched as $path => $entry) {
     $dl_start = microtime(true);
-    log_line('info', 'Downloading "' . $entry['name'] . '" (path: ' . $path . ')…');
+    log_line('info', 'Downloading "' . $entry['name'] . '" …');
+    log_line('info', 'path arg  : ' . $entry['path']);
+    log_line('info', 'shared URL: ' . $api_link);
 
-    $local_url = dbx_download_and_resize(
-        $input_link,
-        $entry['path'],
-        $entry['name'],
-        $dbx_token,
-        DBX_TEST_TMP_DIR,
-        DBX_TEST_TMP_URL
-    );
+    // ── raw API call so we can log the actual error ───────────────────────────
+    $dl_arg = json_encode(['url' => $api_link, 'path' => $entry['path']]);
+    $dl_ch  = curl_init('https://content.dropboxapi.com/2/sharing/get_shared_link_file');
+    curl_setopt_array($dl_ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => '',
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Bearer ' . $dbx_token,
+            'Dropbox-API-Arg: ' . $dl_arg,
+        ],
+        CURLOPT_TIMEOUT        => 60,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_HEADER         => true,   // include response headers in output
+    ]);
+    $dl_raw  = curl_exec($dl_ch);
+    $dl_http = (int) curl_getinfo($dl_ch, CURLINFO_HTTP_CODE);
+    $dl_hdr_size = (int) curl_getinfo($dl_ch, CURLINFO_HEADER_SIZE);
+    $dl_cerr = curl_error($dl_ch);
+    curl_close($dl_ch);
 
     $dl_ms = round((microtime(true) - $dl_start) * 1000);
+    $dl_body = $dl_raw ? substr($dl_raw, $dl_hdr_size) : '';
 
-    if ($local_url === null) {
-        log_line('error', 'Download/resize failed for "' . $entry['name'] . '" in ' . $dl_ms . ' ms.');
-        log_line('info', 'Possible causes: token lacks access, file is not an image GD can decode (PDF/SVG), or tmp dir is not writable.');
+    log_line('info', "HTTP {$dl_http} — " . strlen($dl_body) . ' bytes — ' . $dl_ms . ' ms');
+
+    if ($dl_cerr) {
+        log_line('error', 'cURL error: ' . $dl_cerr);
+        if ($first_error === '') $first_error = 'cURL: ' . $dl_cerr;
+        continue;
+    }
+
+    if ($dl_http >= 300) {
+        $err_json = json_decode($dl_body, true);
+        $err_msg  = $err_json['error_summary'] ?? ($err_json['error']['.tag'] ?? substr($dl_body, 0, 300));
+        log_line('error', "API error (HTTP {$dl_http}): " . $err_msg);
+        if ($first_error === '') $first_error = "HTTP {$dl_http}: " . $err_msg;
+        // Show response headers for auth/routing clues
+        $hdrs = substr((string) $dl_raw, 0, $dl_hdr_size);
+        log_line('info', 'Response headers:', $hdrs);
+        continue;
+    }
+
+    if (strlen($dl_body) < 64) {
+        log_line('error', 'Response body too small (' . strlen($dl_body) . ' bytes) — not a valid image.');
+        if ($first_error === '') $first_error = 'body too small';
+        continue;
+    }
+
+    // ── resize + save ─────────────────────────────────────────────────────────
+    $src = @imagecreatefromstring($dl_body);
+    if (!$src) {
+        log_line('error', 'GD could not decode image bytes (first 50: ' . bin2hex(substr($dl_body, 0, 50)) . ')');
+        if ($first_error === '') $first_error = 'GD decode failed';
+        continue;
+    }
+
+    $sw = imagesx($src); $sh = imagesy($src);
+    $canvas = imagecreatetruecolor(800, 800);
+    imagefill($canvas, 0, 0, imagecolorallocate($canvas, 255, 255, 255));
+    $ratio = min(800 / $sw, 800 / $sh);
+    $dw = (int) round($sw * $ratio); $dh = (int) round($sh * $ratio);
+    $dx = (int) round((800 - $dw) / 2); $dy = (int) round((800 - $dh) / 2);
+    imagecopyresampled($canvas, $src, $dx, $dy, 0, 0, $dw, $dh, $sw, $sh);
+    imagedestroy($src);
+
+    @mkdir(DBX_TEST_TMP_DIR, 0755, true);
+    $base     = preg_replace('/[^A-Za-z0-9_\-]/', '_', pathinfo($entry['name'], PATHINFO_FILENAME));
+    $safe     = 'dbx_' . $base . '_' . substr(md5($entry['path']), 0, 8) . '.jpg';
+    $out_path = rtrim(DBX_TEST_TMP_DIR, '/\\') . DIRECTORY_SEPARATOR . $safe;
+    $out_url  = rtrim(DBX_TEST_TMP_URL, '/') . '/' . $safe;
+
+    if (imagejpeg($canvas, $out_path, 90)) {
+        imagedestroy($canvas);
+        log_line('ok', 'Saved → ' . $out_url);
+        $result_images[] = ['url' => $out_url, 'name' => $entry['name']];
     } else {
-        log_line('ok', 'Saved in ' . $dl_ms . ' ms → ' . $local_url);
-        $result_images[] = ['url' => $local_url, 'name' => $entry['name']];
+        imagedestroy($canvas);
+        log_line('error', 'imagejpeg() failed — check tmp dir is writable: ' . DBX_TEST_TMP_DIR);
     }
 }
 
 if (empty($result_images)) {
-    log_line('error', 'All downloads failed. Check token permissions and tmp directory writeability.');
+    log_line('error', 'All downloads failed.');
+    if ($first_error !== '') log_line('info', 'First error detail: ' . $first_error);
     echo '</div></body></html>'; exit;
 }
 
