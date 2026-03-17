@@ -591,17 +591,19 @@ function dbx_gemini_match_multi(
         $path_map[$f['path']] = $f;
     }
 
-    // Extract paths from Gemini's response (each starts with /)
+    // Extract paths from Gemini's response (each line is a full path, possibly
+    // followed by " | DisplayName.ext" which we told Gemini to omit but may still appear)
     $matched = [];
     foreach (preg_split('/\r?\n/', $result) as $line) {
         $line = trim($line);
-        if (preg_match('#(/[^\s|,]+)#', $line, $m)) {
-            $path = strtolower(rtrim(trim($m[1]), '.,;'));
-            if (isset($path_map[$path])) {
-                $entry = $path_map[$path];
-                if (!in_array($entry, $matched, true)) {
-                    $matched[] = $entry;
-                }
+        if ($line === '' || $line[0] !== '/') continue;
+        // Strip any " | ..." suffix Gemini may have added
+        $path = strtolower(rtrim(preg_replace('#\s*\|.*$#', '', $line), '.,; '));
+        if ($path === '') continue;
+        if (isset($path_map[$path])) {
+            $entry = $path_map[$path];
+            if (!in_array($entry, $matched, true)) {
+                $matched[] = $entry;
             }
         }
         if (count($matched) >= $max) break;

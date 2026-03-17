@@ -494,18 +494,18 @@ foreach ($gemini_index as $f) {
 $matched = [];
 foreach (preg_split('/\r?\n/', $raw_result) as $line) {
     $line = trim($line);
-    if ($line === '') continue;
-    if (preg_match('#(/[^\s|,]+)#', $line, $m)) {
-        $path = strtolower(rtrim(trim($m[1]), '.,;'));
-        if (isset($path_map[$path])) {
-            $entry = $path_map[$path];
-            if (!isset($matched[$path])) {
-                $matched[$path] = $entry;
-                log_line('ok', 'Mapped: "' . $path . '" → "' . $entry['name'] . '"');
-            }
-        } else {
-            log_line('warn', 'Path not found in index (possible Gemini hallucination): "' . $path . '"');
+    if ($line === '' || $line[0] !== '/') continue;
+    // Strip any " | ..." suffix Gemini may have added
+    $path = strtolower(rtrim(preg_replace('#\s*\|.*$#', '', $line), '.,; '));
+    if ($path === '') continue;
+    if (isset($path_map[$path])) {
+        $entry = $path_map[$path];
+        if (!isset($matched[$path])) {
+            $matched[$path] = $entry;
+            log_line('ok', 'Mapped: "' . $path . '" → "' . $entry['name'] . '"');
         }
+    } else {
+        log_line('warn', 'Path not found in index (possible Gemini hallucination): "' . $path . '"');
     }
     if (count($matched) >= $max) break;
 }
