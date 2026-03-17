@@ -100,101 +100,181 @@ function dbx_strip_dl_param(string $url): string
 }
 
 /**
- * Lists all image files inside a Dropbox shared folder, with manual recursion.
- *
- * The Dropbox API does NOT support `recursive: true` for shared-link listings,
- * so we traverse subfolders ourselves: list root, then list each folder entry
- * found, and so on, using a queue.
- *
- * Returned entries:
- *   [ 'name' => 'product.jpg', 'path' => '/product.jpg' ]
- *
- * @param  string $shared_link  Any form of the Dropbox shared-folder URL
- * @param  string $token        Dropbox API access token (from app console)
- * @param  int    $max_folders  Safety cap on number of subfolders to traverse
- * @return array<array{name:string,path:string}>
+ * Internal: page through one folder path of a shared Dropbox link.
+ * Returns ['files' => [...], 'folders' => [...]] for the entries found.
  */
-function dbx_get_file_list(string $shared_link, string $token, int $max_folders = 50): array
+function _dbx_list_one_folder(string $api_link, string $path, string $token): array
 {
-    if ($token === '') return [];
-
-    // Strip dl= but keep rlkey and other params — the API needs the bare link
-    $api_link   = dbx_strip_dl_param($shared_link);
     $image_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff'];
+    $files      = [];
+    $folders    = [];
+    $cursor     = null;
+    $has_more   = true;
 
-    $files          = [];
-    $folder_queue   = [''];   // paths relative to shared folder root; '' = root
-    $folders_visited = 0;
-
-    while (!empty($folder_queue) && $folders_visited < $max_folders) {
-        $current_path = array_shift($folder_queue);
-        $folders_visited++;
-
-        // Page through this folder
-        $cursor   = null;
-        $has_more = true;
-
-        while ($has_more) {
-            if ($cursor === null) {
-                $endpoint = 'https://api.dropboxapi.com/2/files/list_folder';
-                $body     = json_encode([
-                    'path'                           => $current_path,
-                    'shared_link'                    => ['url' => $api_link],
-                    'recursive'                      => false,
-                    'include_non_downloadable_files' => false,
-                ]);
-            } else {
-                $endpoint = 'https://api.dropboxapi.com/2/files/list_folder/continue';
-                $body     = json_encode(['cursor' => $cursor]);
-            }
-
-            $ch = curl_init($endpoint);
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_POST           => true,
-                CURLOPT_POSTFIELDS     => $body,
-                CURLOPT_HTTPHEADER     => [
-                    'Authorization: Bearer ' . $token,
-                    'Content-Type: application/json',
-                ],
-                CURLOPT_TIMEOUT        => 30,
-                CURLOPT_CONNECTTIMEOUT => 10,
-                CURLOPT_SSL_VERIFYPEER => false,
+    while ($has_more) {
+        if ($cursor === null) {
+            $endpoint = 'https://api.dropboxapi.com/2/files/list_folder';
+            $body     = json_encode([
+                'path'                           => $path,
+                'shared_link'                    => ['url' => $api_link],
+                'recursive'                      => false,
+                'include_non_downloadable_files' => false,
             ]);
-            $resp = curl_exec($ch);
-            $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
+        } else {
+            $endpoint = 'https://api.dropboxapi.com/2/files/list_folder/continue';
+            $body     = json_encode(['cursor' => $cursor]);
+        }
 
-            if (!$resp || $http >= 300) {
-                $has_more = false;
-                break;
-            }
+        $ch = curl_init($endpoint);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $body,
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: Bearer ' . $token,
+                'Content-Type: application/json',
+            ],
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => false,
+        ]);
+        $resp = curl_exec($ch);
+        $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
 
-            $data = json_decode($resp, true);
-            if (!is_array($data)) { $has_more = false; break; }
+        if (!$resp || $http >= 300) break;
 
-            foreach ((array) ($data['entries'] ?? []) as $entry) {
-                $tag  = (string) ($entry['.tag']       ?? '');
-                $name = (string) ($entry['name']        ?? '');
-                $path = (string) ($entry['path_lower']  ?? '');
+        $data = json_decode($resp, true);
+        if (!is_array($data)) break;
 
-                if ($tag === 'folder' && $path !== '') {
-                    // Queue subfolder for traversal
-                    $folder_queue[] = $path;
-                } elseif ($tag === 'file' && $name !== '' && $path !== '') {
-                    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-                    if (in_array($ext, $image_exts, true)) {
-                        $files[] = ['name' => $name, 'path' => $path];
-                    }
+        foreach ((array) ($data['entries'] ?? []) as $entry) {
+            $tag  = (string) ($entry['.tag']      ?? '');
+            $name = (string) ($entry['name']       ?? '');
+            // Dropbox shared-link listings may return path_display instead of path_lower
+            $path_lower = (string) ($entry['path_lower']   ?? '');
+            $path_disp  = (string) ($entry['path_display'] ?? '');
+            $epath      = $path_lower !== '' ? $path_lower : strtolower($path_disp);
+
+            if ($tag === 'folder' && $name !== '') {
+                $folders[] = ['name' => $name, 'path' => $epath];
+            } elseif ($tag === 'file' && $name !== '' && $epath !== '') {
+                $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+                if (in_array($ext, $image_exts, true)) {
+                    $files[] = ['name' => $name, 'path' => $epath];
                 }
             }
+        }
 
-            $has_more = (bool) ($data['has_more'] ?? false);
-            $cursor   = $has_more ? (string) ($data['cursor'] ?? '') : null;
+        $has_more = (bool) ($data['has_more'] ?? false);
+        $cursor   = $has_more ? (string) ($data['cursor'] ?? '') : null;
+    }
+
+    return ['files' => $files, 'folders' => $folders];
+}
+
+/**
+ * Lists all image files inside a Dropbox shared folder, with manual recursion.
+ *
+ * Strategy:
+ *   1. List root → collect files + subfolders.
+ *   2. If subfolders exist and $gemini_hint is provided, ask Gemini which
+ *      subfolder name best matches the product — traverse the winner first.
+ *   3. Fall back to traversing all remaining subfolders (up to $max_folders).
+ *
+ * Returned entries:  [ 'name' => 'product.jpg', 'path' => '/product.jpg' ]
+ *
+ * @param  string      $shared_link
+ * @param  string      $token
+ * @param  string|null $gemini_key   When provided, Gemini picks the best subfolder
+ * @param  string      $gemini_hint  Product/brand name for Gemini folder selection
+ * @param  int         $max_folders  Safety cap on number of subfolders to traverse
+ * @return array<array{name:string,path:string}>
+ */
+function dbx_get_file_list(
+    string  $shared_link,
+    string  $token,
+    ?string $gemini_key  = null,
+    string  $gemini_hint = '',
+    int     $max_folders = 50
+): array {
+    if ($token === '') return [];
+
+    $api_link        = dbx_strip_dl_param($shared_link);
+    $all_files       = [];
+    $folders_visited = 0;
+
+    // -- Step 1: list root --
+    $root = _dbx_list_one_folder($api_link, '', $token);
+    $folders_visited++;
+    $all_files   = $root['files'];
+    $subfolders  = $root['folders'];   // [{name, path}]
+
+    if (empty($subfolders)) {
+        return $all_files;
+    }
+
+    // -- Step 2: Gemini folder selection --
+    $prioritised = [];
+    if ($gemini_key !== null && $gemini_key !== '' && $gemini_hint !== '' && !empty($subfolders)) {
+        $folder_list = implode("\n", array_map(fn($f) => $f['path'] . ' | ' . $f['name'], $subfolders));
+        $model       = (defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-2.0-flash';
+        $prompt      =
+            "A Dropbox folder for a cannabis company is organised into brand/strain subfolders.\n" .
+            "Product to find: \"{$gemini_hint}\"\n" .
+            "Available subfolders:\n{$folder_list}\n\n" .
+            "Return the path (the part before ' | ') of the ONE subfolder most likely to contain images for this product. " .
+            "If none match at all, return NULL.";
+
+        $url = 'https://generativelanguage.googleapis.com/v1beta/models/' .
+               urlencode($model) . ':generateContent?key=' . urlencode($gemini_key);
+        $ch  = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_POSTFIELDS     => (string) json_encode([
+                'contents'         => [['parts' => [['text' => $prompt]]]],
+                'generationConfig' => ['temperature' => 0, 'maxOutputTokens' => 64],
+            ]),
+            CURLOPT_TIMEOUT => 30,
+        ]);
+        $gresp  = (string) curl_exec($ch);
+        curl_close($ch);
+        $gjson  = json_decode($gresp, true);
+        $gresult = trim((string) ($gjson['candidates'][0]['content']['parts'][0]['text'] ?? ''));
+
+        if ($gresult !== '' && strtoupper($gresult) !== 'NULL') {
+            // Find the subfolder whose path Gemini returned
+            foreach ($subfolders as $sf) {
+                if (str_contains(strtolower($gresult), strtolower($sf['path'])) ||
+                    str_contains(strtolower($gresult), strtolower($sf['name']))) {
+                    $prioritised[] = $sf;
+                    break;
+                }
+            }
         }
     }
 
-    return $files;
+    // -- Step 3: traverse subfolders (prioritised first, then remaining) --
+    $remaining = array_filter($subfolders, fn($sf) => !in_array($sf, $prioritised, true));
+    $ordered   = array_merge($prioritised, array_values($remaining));
+
+    foreach ($ordered as $sf) {
+        if ($folders_visited >= $max_folders) break;
+        $result = _dbx_list_one_folder($api_link, $sf['path'], $token);
+        $folders_visited++;
+        $all_files = array_merge($all_files, $result['files']);
+
+        // Recurse one level deeper if needed (grandchildren)
+        foreach ($result['folders'] as $child) {
+            if ($folders_visited >= $max_folders) break;
+            $child_result = _dbx_list_one_folder($api_link, $child['path'], $token);
+            $folders_visited++;
+            $all_files = array_merge($all_files, $child_result['files']);
+        }
+    }
+
+    return $all_files;
 }
 
 // ============================================================
