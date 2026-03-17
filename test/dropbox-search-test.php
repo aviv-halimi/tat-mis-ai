@@ -220,104 +220,124 @@ if (!$force_recrawl && file_exists($cache_file)) {
 
 if ($file_list === null) {
     log_line('info', 'Calling Dropbox API: POST https://api.dropboxapi.com/2/files/list_folder');
-    log_line('info', 'Shared link: "' . $api_link . '"');
+    log_line('info', 'Shared link (rlkey preserved): "' . $api_link . '"');
+    log_line('info', 'Note: recursive=true is not supported for shared links — traversing subfolders manually.');
 
-    $image_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff'];
-    $file_list  = [];
-    $all_entries = 0;
-    $cursor     = null;
-    $has_more   = true;
-    $page       = 0;
-    $list_start = microtime(true);
+    $image_exts      = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff'];
+    $file_list       = [];
+    $all_entries     = 0;
+    $folder_queue    = [''];   // '' = root of the shared folder
+    $folders_done    = 0;
+    $max_folders     = 50;
+    $list_start      = microtime(true);
+    $request_num     = 0;
 
-    while ($has_more) {
-        $page++;
-        if ($cursor === null) {
-            $endpoint = 'https://api.dropboxapi.com/2/files/list_folder';
-            $body     = json_encode([
-                'path'                           => '',
-                'shared_link'                    => ['url' => $api_link],
-                'recursive'                      => true,
-                'include_non_downloadable_files' => false,
-            ]);
-        } else {
-            $endpoint = 'https://api.dropboxapi.com/2/files/list_folder/continue';
-            $body     = json_encode(['cursor' => $cursor]);
-        }
+    while (!empty($folder_queue) && $folders_done < $max_folders) {
+        $current_path = array_shift($folder_queue);
+        $folders_done++;
+        $label = $current_path === '' ? '(root)' : $current_path;
+        log_line('info', "Listing folder {$folders_done}: {$label}");
 
-        $ch = curl_init($endpoint);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $body,
-            CURLOPT_HTTPHEADER     => [
-                'Authorization: Bearer ' . $dbx_token,
-                'Content-Type: application/json',
-            ],
-            CURLOPT_TIMEOUT        => 30,
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_SSL_VERIFYPEER => false,
-        ]);
-        $resp    = curl_exec($ch);
-        $http    = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curl_err = curl_error($ch);
-        curl_close($ch);
+        $cursor   = null;
+        $has_more = true;
 
-        if ($curl_err) {
-            log_line('error', "Page {$page}: cURL error — {$curl_err}");
-            break;
-        }
-        if ($http >= 300) {
-            // Show the API error body for diagnosis
-            $err_detail = '';
-            if ($resp) {
-                $err_body = json_decode($resp, true);
-                $err_detail = $err_body['error_summary'] ?? $resp;
+        while ($has_more) {
+            $request_num++;
+            if ($cursor === null) {
+                $endpoint = 'https://api.dropboxapi.com/2/files/list_folder';
+                $body     = json_encode([
+                    'path'                           => $current_path,
+                    'shared_link'                    => ['url' => $api_link],
+                    'recursive'                      => false,
+                    'include_non_downloadable_files' => false,
+                ]);
+            } else {
+                $endpoint = 'https://api.dropboxapi.com/2/files/list_folder/continue';
+                $body     = json_encode(['cursor' => $cursor]);
             }
-            log_line('error', "Page {$page}: Dropbox API returned HTTP {$http}.", $err_detail);
-            break;
+
+            $ch = curl_init($endpoint);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => $body,
+                CURLOPT_HTTPHEADER     => [
+                    'Authorization: Bearer ' . $dbx_token,
+                    'Content-Type: application/json',
+                ],
+                CURLOPT_TIMEOUT        => 30,
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_SSL_VERIFYPEER => false,
+            ]);
+            $resp     = curl_exec($ch);
+            $http     = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curl_err = curl_error($ch);
+            curl_close($ch);
+
+            if ($curl_err) {
+                log_line('error', "Request #{$request_num} cURL error: {$curl_err}");
+                $has_more = false; break;
+            }
+            if ($http >= 300) {
+                $err_body   = json_decode((string) $resp, true);
+                $err_detail = $err_body['error_summary'] ?? (string) $resp;
+                log_line('error', "Request #{$request_num} HTTP {$http} for folder \"{$label}\".", $err_detail);
+                $has_more = false; break;
+            }
+
+            $data = json_decode($resp, true);
+            if (!is_array($data)) {
+                log_line('error', "Request #{$request_num}: could not parse JSON response.", (string) $resp);
+                $has_more = false; break;
+            }
+
+            $page_entries = (array) ($data['entries'] ?? []);
+            $all_entries += count($page_entries);
+            $img_this_page = 0;
+
+            foreach ($page_entries as $entry) {
+                $tag  = (string) ($entry['.tag']      ?? '');
+                $name = (string) ($entry['name']       ?? '');
+                $path = (string) ($entry['path_lower'] ?? '');
+
+                if ($tag === 'folder' && $path !== '') {
+                    $folder_queue[] = $path;
+                    log_line('info', "  Found subfolder: {$path} (queued for traversal)");
+                } elseif ($tag === 'file' && $name !== '' && $path !== '') {
+                    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+                    if (in_array($ext, $image_exts, true)) {
+                        $file_list[] = ['name' => $name, 'path' => $path];
+                        $img_this_page++;
+                    }
+                }
+            }
+
+            if ($img_this_page > 0) {
+                log_line('ok', "  {$img_this_page} image(s) found in \"{$label}\".");
+            }
+
+            $has_more = (bool) ($data['has_more'] ?? false);
+            $cursor   = $has_more ? (string) ($data['cursor'] ?? '') : null;
         }
+    }
 
-        $data = json_decode($resp, true);
-        if (!is_array($data)) {
-            log_line('error', "Page {$page}: Could not parse API response.", (string) $resp);
-            break;
-        }
-
-        $page_entries = (array) ($data['entries'] ?? []);
-        $all_entries += count($page_entries);
-        $img_on_page  = 0;
-
-        foreach ($page_entries as $entry) {
-            if (($entry['.tag'] ?? '') !== 'file') continue;
-            $name = (string) ($entry['name']       ?? '');
-            $path = (string) ($entry['path_lower'] ?? '');
-            if ($name === '' || $path === '') continue;
-            $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-            if (!in_array($ext, $image_exts, true)) continue;
-            $file_list[]  = ['name' => $name, 'path' => $path];
-            $img_on_page++;
-        }
-
-        log_line('info', "Page {$page}: {$all_entries} total entries, {$img_on_page} new images this page.");
-
-        $has_more = (bool) ($data['has_more'] ?? false);
-        $cursor   = $has_more ? (string) ($data['cursor'] ?? '') : null;
+    if ($folders_done >= $max_folders && !empty($folder_queue)) {
+        log_line('warn', "Stopped after {$max_folders} folders (safety cap). " . count($folder_queue) . ' folder(s) not traversed.');
     }
 
     $list_ms = round((microtime(true) - $list_start) * 1000);
 
     if (empty($file_list)) {
-        log_line('warn', "Listing complete in {$list_ms} ms — but 0 image files found.");
-        log_line('info', "Total entries returned: {$all_entries}. Folder may contain no images, or all files may be non-image types.");
+        log_line('warn', "Traversal complete in {$list_ms} ms — 0 image files found.");
+        log_line('info', "Total API entries: {$all_entries} across {$folders_done} folder(s).");
         if ($access_status !== 'dropbox_ok') {
             log_line('info', 'Note: accessibility check failed earlier — the token may also lack access to this specific folder.');
         }
         echo '</div></body></html>'; exit;
     }
 
-    log_line('ok', sprintf('Listing complete in %d ms — %d image file(s) found across %d total entries.',
-        $list_ms, count($file_list), $all_entries));
+    log_line('ok', sprintf('Traversal complete in %d ms — %d image file(s) found across %d folder(s), %d total entries.',
+        $list_ms, count($file_list), $folders_done, $all_entries));
 
     // Cache for next 4 hours
     @mkdir(DBX_TEST_TMP_DIR, 0755, true);

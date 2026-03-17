@@ -100,21 +100,21 @@ function dbx_strip_dl_param(string $url): string
 }
 
 /**
- * Lists all image files inside a Dropbox shared folder, recursively.
- * Uses the Dropbox API v2 `files/list_folder` with a shared_link parameter.
+ * Lists all image files inside a Dropbox shared folder, with manual recursion.
+ *
+ * The Dropbox API does NOT support `recursive: true` for shared-link listings,
+ * so we traverse subfolders ourselves: list root, then list each folder entry
+ * found, and so on, using a queue.
  *
  * Returned entries:
  *   [ 'name' => 'product.jpg', 'path' => '/product.jpg' ]
  *
- * NOTE: No download_url is constructed here because Dropbox's newer /scl/fo/
- * link format requires using the sharing/get_shared_link_file API endpoint
- * for reliable per-file downloads (see dbx_download_file).
- *
  * @param  string $shared_link  Any form of the Dropbox shared-folder URL
  * @param  string $token        Dropbox API access token (from app console)
+ * @param  int    $max_folders  Safety cap on number of subfolders to traverse
  * @return array<array{name:string,path:string}>
  */
-function dbx_get_file_list(string $shared_link, string $token): array
+function dbx_get_file_list(string $shared_link, string $token, int $max_folders = 50): array
 {
     if ($token === '') return [];
 
@@ -122,61 +122,76 @@ function dbx_get_file_list(string $shared_link, string $token): array
     $api_link   = dbx_strip_dl_param($shared_link);
     $image_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff'];
 
-    $files    = [];
-    $cursor   = null;
-    $has_more = true;
+    $files          = [];
+    $folder_queue   = [''];   // paths relative to shared folder root; '' = root
+    $folders_visited = 0;
 
-    while ($has_more) {
-        if ($cursor === null) {
-            $endpoint = 'https://api.dropboxapi.com/2/files/list_folder';
-            $body     = json_encode([
-                'path'                           => '',
-                'shared_link'                    => ['url' => $api_link],
-                'recursive'                      => true,
-                'include_non_downloadable_files' => false,
+    while (!empty($folder_queue) && $folders_visited < $max_folders) {
+        $current_path = array_shift($folder_queue);
+        $folders_visited++;
+
+        // Page through this folder
+        $cursor   = null;
+        $has_more = true;
+
+        while ($has_more) {
+            if ($cursor === null) {
+                $endpoint = 'https://api.dropboxapi.com/2/files/list_folder';
+                $body     = json_encode([
+                    'path'                           => $current_path,
+                    'shared_link'                    => ['url' => $api_link],
+                    'recursive'                      => false,
+                    'include_non_downloadable_files' => false,
+                ]);
+            } else {
+                $endpoint = 'https://api.dropboxapi.com/2/files/list_folder/continue';
+                $body     = json_encode(['cursor' => $cursor]);
+            }
+
+            $ch = curl_init($endpoint);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => $body,
+                CURLOPT_HTTPHEADER     => [
+                    'Authorization: Bearer ' . $token,
+                    'Content-Type: application/json',
+                ],
+                CURLOPT_TIMEOUT        => 30,
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_SSL_VERIFYPEER => false,
             ]);
-        } else {
-            $endpoint = 'https://api.dropboxapi.com/2/files/list_folder/continue';
-            $body     = json_encode(['cursor' => $cursor]);
+            $resp = curl_exec($ch);
+            $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if (!$resp || $http >= 300) {
+                $has_more = false;
+                break;
+            }
+
+            $data = json_decode($resp, true);
+            if (!is_array($data)) { $has_more = false; break; }
+
+            foreach ((array) ($data['entries'] ?? []) as $entry) {
+                $tag  = (string) ($entry['.tag']       ?? '');
+                $name = (string) ($entry['name']        ?? '');
+                $path = (string) ($entry['path_lower']  ?? '');
+
+                if ($tag === 'folder' && $path !== '') {
+                    // Queue subfolder for traversal
+                    $folder_queue[] = $path;
+                } elseif ($tag === 'file' && $name !== '' && $path !== '') {
+                    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+                    if (in_array($ext, $image_exts, true)) {
+                        $files[] = ['name' => $name, 'path' => $path];
+                    }
+                }
+            }
+
+            $has_more = (bool) ($data['has_more'] ?? false);
+            $cursor   = $has_more ? (string) ($data['cursor'] ?? '') : null;
         }
-
-        $ch = curl_init($endpoint);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $body,
-            CURLOPT_HTTPHEADER     => [
-                'Authorization: Bearer ' . $token,
-                'Content-Type: application/json',
-            ],
-            CURLOPT_TIMEOUT        => 30,
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_SSL_VERIFYPEER => false,
-        ]);
-        $resp = curl_exec($ch);
-        $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if (!$resp || $http >= 300) break;
-
-        $data = json_decode($resp, true);
-        if (!is_array($data)) break;
-
-        foreach ((array) ($data['entries'] ?? []) as $entry) {
-            if (($entry['.tag'] ?? '') !== 'file') continue;
-
-            $name = (string) ($entry['name']       ?? '');
-            $path = (string) ($entry['path_lower'] ?? '');
-            if ($name === '' || $path === '') continue;
-
-            $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-            if (!in_array($ext, $image_exts, true)) continue;
-
-            $files[] = ['name' => $name, 'path' => $path];
-        }
-
-        $has_more = (bool) ($data['has_more'] ?? false);
-        $cursor   = $has_more ? (string) ($data['cursor'] ?? '') : null;
     }
 
     return $files;
