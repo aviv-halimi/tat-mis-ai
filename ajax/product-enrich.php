@@ -3,8 +3,18 @@ require_once dirname(__FILE__) . '/../_config.php';
 require_once BASE_PATH . 'inc/GoogleDriveHelper.php';
 require_once BASE_PATH . 'inc/DropboxHelper.php';
 
+// Streaming newline-delimited JSON: each line is one JSON object.
+// Progress lines: {"progress":"step_id","label":"..."}  or  {"progress":"step_id","done":true}
+// Final line:     {"success":true, ...full result... }
 header('Cache-Control: no-cache');
-header('Content-type: application/json');
+header('Content-Type: text/plain; charset=utf-8');
+header('X-Accel-Buffering: no');   // disable nginx proxy buffering
+while (ob_get_level() > 0) ob_end_flush();
+
+function enrich_emit(array $data): void {
+    echo json_encode($data) . "\n";
+    flush();
+}
 
 $po_product_id = isset($_POST['id'])       ? (int)    trim($_POST['id'])       : 0;
 $product_name  = isset($_POST['name'])     ? trim((string) $_POST['name'])     : '';
@@ -15,7 +25,7 @@ $category_id   = isset($_POST['category_id']) ? (int) $_POST['category_id'] : 0;
 $store_db      = isset($_POST['store_db'])    ? preg_replace('/[^a-zA-Z0-9_]/', '', trim($_POST['store_db'])) : '';
 
 if ($po_product_id <= 0 || $product_name === '') {
-    echo json_encode(['success' => false, 'error' => 'Missing product id or name for enrichment.']);
+    enrich_emit(['success' => false, 'error' => 'Missing product id or name for enrichment.']);
     exit;
 }
 
@@ -223,11 +233,12 @@ function tat_extract_drive_folder_id(string $input): ?string
 function tat_enrich_discover_images(
     $product_name, $brand_name, $category_name,
     &$source_found,
-    &$warning      = null,
-    &$search_query = null,
+    &$warning       = null,
+    &$search_query  = null,
     &$image_sources = null,
-    int $brand_id  = 0,
-    string $store_db = ''
+    int $brand_id   = 0,
+    string $store_db = '',
+    ?callable $on_progress = null
 ): array {
     $source_found  = null;
     $warning       = null;
@@ -302,6 +313,11 @@ function tat_enrich_discover_images(
     }
 
     // --- Priority 1a: Brand Dropbox Folder ---
+    $brand_folder_type = $brand_dropbox_url ? 'dropbox' : ($brand_drive_folder_id ? 'drive' : '');
+    if ($brand_folder_type !== '') {
+        if ($on_progress) $on_progress(['progress' => 'brand_images', 'label' => 'Searching brand folder…', 'folder_type' => $brand_folder_type]);
+    }
+
     if ($brand_dropbox_url !== null && $gemini_key !== '') {
         $dbx_token = defined('DROPBOX_ACCESS_TOKEN') ? DROPBOX_ACCESS_TOKEN : '';
         $dbx_files = dbx_get_file_list($brand_dropbox_url, $dbx_token, $gemini_key, trim($brand_name . ' ' . $cleanName));
@@ -346,6 +362,7 @@ function tat_enrich_discover_images(
 
                 // --- Priority 2: Global master Drive folder (only if brand folder gave nothing) ---
                 if (empty($brand_folder_urls)) {
+                    if ($on_progress) $on_progress(['progress' => 'master_images', 'label' => 'Searching master Drive folder…']);
                     $master_index = gd_get_index($creds, GD_ROOT_FOLDER_ID);
                     if (!empty($master_index)) {
                         $file_ids = gd_gemini_match_multi($cleanName, (string) $brand_name, $master_index, $gemini_key, 5);
@@ -357,10 +374,18 @@ function tat_enrich_discover_images(
                             }
                         }
                     }
+                    if ($on_progress) $on_progress(['progress' => 'master_images', 'done' => true, 'count' => count($master_drive_urls)]);
+                } else {
+                    if ($on_progress) $on_progress(['progress' => 'master_images', 'skipped' => true]);
                 }
             }
         }
+    }
 
+    if ($brand_folder_type !== '') {
+        if ($on_progress) $on_progress(['progress' => 'brand_images', 'done' => true, 'count' => count($brand_folder_urls)]);
+    } else {
+        if ($on_progress) $on_progress(['progress' => 'brand_images', 'skipped' => true]);
     }
 
     // --------------------------------------------------------
@@ -378,8 +403,13 @@ function tat_enrich_discover_images(
     $trusted_q = '(site:weedmaps.com OR site:leafly.com OR site:dutchie.com) "' . $namePart . '"';
     $web_q     = '"' . $namePart . '" cannabis product packaging -site:pinterest.com';
 
+    if ($on_progress) $on_progress(['progress' => 'trusted_search', 'label' => 'Searching Weedmaps, Leafly & Dutchie…']);
     $trusted_urls = tat_serper_image_search($trusted_q, SERPER_API_KEY, 5);
-    $web_urls     = tat_serper_image_search($web_q,     SERPER_API_KEY, 5);
+    if ($on_progress) $on_progress(['progress' => 'trusted_search', 'done' => true, 'count' => count($trusted_urls)]);
+
+    if ($on_progress) $on_progress(['progress' => 'web_search', 'label' => 'Searching the web…']);
+    $web_urls = tat_serper_image_search($web_q, SERPER_API_KEY, 5);
+    if ($on_progress) $on_progress(['progress' => 'web_search', 'done' => true, 'count' => count($web_urls)]);
 
     // --------------------------------------------------------
     // Combine all sources — up to 5 per source, deduped
@@ -453,8 +483,10 @@ function tat_enrich_discover_images(
 }
 
 // ============================================================
-// Load brands and categories from the current store DB
+// Step 1 — Brand & category lookup (DB queries, fast)
 // ============================================================
+enrich_emit(['progress' => 'brand_lookup', 'label' => 'Looking up brand & category info…']);
+
 $brands     = [];
 $categories = [];
 if ($store_db !== '') {
@@ -465,28 +497,42 @@ if ($store_db !== '') {
         $categories[] = ['id' => (int) $c['category_id'], 'name' => (string) $c['name']];
     }
 }
+enrich_emit(['progress' => 'brand_lookup', 'done' => true]);
 
 // ============================================================
-// Run the enrichment
+// Step 2 — Generate description via Gemini
 // ============================================================
+enrich_emit(['progress' => 'description', 'label' => 'Generating AI description…']);
 $descError   = null;
 $description = tat_enrich_generate_description($product_name, $brand_name, $category_name, $descError);
 
+if ($descError && $description === '') {
+    enrich_emit(['success' => false, 'error' => $descError]);
+    exit;
+}
+enrich_emit(['progress' => 'description', 'done' => true]);
+
+// ============================================================
+// Step 3–5 — Image discovery (brand folder, trusted, web)
+// ============================================================
 $source_found  = null;
 $imageWarning  = null;
 $search_query  = null;
 $image_sources = [];
-$images        = tat_enrich_discover_images($product_name, $brand_name, $category_name, $source_found, $imageWarning, $search_query, $image_sources, $brand_id, $store_db);
+$images        = tat_enrich_discover_images(
+    $product_name, $brand_name, $category_name,
+    $source_found, $imageWarning, $search_query, $image_sources,
+    $brand_id, $store_db,
+    'enrich_emit'   // progress callback = our streaming emit function
+);
 
 $flower_type = tat_extract_flower_type($product_name);
 $weight_info = tat_extract_weight_info($product_name);
 
-if ($descError && $description === '') {
-    echo json_encode(['success' => false, 'error' => $descError]);
-    exit;
-}
-
-echo json_encode([
+// ============================================================
+// Final line — full enrichment result
+// ============================================================
+enrich_emit([
     'success'          => true,
     'description'      => $description,
     'images'           => $images,
@@ -501,7 +547,6 @@ echo json_encode([
     'category_id'      => $category_id,
     'brands'           => $brands,
     'categories'       => $categories,
-    // Flower type & weight (pre-fill modal fields)
     'flower_type'      => $flower_type,
     'weight_per_unit'  => $weight_info['weight_per_unit'],
     'custom_gram_type' => $weight_info['custom_gram_type'],

@@ -374,11 +374,54 @@ else {
 
       <div class="modal-body" style="max-height:calc(94vh - 120px);overflow-y:auto;">
 
-        <!-- Loading overlay -->
-        <div id="enrichLoadingOverlay" style="display:none;text-align:center;padding:30px;">
-          <i class="fa fa-spinner fa-spin fa-2x"></i>
-          <p class="m-t-10 text-muted">Generating description &amp; searching images…</p>
+        <!-- Loading overlay with live progress checklist -->
+        <div id="enrichLoadingOverlay" style="display:none;padding:28px 32px;">
+          <p style="font-size:13px;font-weight:600;color:#555;margin-bottom:14px;">
+            <i class="fa fa-magic" style="color:#6f42c1;margin-right:6px;"></i>
+            Enriching product…
+          </p>
+          <ul id="enrichProgressList" style="list-style:none;padding:0;margin:0;font-size:13px;">
+            <li class="enrich-step" data-step="brand_lookup">
+              <span class="enrich-step-icon">&#9711;</span>
+              <span class="enrich-step-label">Looking up brand &amp; category info</span>
+            </li>
+            <li class="enrich-step" data-step="description">
+              <span class="enrich-step-icon">&#9711;</span>
+              <span class="enrich-step-label">Generating AI description</span>
+            </li>
+            <li class="enrich-step" data-step="brand_images">
+              <span class="enrich-step-icon">&#9711;</span>
+              <span class="enrich-step-label">Searching brand folder</span>
+            </li>
+            <li class="enrich-step" data-step="master_images">
+              <span class="enrich-step-icon">&#9711;</span>
+              <span class="enrich-step-label">Searching master Drive folder</span>
+            </li>
+            <li class="enrich-step" data-step="trusted_search">
+              <span class="enrich-step-icon">&#9711;</span>
+              <span class="enrich-step-label">Searching Weedmaps, Leafly &amp; Dutchie</span>
+            </li>
+            <li class="enrich-step" data-step="web_search">
+              <span class="enrich-step-icon">&#9711;</span>
+              <span class="enrich-step-label">Searching the web</span>
+            </li>
+          </ul>
         </div>
+        <style>
+          .enrich-step { display:flex; align-items:center; padding:5px 0; color:#999; transition:color .2s; }
+          .enrich-step-icon { width:22px; font-size:15px; flex-shrink:0; }
+          .enrich-step.active { color:#337ab7; }
+          .enrich-step.done   { color:#3c763d; }
+          .enrich-step.skipped{ color:#bbb; text-decoration:line-through; }
+          .enrich-step.active .enrich-step-icon::before { content:''; display:inline-block; width:13px; height:13px; border:2px solid #337ab7; border-top-color:transparent; border-radius:50%; animation:espin .7s linear infinite; vertical-align:middle; }
+          .enrich-step.active .enrich-step-icon { font-size:0; }
+          .enrich-step.done   .enrich-step-icon { color:#3c763d; font-size:15px; }
+          .enrich-step.done   .enrich-step-icon::before { content:'✓'; font-size:15px; }
+          .enrich-step.done   > .enrich-step-icon { font-size:0; }
+          .enrich-step.skipped .enrich-step-icon::before { content:'—'; font-size:13px; }
+          .enrich-step.skipped > .enrich-step-icon { font-size:0; }
+          @keyframes espin { to { transform:rotate(360deg); } }
+        </style>
 
         <div id="enrichContent" style="display:none;">
           <div class="row">
@@ -683,20 +726,15 @@ window.addEventListener('load', function() {
 
     $('#enrichModal').modal('show');
 
-    $.ajax({
-      url: 'ajax/product-enrich.php',
-      method: 'POST',
-      dataType: 'json',
-      data: {
-        id:          id,
-        name:        name,
-        brand:       brand,
-        brand_id:    brandId,
-        category:    category,
-        category_id: catId,
-        store_db:    storeDb
-      }
-    }).done(function(resp) {
+    /* ── helper: update a progress step row ─────────────────────────────── */
+    function enrichSetStep(stepId, state, labelOverride) {
+      var $li = $('#enrichProgressList [data-step="' + stepId + '"]');
+      $li.removeClass('active done skipped').addClass(state);
+      if (labelOverride) $li.find('.enrich-step-label').text(labelOverride);
+    }
+
+    /* ── helper: apply the final enrichment result to the modal ─────────── */
+    function enrichApplyResult(resp) {
       $('#enrichLoadingOverlay').hide();
       $('#enrichContent').show();
 
@@ -736,7 +774,7 @@ window.addEventListener('load', function() {
       enrichImages       = resp.images        || [];
       enrichImageSources = resp.image_sources || [];
       if (enrichImages.length) {
-        showImage(0);   // showImage() now also sets the per-image source label
+        showImage(0);
         if (enrichImages.length > 1) {
           $('#enrichCarouselNav').show();
           $('#enrichImgCounter').text('1 / ' + enrichImages.length);
@@ -749,7 +787,6 @@ window.addEventListener('load', function() {
         $('#enrichCarouselNav').hide();
       }
 
-      // Source is shown per-image by showImage() via #enrichImageSource — hide badge on success
       $('#enrichStatusBadge').hide();
       $('#enrichSearchQuery').val(resp.search_query || '');
 
@@ -758,16 +795,78 @@ window.addEventListener('load', function() {
       }
 
       $('#enrichBtnPushBlaze').show();
+    }
 
-    }).fail(function() {
-      $('#enrichLoadingOverlay').hide();
-      $('#enrichContent').show();
-      $('#enrichStatusBadge')
-        .removeClass('label-info label-success')
-        .addClass('label-danger')
-        .text('Error');
-      $('#enrichWarning').text('An unexpected error occurred while calling enrichment.').show();
+    /* ── streaming fetch with live progress checklist ────────────────────── */
+    // Reset all steps to pending
+    $('#enrichProgressList .enrich-step').removeClass('active done skipped');
+
+    var formData = new URLSearchParams({
+      id:          id,
+      name:        name,
+      brand:       brand,
+      brand_id:    brandId,
+      category:    category,
+      category_id: catId,
+      store_db:    storeDb
     });
+
+    fetch('ajax/product-enrich.php', { method: 'POST', body: formData })
+      .then(function(response) {
+        var reader  = response.body.getReader();
+        var decoder = new TextDecoder();
+        var buffer  = '';
+
+        function readChunk() {
+          return reader.read().then(function(chunk) {
+            if (chunk.value) buffer += decoder.decode(chunk.value, { stream: true });
+
+            // Process all complete lines in the buffer
+            var lines = buffer.split('\n');
+            buffer = lines.pop();   // keep any incomplete trailing line
+
+            lines.forEach(function(line) {
+              line = line.trim();
+              if (!line) return;
+              var data;
+              try { data = JSON.parse(line); } catch(e) { return; }
+
+              if (data.progress) {
+                var stepId = data.progress;
+                if (data.done) {
+                  var suffix = (data.count !== undefined) ? ' (' + data.count + ' found)' : '';
+                  var $li = $('#enrichProgressList [data-step="' + stepId + '"]');
+                  var lbl = $li.find('.enrich-step-label').text().replace(/ \(.*\)$/, '') + suffix;
+                  enrichSetStep(stepId, 'done', lbl);
+                } else if (data.skipped) {
+                  enrichSetStep(stepId, 'skipped');
+                } else {
+                  var label = data.label || null;
+                  if (data.folder_type === 'dropbox') label = 'Searching brand Dropbox folder';
+                  else if (data.folder_type === 'drive') label = 'Searching brand Drive folder';
+                  enrichSetStep(stepId, 'active', label);
+                }
+              } else if (data.success !== undefined) {
+                // Final result line
+                enrichApplyResult(data);
+              }
+            });
+
+            if (!chunk.done) return readChunk();
+          });
+        }
+
+        return readChunk();
+      })
+      .catch(function() {
+        $('#enrichLoadingOverlay').hide();
+        $('#enrichContent').show();
+        $('#enrichStatusBadge')
+          .removeClass('label-info label-success')
+          .addClass('label-danger')
+          .text('Error');
+        $('#enrichWarning').text('An unexpected error occurred while calling enrichment.').show();
+      });
   });
 
   /* ---- Carousel prev / next ---- */
