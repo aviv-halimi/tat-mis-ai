@@ -427,6 +427,7 @@ function dbx_download_file(string $shared_link, string $file_path, string $token
         CURLOPT_HTTPHEADER     => [
             'Authorization: Bearer ' . $token,
             'Dropbox-API-Arg: ' . $arg,
+            'Content-Type: application/octet-stream',
         ],
         CURLOPT_TIMEOUT        => 60,
         CURLOPT_CONNECTTIMEOUT => 10,

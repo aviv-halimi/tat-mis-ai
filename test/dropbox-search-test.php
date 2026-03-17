@@ -544,6 +544,7 @@ foreach ($matched as $path => $entry) {
         CURLOPT_HTTPHEADER     => [
             'Authorization: Bearer ' . $dbx_token,
             'Dropbox-API-Arg: ' . $dl_arg,
+            'Content-Type: application/octet-stream',
         ],
         CURLOPT_TIMEOUT        => 60,
         CURLOPT_CONNECTTIMEOUT => 10,
