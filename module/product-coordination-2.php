@@ -797,76 +797,69 @@ window.addEventListener('load', function() {
       $('#enrichBtnPushBlaze').show();
     }
 
-    /* ── streaming fetch with live progress checklist ────────────────────── */
+    /* ── progress checklist polling + main AJAX call ─────────────────────── */
     // Reset all steps to pending
     $('#enrichProgressList .enrich-step').removeClass('active done skipped');
 
-    var formData = new URLSearchParams({
-      id:          id,
-      name:        name,
-      brand:       brand,
-      brand_id:    brandId,
-      category:    category,
-      category_id: catId,
-      store_db:    storeDb
-    });
+    // Generate a unique job ID for this enrichment run
+    var jobId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
-    fetch('ajax/product-enrich.php', { method: 'POST', body: formData })
-      .then(function(response) {
-        var reader  = response.body.getReader();
-        var decoder = new TextDecoder();
-        var buffer  = '';
-
-        function readChunk() {
-          return reader.read().then(function(chunk) {
-            if (chunk.value) buffer += decoder.decode(chunk.value, { stream: true });
-
-            // Process all complete lines in the buffer
-            var lines = buffer.split('\n');
-            buffer = lines.pop();   // keep any incomplete trailing line
-
-            lines.forEach(function(line) {
-              line = line.trim();
-              if (!line) return;
-              var data;
-              try { data = JSON.parse(line); } catch(e) { return; }
-
-              if (data.progress) {
-                var stepId = data.progress;
-                if (data.done) {
-                  var suffix = (data.count !== undefined) ? ' (' + data.count + ' found)' : '';
-                  var $li = $('#enrichProgressList [data-step="' + stepId + '"]');
-                  var lbl = $li.find('.enrich-step-label').text().replace(/ \(.*\)$/, '') + suffix;
-                  enrichSetStep(stepId, 'done', lbl);
-                } else if (data.skipped) {
-                  enrichSetStep(stepId, 'skipped');
-                } else {
-                  var label = data.label || null;
-                  if (data.folder_type === 'dropbox') label = 'Searching brand Dropbox folder';
-                  else if (data.folder_type === 'drive') label = 'Searching brand Drive folder';
-                  enrichSetStep(stepId, 'active', label);
-                }
-              } else if (data.success !== undefined) {
-                // Final result line
-                enrichApplyResult(data);
-              }
-            });
-
-            if (!chunk.done) return readChunk();
-          });
-        }
-
-        return readChunk();
-      })
-      .catch(function() {
-        $('#enrichLoadingOverlay').hide();
-        $('#enrichContent').show();
-        $('#enrichStatusBadge')
-          .removeClass('label-info label-success')
-          .addClass('label-danger')
-          .text('Error');
-        $('#enrichWarning').text('An unexpected error occurred while calling enrichment.').show();
+    // Poll enrich-progress.php every 500ms for live step updates
+    var progressPoller = setInterval(function() {
+      $.getJSON('ajax/enrich-progress.php', { job_id: jobId }, function(prog) {
+        var steps = prog.steps || {};
+        $.each(steps, function(stepId, step) {
+          var state = step.state || '';
+          if (state === 'active') {
+            enrichSetStep(stepId, 'active', step.label || null);
+          } else if (state === 'done') {
+            var suffix = (step.count !== undefined) ? ' (' + step.count + ' found)' : '';
+            var $li = $('#enrichProgressList [data-step="' + stepId + '"]');
+            var base = $li.find('.enrich-step-label').text().replace(/ \(\d+ found\)$/, '');
+            enrichSetStep(stepId, 'done', base + suffix);
+          } else if (state === 'skipped') {
+            enrichSetStep(stepId, 'skipped');
+          }
+        });
       });
+    }, 500);
+
+    $.ajax({
+      url:      'ajax/product-enrich.php',
+      method:   'POST',
+      dataType: 'json',
+      data: {
+        id:          id,
+        name:        name,
+        brand:       brand,
+        brand_id:    brandId,
+        category:    category,
+        category_id: catId,
+        store_db:    storeDb,
+        job_id:      jobId
+      }
+    }).done(function(resp) {
+      clearInterval(progressPoller);
+      // Do one final poll to show the last completed steps before hiding overlay
+      $.getJSON('ajax/enrich-progress.php', { job_id: jobId }, function(prog) {
+        var steps = prog.steps || {};
+        $.each(steps, function(stepId, step) {
+          if ((step.state || '') === 'done') enrichSetStep(stepId, 'done');
+        });
+      });
+      enrichApplyResult(resp);
+    }).fail(function(xhr, status, error) {
+      clearInterval(progressPoller);
+      $('#enrichLoadingOverlay').hide();
+      $('#enrichContent').show();
+      $('#enrichStatusBadge')
+        .removeClass('label-info label-success')
+        .addClass('label-danger')
+        .text('Error');
+      var msg = (xhr.responseJSON && xhr.responseJSON.error)
+        ? xhr.responseJSON.error
+        : ('An unexpected error occurred (' + status + ')');
+      $('#enrichWarning').text(msg).show();
   });
 
   /* ---- Carousel prev / next ---- */
@@ -909,8 +902,9 @@ window.addEventListener('load', function() {
         $('#enrichImage').hide();
         $('#enrichCarouselNav').hide();
       }
-    }).fail(function() {
-      alert('Image search request failed.');
+    }).fail(function(xhr, status, error) {
+      var detail = xhr.responseText ? xhr.responseText.substring(0, 300) : error;
+      alert('Image search failed (' + xhr.status + '): ' + detail);
     }).always(function() {
       $('#enrichBtnSearchAgain').prop('disabled', false);
       $('#enrichSearchLoading').hide();

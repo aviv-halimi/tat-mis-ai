@@ -3,18 +3,10 @@ require_once dirname(__FILE__) . '/../_config.php';
 require_once BASE_PATH . 'inc/GoogleDriveHelper.php';
 require_once BASE_PATH . 'inc/DropboxHelper.php';
 
-// Streaming newline-delimited JSON: each line is one JSON object.
-// Progress lines: {"progress":"step_id","label":"..."}  or  {"progress":"step_id","done":true}
-// Final line:     {"success":true, ...full result... }
+// Progress is written to a temp JSON file so the frontend can poll it.
+// This avoids all server-side output-buffering issues with streaming approaches.
 header('Cache-Control: no-cache');
-header('Content-Type: text/plain; charset=utf-8');
-header('X-Accel-Buffering: no');   // disable nginx proxy buffering
-while (ob_get_level() > 0) ob_end_flush();
-
-function enrich_emit(array $data): void {
-    echo json_encode($data) . "\n";
-    flush();
-}
+header('Content-Type: application/json');
 
 $po_product_id = isset($_POST['id'])       ? (int)    trim($_POST['id'])       : 0;
 $product_name  = isset($_POST['name'])     ? trim((string) $_POST['name'])     : '';
@@ -23,10 +15,48 @@ $category_name = isset($_POST['category']) ? trim((string) $_POST['category']) :
 $brand_id      = isset($_POST['brand_id'])    ? (int) $_POST['brand_id']    : 0;
 $category_id   = isset($_POST['category_id']) ? (int) $_POST['category_id'] : 0;
 $store_db      = isset($_POST['store_db'])    ? preg_replace('/[^a-zA-Z0-9_]/', '', trim($_POST['store_db'])) : '';
+$job_id        = isset($_POST['job_id'])       ? preg_replace('/[^a-zA-Z0-9_\-]/', '', trim($_POST['job_id'])) : '';
 
 if ($po_product_id <= 0 || $product_name === '') {
-    enrich_emit(['success' => false, 'error' => 'Missing product id or name for enrichment.']);
+    echo json_encode(['success' => false, 'error' => 'Missing product id or name for enrichment.']);
     exit;
+}
+
+// ── Progress helpers ──────────────────────────────────────────────────────────
+define('ENRICH_PROGRESS_DIR', BASE_PATH . 'public/tmp/enrichment');
+
+function enrich_progress_file(): string {
+    global $job_id;
+    return ENRICH_PROGRESS_DIR . '/progress_' . $job_id . '.json';
+}
+
+/** Write/update a single step in the progress file. */
+function enrich_step(string $step_id, array $data): void {
+    global $job_id;
+    if ($job_id === '') return;
+    @mkdir(ENRICH_PROGRESS_DIR, 0755, true);
+    $file    = enrich_progress_file();
+    $current = file_exists($file) ? (json_decode(@file_get_contents($file), true) ?? []) : [];
+    if (!isset($current['steps'])) $current['steps'] = [];
+    $current['steps'][$step_id] = $data;
+    @file_put_contents($file, json_encode($current));
+}
+
+/** Mark a step as active (spinner). */
+function enrich_step_start(string $step_id, string $label, array $extra = []): void {
+    enrich_step($step_id, array_merge(['state' => 'active', 'label' => $label], $extra));
+}
+
+/** Mark a step as done (checkmark). */
+function enrich_step_done(string $step_id, ?int $count = null): void {
+    $data = ['state' => 'done'];
+    if ($count !== null) $data['count'] = $count;
+    enrich_step($step_id, $data);
+}
+
+/** Mark a step as skipped (strikethrough). */
+function enrich_step_skip(string $step_id): void {
+    enrich_step($step_id, ['state' => 'skipped']);
 }
 
 // ============================================================
@@ -315,7 +345,8 @@ function tat_enrich_discover_images(
     // --- Priority 1a: Brand Dropbox Folder ---
     $brand_folder_type = $brand_dropbox_url ? 'dropbox' : ($brand_drive_folder_id ? 'drive' : '');
     if ($brand_folder_type !== '') {
-        if ($on_progress) $on_progress(['progress' => 'brand_images', 'label' => 'Searching brand folder…', 'folder_type' => $brand_folder_type]);
+        $folder_label_start = $brand_folder_type === 'dropbox' ? 'Searching brand Dropbox folder…' : 'Searching brand Drive folder…';
+        if ($on_progress) $on_progress('brand_images', ['state' => 'active', 'label' => $folder_label_start]);
     }
 
     if ($brand_dropbox_url !== null && $gemini_key !== '') {
@@ -362,7 +393,7 @@ function tat_enrich_discover_images(
 
                 // --- Priority 2: Global master Drive folder (only if brand folder gave nothing) ---
                 if (empty($brand_folder_urls)) {
-                    if ($on_progress) $on_progress(['progress' => 'master_images', 'label' => 'Searching master Drive folder…']);
+                    if ($on_progress) $on_progress('master_images', ['state' => 'active', 'label' => 'Searching master Drive folder…']);
                     $master_index = gd_get_index($creds, GD_ROOT_FOLDER_ID);
                     if (!empty($master_index)) {
                         $file_ids = gd_gemini_match_multi($cleanName, (string) $brand_name, $master_index, $gemini_key, 5);
@@ -374,18 +405,18 @@ function tat_enrich_discover_images(
                             }
                         }
                     }
-                    if ($on_progress) $on_progress(['progress' => 'master_images', 'done' => true, 'count' => count($master_drive_urls)]);
+                    if ($on_progress) $on_progress('master_images', ['state' => 'done', 'count' => count($master_drive_urls)]);
                 } else {
-                    if ($on_progress) $on_progress(['progress' => 'master_images', 'skipped' => true]);
+                    if ($on_progress) $on_progress('master_images', ['state' => 'skipped']);
                 }
             }
         }
     }
 
     if ($brand_folder_type !== '') {
-        if ($on_progress) $on_progress(['progress' => 'brand_images', 'done' => true, 'count' => count($brand_folder_urls)]);
+        if ($on_progress) $on_progress('brand_images', ['state' => 'done', 'count' => count($brand_folder_urls)]);
     } else {
-        if ($on_progress) $on_progress(['progress' => 'brand_images', 'skipped' => true]);
+        if ($on_progress) $on_progress('brand_images', ['state' => 'skipped']);
     }
 
     // --------------------------------------------------------
@@ -403,13 +434,13 @@ function tat_enrich_discover_images(
     $trusted_q = '(site:weedmaps.com OR site:leafly.com OR site:dutchie.com) "' . $namePart . '"';
     $web_q     = '"' . $namePart . '" cannabis product packaging -site:pinterest.com';
 
-    if ($on_progress) $on_progress(['progress' => 'trusted_search', 'label' => 'Searching Weedmaps, Leafly & Dutchie…']);
+    if ($on_progress) $on_progress('trusted_search', ['state' => 'active', 'label' => 'Searching Weedmaps, Leafly & Dutchie…']);
     $trusted_urls = tat_serper_image_search($trusted_q, SERPER_API_KEY, 5);
-    if ($on_progress) $on_progress(['progress' => 'trusted_search', 'done' => true, 'count' => count($trusted_urls)]);
+    if ($on_progress) $on_progress('trusted_search', ['state' => 'done', 'count' => count($trusted_urls)]);
 
-    if ($on_progress) $on_progress(['progress' => 'web_search', 'label' => 'Searching the web…']);
+    if ($on_progress) $on_progress('web_search', ['state' => 'active', 'label' => 'Searching the web…']);
     $web_urls = tat_serper_image_search($web_q, SERPER_API_KEY, 5);
-    if ($on_progress) $on_progress(['progress' => 'web_search', 'done' => true, 'count' => count($web_urls)]);
+    if ($on_progress) $on_progress('web_search', ['state' => 'done', 'count' => count($web_urls)]);
 
     // --------------------------------------------------------
     // Combine all sources — up to 5 per source, deduped
@@ -485,7 +516,7 @@ function tat_enrich_discover_images(
 // ============================================================
 // Step 1 — Brand & category lookup (DB queries, fast)
 // ============================================================
-enrich_emit(['progress' => 'brand_lookup', 'label' => 'Looking up brand & category info…']);
+enrich_step_start('brand_lookup', 'Looking up brand & category info…');
 
 $brands     = [];
 $categories = [];
@@ -497,20 +528,20 @@ if ($store_db !== '') {
         $categories[] = ['id' => (int) $c['category_id'], 'name' => (string) $c['name']];
     }
 }
-enrich_emit(['progress' => 'brand_lookup', 'done' => true]);
+enrich_step_done('brand_lookup');
 
 // ============================================================
 // Step 2 — Generate description via Gemini
 // ============================================================
-enrich_emit(['progress' => 'description', 'label' => 'Generating AI description…']);
+enrich_step_start('description', 'Generating AI description…');
 $descError   = null;
 $description = tat_enrich_generate_description($product_name, $brand_name, $category_name, $descError);
 
 if ($descError && $description === '') {
-    enrich_emit(['success' => false, 'error' => $descError]);
+    echo json_encode(['success' => false, 'error' => $descError]);
     exit;
 }
-enrich_emit(['progress' => 'description', 'done' => true]);
+enrich_step_done('description');
 
 // ============================================================
 // Step 3–5 — Image discovery (brand folder, trusted, web)
@@ -519,20 +550,31 @@ $source_found  = null;
 $imageWarning  = null;
 $search_query  = null;
 $image_sources = [];
-$images        = tat_enrich_discover_images(
+
+/** Progress callback passed into tat_enrich_discover_images */
+function _enrich_progress_cb(string $step_id, array $data): void {
+    enrich_step($step_id, $data);
+}
+
+$images = tat_enrich_discover_images(
     $product_name, $brand_name, $category_name,
     $source_found, $imageWarning, $search_query, $image_sources,
     $brand_id, $store_db,
-    'enrich_emit'   // progress callback = our streaming emit function
+    '_enrich_progress_cb'
 );
 
 $flower_type = tat_extract_flower_type($product_name);
 $weight_info = tat_extract_weight_info($product_name);
 
+// Clean up progress file (job is complete, no need to keep it)
+if ($job_id !== '' && file_exists(enrich_progress_file())) {
+    @unlink(enrich_progress_file());
+}
+
 // ============================================================
-// Final line — full enrichment result
+// Final JSON response — full enrichment result
 // ============================================================
-enrich_emit([
+echo json_encode([
     'success'          => true,
     'description'      => $description,
     'images'           => $images,
