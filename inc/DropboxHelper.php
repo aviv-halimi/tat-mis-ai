@@ -147,23 +147,35 @@ function _dbx_list_one_folder(string $api_link, string $path, string $token): ar
         $data = json_decode($resp, true);
         if (!is_array($data)) break;
 
-        foreach ((array) ($data['entries'] ?? []) as $entry) {
-            $tag  = (string) ($entry['.tag']      ?? '');
-            $name = (string) ($entry['name']       ?? '');
-            // Dropbox shared-link listings may return path_display instead of path_lower
-            $path_lower = (string) ($entry['path_lower']   ?? '');
-            $path_disp  = (string) ($entry['path_display'] ?? '');
-            $epath      = $path_lower !== '' ? $path_lower : strtolower($path_disp);
+            foreach ((array) ($data['entries'] ?? []) as $entry) {
+                $tag  = (string) ($entry['.tag']  ?? '');
+                $name = (string) ($entry['name']  ?? '');
+                if ($name === '') continue;
 
-            if ($tag === 'folder' && $name !== '') {
-                $folders[] = ['name' => $name, 'path' => $epath];
-            } elseif ($tag === 'file' && $name !== '' && $epath !== '') {
-                $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-                if (in_array($ext, $image_exts, true)) {
-                    $files[] = ['name' => $name, 'path' => $epath];
+                // Dropbox /scl/fo/ shared-link listings often omit path_lower for
+                // root-level entries. Fall back through path_display, then construct
+                // from the folder/file name relative to $path.
+                $path_lower = (string) ($entry['path_lower']   ?? '');
+                $path_disp  = (string) ($entry['path_display'] ?? '');
+
+                if ($path_lower !== '') {
+                    $epath = $path_lower;
+                } elseif ($path_disp !== '') {
+                    $epath = strtolower($path_disp);
+                } else {
+                    // Construct relative path: parent path + / + name (lowercased)
+                    $epath = rtrim($path, '/') . '/' . strtolower($name);
+                }
+
+                if ($tag === 'folder') {
+                    $folders[] = ['name' => $name, 'path' => $epath];
+                } elseif ($tag === 'file' && $epath !== '') {
+                    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+                    if (in_array($ext, $image_exts, true)) {
+                        $files[] = ['name' => $name, 'path' => $epath];
+                    }
                 }
             }
-        }
 
         $has_more = (bool) ($data['has_more'] ?? false);
         $cursor   = $has_more ? (string) ($data['cursor'] ?? '') : null;

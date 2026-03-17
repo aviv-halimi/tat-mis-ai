@@ -257,17 +257,27 @@ if ($file_list === null) {
     $root_entries = (array) ($root_data['entries'] ?? []);
     log_line('ok', count($root_entries) . ' entries returned from root. Showing all:');
 
-    // Show every entry for diagnosis
+    // Show every entry for diagnosis, including the constructed path we'll use
     $detail = '';
     foreach ($root_entries as $e) {
+        $ename       = (string) ($e['name']         ?? '');
+        $path_lower  = (string) ($e['path_lower']   ?? '');
+        $path_disp   = (string) ($e['path_display'] ?? '');
+        if ($path_lower !== '')          $used_path = $path_lower;
+        elseif ($path_disp !== '')       $used_path = strtolower($path_disp);
+        elseif ($ename !== '')           $used_path = '/' . strtolower($ename);
+        else                             $used_path = '(cannot determine)';
+
         $detail .= sprintf(
-            ".tag=%-8s  name=%-40s  path_lower=%s\n",
-            $e['.tag'] ?? '?',
-            $e['name'] ?? '?',
-            $e['path_lower'] ?? '(empty)'
+            ".tag=%-8s  name=%-44s  path_lower=%-20s  path_display=%-20s  → will use: %s\n",
+            $e['.tag']       ?? '?',
+            $ename,
+            $path_lower ?: '(empty)',
+            $path_disp  ?: '(empty)',
+            $used_path
         );
     }
-    log_line('info', 'Root entry dump:', $detail);
+    log_line('info', 'Root entry dump (with constructed paths):', $detail);
 
     // ---- now use the helper for the full traversal with Gemini folder selection ----
     log_line('info', 'Phase 2: Full traversal with Gemini-guided subfolder selection…');
