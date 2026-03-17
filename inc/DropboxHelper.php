@@ -329,10 +329,38 @@ function dbx_get_file_list(
         }
     }
 
-    // ── Strategy 2: recursive folder traversal with Gemini-guided navigation ──
-    $api_link        = dbx_strip_dl_param($shared_link);
+    // ── Strategy 2: recursive folder traversal with per-folder cache ──────────
+    // The traversal can take 15-30 s, so we cache the full file index for 4 h.
+    // Cache is keyed by the API link (dl= stripped) so each unique shared folder
+    // gets its own cache file.
+    $api_link  = dbx_strip_dl_param($shared_link);
+    $cache_dir = defined('BASE_PATH') ? rtrim(BASE_PATH, '/\\') . '/public/tmp/enrichment' : sys_get_temp_dir();
+    $cache_ttl = 4 * 3600;
+    $cache_key = md5($api_link);
+    $cache_file = $cache_dir . DIRECTORY_SEPARATOR . '.dbx_index_' . $cache_key . '.json';
+
+    // Try loading a fresh cache
+    if (file_exists($cache_file)) {
+        $cached = json_decode((string) file_get_contents($cache_file), true);
+        if (is_array($cached)
+            && isset($cached['files'], $cached['built_at'])
+            && (time() - (int) $cached['built_at']) < $cache_ttl
+        ) {
+            return (array) $cached['files'];
+        }
+    }
+
+    // Full traversal
     $folders_visited = 0;
-    return _dbx_traverse($api_link, '', $token, $gemini_key, $gemini_hint, $folders_visited, $max_folders);
+    $files = _dbx_traverse($api_link, '', $token, $gemini_key, $gemini_hint, $folders_visited, $max_folders);
+
+    // Persist cache
+    if (!empty($files)) {
+        @mkdir($cache_dir, 0755, true);
+        @file_put_contents($cache_file, json_encode(['built_at' => time(), 'files' => $files]));
+    }
+
+    return $files;
 }
 
 /**
