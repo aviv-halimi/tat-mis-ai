@@ -500,6 +500,8 @@ function dbx_download_and_resize(
     if ($bytes === false) return null;
 
     $src = @imagecreatefromstring($bytes);
+    $bytes = '';   // free raw bytes immediately — GD holds its own copy
+    unset($bytes);
     if (!$src) return null;
 
     $sw = imagesx($src);

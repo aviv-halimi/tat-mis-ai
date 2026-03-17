@@ -13,6 +13,8 @@ require_once dirname(__FILE__) . '/../_config.php';
 require_once BASE_PATH . 'inc/GoogleDriveHelper.php';
 require_once BASE_PATH . 'inc/DropboxHelper.php';
 
+@ini_set('memory_limit', '512M');   // GD + large Dropbox images need headroom
+
 header('Cache-Control: no-cache');
 header('Content-type: application/json');
 

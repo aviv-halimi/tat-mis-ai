@@ -5,6 +5,8 @@ require_once BASE_PATH . 'inc/DropboxHelper.php';
 
 // Progress is written to a temp JSON file so the frontend can poll it.
 // This avoids all server-side output-buffering issues with streaming approaches.
+@ini_set('memory_limit', '512M');   // GD + large Dropbox images need headroom
+
 header('Cache-Control: no-cache');
 header('Content-Type: application/json');
 
