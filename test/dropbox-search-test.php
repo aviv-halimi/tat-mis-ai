@@ -570,8 +570,9 @@ foreach ($matched as $path => $entry) {
 
     if ($dl_http >= 300) {
         $err_json = json_decode($dl_body, true);
-        $err_msg  = $err_json['error_summary'] ?? ($err_json['error']['.tag'] ?? substr($dl_body, 0, 300));
+        $err_msg  = $err_json['error_summary'] ?? ($err_json['error']['.tag'] ?? substr($dl_body, 0, 500));
         log_line('error', "API error (HTTP {$dl_http}): " . $err_msg);
+        log_line('info', 'Full response body: ' . $dl_body);
         if ($first_error === '') $first_error = "HTTP {$dl_http}: " . $err_msg;
         // Show response headers for auth/routing clues
         $hdrs = substr((string) $dl_raw, 0, $dl_hdr_size);
