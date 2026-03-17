@@ -860,7 +860,9 @@ window.addEventListener('load', function() {
         ? xhr.responseJSON.error
         : ('An unexpected error occurred (' + status + ')');
       $('#enrichWarning').text(msg).show();
-  });
+    });   // end $.ajax fail / end of $.ajax chain
+
+  });   // end $(document).on('click', '.btn-enrich', ...)
 
   /* ---- Carousel prev / next ---- */
   $(document).on('click', '#enrichImgPrev', function() {
