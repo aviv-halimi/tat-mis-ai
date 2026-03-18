@@ -90,7 +90,6 @@ echo '<div class="form-group">
                 </button>
             </div>
         </div>
-        <small class="text-muted">Saved to <code>store.metrc_api_key</code>.</small>
     </div>
 </div>';
 
@@ -100,7 +99,6 @@ echo '<div class="form-group">
         <input type="text" id="metrc_license" name="metrc_license"
                value="' . htmlspecialchars($_metrc_lic) . '"
                class="form-control" placeholder="e.g. C10-0000123-LIC" />
-        <small class="text-muted">Saved to <code>store.metrc_license</code>.</small>
     </div>
 </div>';
 
