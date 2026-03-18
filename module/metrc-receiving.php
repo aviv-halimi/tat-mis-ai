@@ -13,7 +13,7 @@ if ($_ajax === 'get_transfers') {
 
     // Load store Metrc credentials
     $rs_store = getRs(
-        "SELECT metrc_api_key, store_name, params FROM store WHERE store_id = ?",
+        "SELECT metrc_api_key, metrc_license, store_name FROM store WHERE store_id = ?",
         array($_Session->store_id)
     );
     $store_row = getRow($rs_store);
@@ -23,9 +23,8 @@ if ($_ajax === 'get_transfers') {
         exit();
     }
 
-    $store_params    = isJson($store_row['params']) ? json_decode($store_row['params'], true) : array();
-    $metrc_api_key   = trim((string)$store_row['metrc_api_key']);
-    $metrc_license   = isset($store_params['metrc_license_number']) ? trim($store_params['metrc_license_number']) : '';
+    $metrc_api_key = trim((string)$store_row['metrc_api_key']);
+    $metrc_license = trim((string)$store_row['metrc_license']);
 
     if (!strlen($metrc_api_key)) {
         echo json_encode(array('success' => false, 'response' => 'Metrc API key is not configured for this store. Go to Store Settings → Metrc to add it.'));
@@ -130,12 +129,11 @@ if ($_ajax === 'get_open_pos') {
 $store_name = '';
 $metrc_configured = false;
 
-$rs_store = getRs("SELECT store_name, metrc_api_key, params FROM store WHERE store_id = ?", array($_Session->store_id));
+$rs_store = getRs("SELECT store_name, metrc_api_key, metrc_license FROM store WHERE store_id = ?", array($_Session->store_id));
 if ($row_store = getRow($rs_store)) {
     $store_name = $row_store['store_name'];
-    $store_params = isJson($row_store['params']) ? json_decode($row_store['params'], true) : array();
     $metrc_configured = strlen(trim((string)$row_store['metrc_api_key'])) > 0
-                     && !empty($store_params['metrc_license_number']);
+                     && strlen(trim((string)$row_store['metrc_license'])) > 0;
 }
 
 $meta_title = 'Metrc Receiving';
