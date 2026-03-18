@@ -8,6 +8,28 @@ $(document).ready(function(e) {
   $(".btn-po-discounts").on("click", function(e) {
     postAjax("po-discounts", {po_id: $(this).data("id")});
   });
+  $(document).on("click", ".po5-invoice-num-val", function(e) {
+    var $val = $(this);
+    if ($val.find("input").length) return;
+    var current = $val.data("original") || "";
+    var $input = $('<input type="text" class="form-control form-control-sm po5-invoice-num-input" style="font-weight:600;font-size:14px;" />').val(current);
+    $input.data("changed", false);
+    $val.html($input);
+    $input.focus().select();
+    $input.on("input", function() { $input.data("changed", true); });
+    $input.on("keydown", function(ev) {
+      if (ev.key === "Escape") {
+        $val.html('<span>' + ($val.data("original") || "\u2014") + "</span>");
+        $val.data("original", $val.data("original"));
+      }
+    });
+    $input.on("blur", function() {
+      if (!$input.data("changed")) {
+        $val.html('<span>' + ($val.data("original") || "\u2014") + "</span>");
+      }
+    });
+  });
+
   $(document).on("click", ".btn-invoice-validate-po", function(e) {
     var btn = $(this);
     var poId = btn.data("po-id");
@@ -885,7 +907,10 @@ if ($t['po_status_id'] > 3) {
       <div class="po5-data-grid">
         <div class="po5-data-cell"><div class="po5-data-label">Date Ordered</div><div class="po5-data-value">' . $_date_ordered . '</div></div>
         <div class="po5-data-cell"><div class="po5-data-label">Date Received</div><div class="po5-data-value">' . $_date_received . '</div></div>
-        <div class="po5-data-cell"><div class="po5-data-label">Invoice #</div><div class="po5-data-value">' . htmlspecialchars($_inv_num) . '</div></div>
+        <div class="po5-data-cell po5-invoice-cell">
+          <div class="po5-data-label">Invoice # <small class="text-muted" style="font-size:9px;letter-spacing:0;">(click to edit)</small></div>
+          <div class="po5-data-value po5-invoice-num-val" title="Click to edit" style="cursor:pointer;" data-original="' . htmlspecialchars($_inv_num === '—' ? '' : $_inv_num, ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars($_inv_num) . '</div>
+        </div>
         <div class="po5-data-cell"><div class="po5-data-label">AI Invoice #</div><div class="po5-data-value">' . $_ai_inv_display . $_ai_inv_icon . '</div></div>
         <div class="po5-data-cell"><div class="po5-data-label">QBO Payment Terms</div><div class="po5-data-value">' . $_qbo_term . '</div></div>
         <div class="po5-data-cell"><div class="po5-data-label">AI Payment Terms</div><div class="po5-data-value">' . $_inv_terms . '</div></div>

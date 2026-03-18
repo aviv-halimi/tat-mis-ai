@@ -579,20 +579,75 @@ function initAssets(select2) {
 
   $(document).on('click', '.btn-po-qbo-push-advance', function(e) {
     e.preventDefault();
-    var c = $(this).data('c');
-    var storeId = $(this).data('store-id');
+    var $btn = $(this);
+    var c = $btn.data('c');
     var $modal = $('#po-qbo-advance-modal');
     var $steps = $modal.find('.po-qbo-advance-steps li');
     var $msg = $modal.find('#po-qbo-advance-msg');
+
     function setStep(n, state) {
       var $li = $steps.filter('[data-step="' + n + '"]');
       var $icon = $li.find('.step-icon');
-      if (state === 'pending') $icon.html('').removeClass('text-success text-danger');
-      if (state === 'loading') $icon.html('<i class="fa fa-spinner fa-spin"></i>').removeClass('text-success text-danger');
-      if (state === 'done') $icon.html('<i class="fa fa-check text-success"></i>');
-      if (state === 'error') $icon.html('<i class="fa fa-times text-danger"></i>');
+      $icon.removeClass('text-success text-danger');
+      if (state === 'pending') $icon.html('');
+      else if (state === 'loading') $icon.html('<i class="fa fa-spinner fa-spin"></i>');
+      else if (state === 'done') $icon.html('<i class="fa fa-check text-success"></i>');
+      else if (state === 'error') $icon.html('<i class="fa fa-times text-danger"></i>');
     }
-    function doPushThenAdvance() {
+
+    function doNextPO() {
+      setStep(3, 'loading');
+      $msg.text('Finding next PO\u2026');
+      $.ajax({ url: '/ajax/po-next-status5', type: 'POST', data: { po_code: c }, dataType: 'json' })
+        .done(function(nextRes) {
+          setStep(3, 'done');
+          if (!nextRes.success || nextRes.redirect_url === '/pos' || !nextRes.next_po_code) {
+            $msg.text('No more POs with status 5. Redirecting to list\u2026');
+            setTimeout(function() { window.location.href = '/pos'; }, 800);
+            return;
+          }
+          if (nextRes.needs_ai_validation && nextRes.next_po_id) {
+            $msg.text('Running AI validation for next PO\u2026');
+            $.ajax({
+              url: '/ajax/invoice-validate-po',
+              type: 'POST',
+              data: { po_id: nextRes.next_po_id, po_code: nextRes.next_po_code, _r: Math.random() },
+              dataType: 'json'
+            }).always(function() {
+              $msg.text('Redirecting to next PO\u2026');
+              setTimeout(function() { window.location.href = nextRes.redirect_url; }, 500);
+            });
+          } else {
+            $msg.text('Redirecting to next PO\u2026');
+            setTimeout(function() { window.location.href = nextRes.redirect_url; }, 500);
+          }
+        })
+        .fail(function() {
+          setStep(3, 'error');
+          $msg.text('Could not determine next PO.');
+          setTimeout(function() { window.location.href = '/pos'; }, 2000);
+        });
+    }
+
+    function doStatusUpdate() {
+      setStep(2, 'loading');
+      $.ajax({ url: '/ajax/po-status', type: 'POST', data: { po_code: c, back: 0 }, dataType: 'json' })
+        .done(function(d) {
+          if (!d.success && d.redirect !== '{refresh}') {
+            setStep(2, 'error');
+            $msg.text(d.response || 'Failed to update status.');
+            return;
+          }
+          setStep(2, 'done');
+          doNextPO();
+        })
+        .fail(function() {
+          setStep(2, 'error');
+          $msg.text('Failed to update PO status.');
+        });
+    }
+
+    function doPush() {
       $modal.modal('show');
       $msg.text('');
       $steps.each(function() { setStep($(this).data('step'), 'pending'); });
@@ -600,82 +655,50 @@ function initAssets(select2) {
       $.ajax({ url: '/ajax/po-qbo-bill', type: 'POST', data: { c: c }, dataType: 'json' })
         .done(function(data) {
           if (data.need_mapping) {
-            $modal.modal('hide');
+            // Keep advance modal visible; show mapping dialog on top.
+            // PHP will push the bill when the vendor mapping is saved, so
+            // once the mapping dialog closes we proceed directly to step 2.
+            $msg.text('Vendor mapping required. Save the mapping to continue.');
+            $('#modal').off('hidden.bs.modal.qbo-advance').one('hidden.bs.modal.qbo-advance', function() {
+              setStep(1, 'done');
+              $msg.text('');
+              doStatusUpdate();
+            });
             updateDialog2('po-qbo-map-vendor', 'Map vendor to QuickBooks', null, c);
             return;
           }
-          if (!data.success || !data.BillId) {
+          if (!data.success) {
             setStep(1, 'error');
             $msg.text(data.response || 'Push to QBO failed.');
             return;
           }
           setStep(1, 'done');
-          setStep(2, 'loading');
-          $.ajax({ url: '/ajax/po-status', type: 'POST', data: { po_code: c, back: 0 }, dataType: 'json' })
-            .done(function(d) {
-              if (!d.success && d.redirect !== '{refresh}') {
-                setStep(2, 'error');
-                $msg.text(d.response || 'Failed to update status.');
-                return;
-              }
-              setStep(2, 'done');
-              setStep(3, 'loading');
-              $msg.text('Finding next PO…');
-              $.ajax({ url: '/ajax/po-next-status5', type: 'POST', data: { po_code: c }, dataType: 'json' })
-                .done(function(nextRes) {
-                  setStep(3, 'done');
-                  if (!nextRes.success) {
-                    $msg.text(nextRes.error || 'Could not get next PO.');
-                    setTimeout(function() { window.location.href = '/pos'; }, 1500);
-                    return;
-                  }
-                  if (nextRes.redirect_url === '/pos' || !nextRes.next_po_code) {
-                    $msg.text('No more POs with status 5. Redirecting to list…');
-                    setTimeout(function() { window.location.href = '/pos'; }, 800);
-                    return;
-                  }
-                  if (nextRes.needs_ai_validation && nextRes.next_po_id) {
-                    $msg.text('Running AI validation for next PO…');
-                    $.ajax({
-                      url: '/ajax/invoice-validate-po',
-                      type: 'POST',
-                      data: { po_id: nextRes.next_po_id, po_code: nextRes.next_po_code, _r: Math.random() },
-                      dataType: 'json'
-                    }).done(function(aiRes) {
-                      $msg.text('Redirecting to next PO…');
-                      setTimeout(function() { window.location.href = nextRes.redirect_url; }, 500);
-                    }).fail(function() {
-                      $msg.text('AI validation failed; loading next PO anyway…');
-                      setTimeout(function() { window.location.href = nextRes.redirect_url; }, 1000);
-                    });
-                  } else {
-                    $msg.text('Redirecting to next PO…');
-                    setTimeout(function() { window.location.href = nextRes.redirect_url; }, 500);
-                  }
-                })
-                .fail(function() {
-                  setStep(3, 'error');
-                  $msg.text('Could not get next PO.');
-                  setTimeout(function() { window.location.href = '/pos'; }, 2000);
-                });
-            })
-            .fail(function() {
-              setStep(2, 'error');
-              $msg.text('Failed to update PO status.');
-            });
+          doStatusUpdate();
         })
-        .fail(function(xhr, data) {
-          var resp = (xhr && xhr.responseJSON);
+        .fail(function(xhr) {
+          var resp = xhr && xhr.responseJSON;
           if (resp && resp.needs_authorization && resp.auth_url) {
             $modal.modal('hide');
-            openQboAuthAndRetry(resp.auth_url, doPushThenAdvance);
+            openQboAuthAndRetry(resp.auth_url, doPush);
             return;
           }
           setStep(1, 'error');
           $msg.text((resp && resp.response) || 'Push to QBO failed.');
         });
     }
-    doPushThenAdvance();
+
+    // If the invoice number was edited in the card, save it first then push.
+    var $invInput = $('.po5-invoice-num-input');
+    if ($invInput.length && $invInput.data('changed')) {
+      $.ajax({
+        url: '/ajax/po-data',
+        type: 'POST',
+        data: { c: c, f: 'invoice_number', v: $.trim($invInput.val()) },
+        dataType: 'json'
+      }).always(function() { doPush(); });
+    } else {
+      doPush();
+    }
   });
 
   $('.btn-po-status').off('click').on('click', function(e) {
