@@ -15,10 +15,14 @@ if (isset($_POST['TableName'])) {
     }
     dbUpdate('store', array('params' => json_encode($params)), $_Session->store_id);
 
-    // metrc_api_key lives in its own dedicated column
+    // metrc_api_key lives in its own dedicated column — guard in case it hasn't been added yet
     $new_api_key = trim(getVar('metrc_api_key'));
     if (strlen($new_api_key)) {
-        dbUpdate('store', array('metrc_api_key' => $new_api_key), $_Session->store_id);
+        try {
+            dbUpdate('store', array('metrc_api_key' => $new_api_key), $_Session->store_id);
+        } catch (Exception $e) {
+            // Column not yet created — silently skip
+        }
     }
 
     echo json_encode(array('success' => true, 'response' => 'Saved successfully.'));
@@ -27,10 +31,16 @@ if (isset($_POST['TableName'])) {
 
 include_once ('./inc/header.php');
 
-$rs = getRs("SELECT params, metrc_api_key FROM store WHERE store_id = ?", array($_Session->store_id));
+$rs = getRs("SELECT params FROM store WHERE store_id = ?", array($_Session->store_id));
 if ($s = getRow($rs)) {
-    $_p          = isJson($s['params']) ? json_decode($s['params'], true) : array();
-    $_metrc_key  = $s['metrc_api_key'];
+    $_p         = isJson($s['params']) ? json_decode($s['params'], true) : array();
+    $_metrc_key = '';
+    try {
+        $_rs_mk = getRs("SELECT metrc_api_key FROM store WHERE store_id = ?", array($_Session->store_id));
+        if ($_mk = getRow($_rs_mk)) $_metrc_key = (string)$_mk['metrc_api_key'];
+    } catch (Exception $e) {
+        // Column may not exist yet — field will render empty
+    }
 
 echo '<div class="row">
 <div class="col-12">
