@@ -63,7 +63,7 @@ $db      = $_Session->db;
 
 // Look-up maps for building custom product names
 $category_map = [];
-foreach (getRs("SELECT category_id, name FROM {$db}.category WHERE is_active = 1", []) as $r) {
+foreach (getRs("SELECT category_id, name FROM {$db}.category WHERE is_active = 1 AND is_enabled = 1", []) as $r) {
     $category_map[(int) $r['category_id']] = (string) $r['name'];
 }
 $brand_map = [];
