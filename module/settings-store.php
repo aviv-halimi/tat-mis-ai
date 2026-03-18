@@ -1,7 +1,7 @@
 <?php
 require_once ('./_config.php');
 
-// Keys saved into store.params JSON only.
+// Keys saved into store.params JSON only. 
 // qbo_realm_id and qbo_refresh_token are set by OAuth, not here.
 // metrc_api_key and metrc_license are saved to their own dedicated store columns, not params.
 $ks = array('po_email', 'po_scheduling_email', 'max_daily_deliveries', 'target_days_of_inventory', 'daily_sales_lookback_period', 'appointment_duration', 'po_scheduled_email_bcc', 'boh_email', 'nabis_vendor_id', 'default_markup', 'qbo_account_id_products', 'qbo_account_id_rebates', 'qbo_account_id_daily_discount');
