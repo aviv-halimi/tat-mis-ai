@@ -12,20 +12,20 @@ $(document).ready(function(e) {
     var $val = $(this);
     if ($val.find("input").length) return;
     var current = $val.data("original") || "";
-    var $input = $('<input type="text" class="form-control form-control-sm po5-invoice-num-input" style="font-weight:600;font-size:14px;" />').val(current);
+    var $input = $(\'<input type="text" class="form-control form-control-sm po5-invoice-num-input" style="font-weight:600;font-size:14px;" />\').val(current);
     $input.data("changed", false);
     $val.html($input);
     $input.focus().select();
     $input.on("input", function() { $input.data("changed", true); });
     $input.on("keydown", function(ev) {
       if (ev.key === "Escape") {
-        $val.html('<span>' + ($val.data("original") || "\u2014") + "</span>");
+        $val.html(\'<span>\' + ($val.data("original") || "\u2014") + "</span>");
         $val.data("original", $val.data("original"));
       }
     });
     $input.on("blur", function() {
       if (!$input.data("changed")) {
-        $val.html('<span>' + ($val.data("original") || "\u2014") + "</span>");
+        $val.html(\'<span>\' + ($val.data("original") || "\u2014") + "</span>");
       }
     });
   });
