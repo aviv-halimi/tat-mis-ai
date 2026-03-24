@@ -296,10 +296,7 @@ if (sizeof($rs)) {
             $enrichCategory = $c['category'];
         }
 
-        // Last resort for brand only — vendor name (should rarely be reached)
-        if (!$enrichBrand) {
-            $enrichBrand = $r['vendor_name'];
-        }
+        // If brand is still unknown, leave it empty — never send the vendor name
 
         $enrichProductName = $r['po_product_name'];
 
