@@ -276,20 +276,27 @@ if (sizeof($rs)) {
         // Derive human-friendly brand/category labels for enrichment prompt/display
         $enrichBrand = '';
         $enrichCategory = '';
-        if (isset($m) && is_array($m)) {
-            if (!empty($m['brand'])) {
-                $enrichBrand = $m['brand'];
-            }
-            if (!empty($m['category'])) {
-                $enrichCategory = $m['category'];
+
+        // Primary source: look up brand name directly from {storedb}.brand using brand_id
+        if (!empty($r['brand_id']) && !empty($r['db'])) {
+            $brandRow = getRow(getRs(
+                "SELECT name FROM `{$r['db']}`.brand WHERE brand_id = ? LIMIT 1",
+                [(int)$r['brand_id']]
+            ));
+            if ($brandRow && !empty($brandRow['name'])) {
+                $enrichBrand = $brandRow['name'];
             }
         }
-        if (!$enrichBrand && isset($c) && is_array($c) && !empty($c['brand'])) {
-            $enrichBrand = $c['brand'];
+
+        // Category: pull from markup override join result, then store-level category table
+        if (isset($m) && is_array($m) && !empty($m['category'])) {
+            $enrichCategory = $m['category'];
         }
         if (!$enrichCategory && isset($c) && is_array($c) && !empty($c['category'])) {
             $enrichCategory = $c['category'];
         }
+
+        // Last resort for brand only — vendor name (should rarely be reached)
         if (!$enrichBrand) {
             $enrichBrand = $r['vendor_name'];
         }
