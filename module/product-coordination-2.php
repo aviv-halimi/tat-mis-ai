@@ -339,7 +339,7 @@ if (sizeof($rs)) {
                 data-default-price="' . number_format($salePrice, 2, '.', '') . '"
                 data-davis-price="' . number_format($davisPrice, 2, '.', '') . '"
                 data-dixon-price="' . number_format($dixonPrice, 2, '.', '') . '"
-            >&#10024; Enrich</button>
+            >&#10024; AI Generate</button>
         </td>
         </tr>';
     }
@@ -369,7 +369,7 @@ else {
         <button type="button" class="close" data-dismiss="modal" aria-label="Close">
           <span aria-hidden="true">&times;</span>
         </button>
-        <h4 class="modal-title" id="enrichModalLabel">&#10024; Enrichment Preview</h4>
+        <h4 class="modal-title" id="enrichModalLabel">&#10024; AI Product Preview</h4>
       </div>
 
       <div class="modal-body" style="max-height:calc(94vh - 120px);overflow-y:auto;">
