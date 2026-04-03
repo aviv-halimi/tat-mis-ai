@@ -695,7 +695,7 @@ echo '
 					<input type="hidden" name="PageTitles" id="PageTitles" value="' . $PageTitles . '" />
 					' . iif($ModalUrl, '<input type="hidden" name="ModalUrl" id="ModalUrl" value="' . $ModalUrl . '" />') . '
 					' . iif($AddUrl, '<input type="hidden" name="AddUrl" id="AddUrl" value="' . $AddUrl . '" />') . '
-						<table id="' . $PageName . '" class="table datatable table-bordered table-hover t-' . $PageName . iif($num_records > 1000, ' large') . '">
+						<table id="' . $PageName . '" class="table datatable table-bordered table-hover t-' . $PageName . iif($num_records > 1000 && $PageName !== 'daily-discount', ' large') . '">
 							<thead>
 								<tr class="inverse">';
 									for ($i = 0; $i < sizeof($arr_FieldNames); $i++) {
