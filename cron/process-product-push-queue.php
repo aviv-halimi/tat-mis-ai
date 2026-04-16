@@ -6,8 +6,9 @@
  *   /usr/bin/php /path/to/theartisttree-mis/cron/process-product-push-queue.php
  *
  * For each pending queue row:
- *   1. Check whether the product (identified by SKU) has propagated to every active store's
- *      local DB.  If not yet present in any store, increment attempts and skip.
+ *   1. Check whether the product (identified by SKU) has propagated to every active store via
+ *      GET /api/v1/partner/store/inventory/sku/{sku}.  If not yet found in any store,
+ *      increment attempts and skip.
  *   2. Once found everywhere, apply per-store updates via GET → modify → PUT:
  *      - Add "DiscountEligible" tag to every store
  *      - Set Davis price  (store_id = 12)
@@ -61,9 +62,9 @@ foreach ($queue as $q) {
     $store_search_log = []; // debug: what each store returned
 
     foreach ($store_map as $store_id => $store) {
-        // GET /api/v1/partner/products/sku/{sku} — returns a single product by SKU
+        // GET /api/v1/partner/store/inventory/sku/{sku} — returns a single product by SKU
         $search_json = fetchApi(
-            'products/sku/' . rawurlencode($sku),
+            'store/inventory/sku/' . rawurlencode($sku),
             $store['api_url'],
             $store['auth_code'],
             $store['partner_key']
@@ -114,7 +115,7 @@ foreach ($queue as $q) {
         $store = $store_map[$store_id];
 
         // GET the full product object from Blaze
-        $json       = fetchApi('products/' . $blaze_product_id, $store['api_url'], $store['auth_code'], $store['partner_key']);
+        $json       = fetchApi('store/inventory/products/' . $blaze_product_id, $store['api_url'], $store['auth_code'], $store['partner_key']);
         $product_obj = json_decode($json);
 
         if (!$product_obj || empty($product_obj->id)) {
@@ -156,7 +157,7 @@ foreach ($queue as $q) {
         if (!$changed) continue;
 
         // PUT the modified product back
-        $put_resp        = putApi('products/' . $blaze_product_id, $store['api_url'], $store['auth_code'], $store['partner_key'], $product_obj);
+        $put_resp        = putApi('store/inventory/products/' . $blaze_product_id, $store['api_url'], $store['auth_code'], $store['partner_key'], $product_obj);
         $put_decoded     = json_decode($put_resp, true);
 
         if (!$put_decoded || isset($put_decoded['field'])) {
