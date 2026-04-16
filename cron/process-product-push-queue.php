@@ -115,7 +115,7 @@ foreach ($queue as $q) {
         $store = $store_map[$store_id];
 
         // GET the full product object from Blaze
-        $json       = fetchApi('store/inventory/products/' . $blaze_product_id, $store['api_url'], $store['auth_code'], $store['partner_key']);
+        $json       = fetchApi('products/' . $blaze_product_id, $store['api_url'], $store['auth_code'], $store['partner_key']);
         $product_obj = json_decode($json);
 
         if (!$product_obj || empty($product_obj->id)) {
@@ -157,7 +157,7 @@ foreach ($queue as $q) {
         if (!$changed) continue;
 
         // PUT the modified product back
-        $put_resp        = putApi('store/inventory/products/' . $blaze_product_id, $store['api_url'], $store['auth_code'], $store['partner_key'], $product_obj);
+        $put_resp        = putApi('products/' . $blaze_product_id, $store['api_url'], $store['auth_code'], $store['partner_key'], $product_obj);
         $put_decoded     = json_decode($put_resp, true);
 
         if (!$put_decoded || isset($put_decoded['field'])) {
