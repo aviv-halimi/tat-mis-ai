@@ -362,10 +362,18 @@ if ($success && !empty($blaze_response_decoded['id']) && !empty($debug_image['as
 // ---- Insert into propagation queue on successful push ----
 if ($success && !empty($blaze_response_decoded['id']) && $po_product_id > 0) {
     $blaze_sku = $blaze_response_decoded['sku'] ?? '';
+
+    // Use po_product.po_product_name (the canonical PO name), not the enrichment modal name
+    $po_product_row  = getRow(getRs(
+        "SELECT po_product_name FROM theartisttree.po_product WHERE po_product_id = ? LIMIT 1",
+        [$po_product_id]
+    ));
+    $queue_product_name = $po_product_row['po_product_name'] ?? $product_name;
+
     setRs(
         "INSERT INTO product_push_queue (po_product_id, blaze_product_id, blaze_sku, product_name, store_db, davis_price, dixon_price)
          VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [$po_product_id, $blaze_response_decoded['id'], $blaze_sku, $product_name, $store_db,
+        [$po_product_id, $blaze_response_decoded['id'], $blaze_sku, $queue_product_name, $store_db,
          ($davis_price > 0 ? $davis_price : null), ($dixon_price > 0 ? $dixon_price : null)]
     );
 }
