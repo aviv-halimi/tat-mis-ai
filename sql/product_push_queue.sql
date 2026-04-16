@@ -21,3 +21,9 @@ CREATE TABLE IF NOT EXISTS `product_push_queue` (
 
 -- If the table already exists, add the product_name column:
 -- ALTER TABLE `product_push_queue` ADD COLUMN `product_name` VARCHAR(255) NOT NULL DEFAULT '' AFTER `blaze_sku`;
+
+-- Per-store propagation tracking (run to add):
+-- ALTER TABLE `product_push_queue` ADD COLUMN `stores_done` TEXT NULL COMMENT 'JSON map {store_id: blaze_product_id} for stores successfully updated' AFTER `last_error`;
+
+-- Blaze ID on po_product so each store row records its own Blaze product ID (run to add):
+-- ALTER TABLE `theartisttree`.`po_product` ADD COLUMN `blaze_id` VARCHAR(64) NULL DEFAULT NULL COMMENT 'Blaze product ObjectId for this store' AFTER `product_id`;

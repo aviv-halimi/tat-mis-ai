@@ -6,16 +6,20 @@
  *   /usr/bin/php /path/to/theartisttree-mis/cron/process-product-push-queue.php
  *
  * For each pending queue row:
- *   1. Check whether the product (identified by SKU) has propagated to every active store via
- *      GET /api/v1/partner/store/inventory/sku/{sku}.  If not yet found in any store,
- *      increment attempts and skip.
- *   2. Once found everywhere, apply per-store updates via GET → modify → PUT:
- *      - Add "DiscountEligible" tag to every store
- *      - Set Davis price  (store_id = 12)
- *      - Set Dixon price  (store_id = 13)
- *   3. Mark the row done (or failed after too many attempts).
+ *   1. Check which stores have NOT yet been processed (stores_done column tracks completed ones).
+ *   2. For each remaining store, look up the product via SKU:
+ *      GET /api/v1/partner/store/inventory/sku/{sku}
+ *   3. For stores where the product is found, apply updates (tags + per-store price) via
+ *      GET products/{id} → modify → PUT products/{id}
+ *   4. Save the per-store Blaze product ID to theartisttree.po_product.blaze_id.
+ *   5. Update stores_done in the queue row so subsequent runs only retry missing stores.
+ *   6. Mark the row 'done' only when every active store is accounted for.
  *
  * Max attempts: 72  (6 hours @ 5-min intervals)
+ *
+ * Required DB columns (see sql/product_push_queue.sql for ALTER statements):
+ *   product_push_queue.stores_done  TEXT NULL  — JSON {store_id: blaze_product_id}
+ *   po_product.blaze_id             VARCHAR(64) NULL
  */
 if (php_sapi_name() !== 'cli') {
     http_response_code(403);
@@ -45,24 +49,48 @@ $queue = getRs(
 $results = [];
 
 foreach ($queue as $q) {
-    $queue_id = (int) $q['id'];
-    $sku      = (string) $q['blaze_sku'];
+    $queue_id     = (int)    $q['id'];
+    $sku          = (string) $q['blaze_sku'];
+    $po_product_id = (int)   $q['po_product_id'];
+    $product_name = (string) ($q['product_name'] ?? '');
 
     if ($sku === '') {
         setRs("UPDATE product_push_queue SET status = 'failed', last_error = 'Missing SKU' WHERE id = ?", [$queue_id]);
         continue;
     }
 
-    // ---- Step 1: Check propagation via the Blaze API (not local DB, which may lag) ----
-    // Search each store's API for the product by SKU. Once all stores return a match
-    // we know propagation is complete and we have the per-store Blaze product ObjectId.
-    $store_blaze_ids  = []; // store_id => Blaze product ObjectId for that store
-    $all_propagated   = true;
-    $product_name     = (string) ($q['product_name'] ?? '');
-    $store_search_log = []; // debug: what each store returned
+    // ---- Decode which stores have already been successfully updated ----
+    $stores_done = [];
+    if (!empty($q['stores_done'])) {
+        $decoded = json_decode($q['stores_done'], true);
+        if (is_array($decoded)) $stores_done = $decoded;
+    }
 
+    // Stores still needing to be processed this run
+    $stores_pending = [];
     foreach ($store_map as $store_id => $store) {
-        // GET /api/v1/partner/store/inventory/sku/{sku} — returns a single product by SKU
+        if (!isset($stores_done[(string)$store_id])) {
+            $stores_pending[$store_id] = $store;
+        }
+    }
+
+    if (empty($stores_pending)) {
+        // All stores already done — mark complete
+        setRs(
+            "UPDATE product_push_queue SET status = 'done', completed_at = NOW() WHERE id = ?",
+            [$queue_id]
+        );
+        $results[] = "Queue #{$queue_id} (SKU {$sku}): already complete (all stores in stores_done).";
+        continue;
+    }
+
+    // ---- Step 1: Check propagation for pending stores via the Blaze API ----
+    $newly_found  = []; // store_id => blaze_product_id (found in this run)
+    $still_missing = [];
+    $search_log    = [];
+
+    foreach ($stores_pending as $store_id => $store) {
+        // GET /api/v1/partner/store/inventory/sku/{sku}
         $search_json = fetchApi(
             'store/inventory/sku/' . rawurlencode($sku),
             $store['api_url'],
@@ -71,51 +99,45 @@ foreach ($queue as $q) {
         );
 
         $blaze_id = null;
-
         if ($search_json) {
             $product_data = json_decode($search_json, true);
-
             if (!empty($product_data['id'])) {
                 $blaze_id = $product_data['id'];
-                $store_search_log[$store_id] = "FOUND:{$blaze_id}";
+                $search_log[$store_id] = "FOUND:{$blaze_id}";
             } else {
-                $store_search_log[$store_id] = "NOT_FOUND raw=" . substr($search_json, 0, 200);
+                $search_log[$store_id] = "NOT_FOUND raw=" . substr($search_json, 0, 120);
             }
         } else {
-            $store_search_log[$store_id] = "EMPTY_RESPONSE";
-        }
-
-        if (!$blaze_id) {
-            $all_propagated = false;
-            // Don't break — keep checking remaining stores so we get the full picture
+            $search_log[$store_id] = "EMPTY_RESPONSE";
         }
 
         if ($blaze_id) {
-            $store_blaze_ids[$store_id] = $blaze_id;
+            $newly_found[$store_id] = $blaze_id;
+        } else {
+            $still_missing[] = $store_id;
         }
     }
 
-    if (!$all_propagated) {
+    if (empty($newly_found)) {
+        // Nothing new — increment attempts and move on
         $log_parts = [];
-        foreach ($store_search_log as $sid => $msg) {
-            $log_parts[] = "store{$sid}: {$msg}";
-        }
+        foreach ($search_log as $sid => $msg) $log_parts[] = "store{$sid}: {$msg}";
         setRs("UPDATE product_push_queue SET attempts = attempts + 1 WHERE id = ?", [$queue_id]);
         $results[] = "Queue #{$queue_id} (SKU {$sku}): not yet propagated | " . implode(' || ', $log_parts);
         continue;
     }
 
-    // ---- Step 2: Mark as processing to prevent duplicate runs ----
+    // ---- Step 2: Mark as processing to prevent duplicate concurrent runs ----
     setRs("UPDATE product_push_queue SET status = 'processing' WHERE id = ?", [$queue_id]);
 
     $errors = [];
 
-    // ---- Step 3: Apply updates to each store ----
-    foreach ($store_blaze_ids as $store_id => $blaze_product_id) {
+    // ---- Step 3: Apply updates to each newly-found store ----
+    foreach ($newly_found as $store_id => $blaze_product_id) {
         $store = $store_map[$store_id];
 
         // GET the full product object from Blaze
-        $json       = fetchApi('products/' . $blaze_product_id, $store['api_url'], $store['auth_code'], $store['partner_key']);
+        $json        = fetchApi('products/' . $blaze_product_id, $store['api_url'], $store['auth_code'], $store['partner_key']);
         $product_obj = json_decode($json);
 
         if (!$product_obj || empty($product_obj->id)) {
@@ -137,7 +159,7 @@ foreach ($queue as $q) {
         // -- Davis price (store_id = 12) --
         if ($store_id == 12 && !empty($q['davis_price']) && (float)$q['davis_price'] > 0) {
             $new_price = (float) $q['davis_price'];
-            if (isset($product_obj->priceBreaks) && is_array($product_obj->priceBreaks) && isset($product_obj->priceBreaks[0])) {
+            if (isset($product_obj->priceBreaks[0])) {
                 $product_obj->priceBreaks[0]->price = $new_price;
             }
             $product_obj->unitPrice = $new_price;
@@ -147,38 +169,75 @@ foreach ($queue as $q) {
         // -- Dixon price (store_id = 13) --
         if ($store_id == 13 && !empty($q['dixon_price']) && (float)$q['dixon_price'] > 0) {
             $new_price = (float) $q['dixon_price'];
-            if (isset($product_obj->priceBreaks) && is_array($product_obj->priceBreaks) && isset($product_obj->priceBreaks[0])) {
+            if (isset($product_obj->priceBreaks[0])) {
                 $product_obj->priceBreaks[0]->price = $new_price;
             }
             $product_obj->unitPrice = $new_price;
             $changed = true;
         }
 
-        if (!$changed) continue;
+        if ($changed) {
+            // PUT the modified product back
+            $put_resp    = putApi('products/' . $blaze_product_id, $store['api_url'], $store['auth_code'], $store['partner_key'], $product_obj);
+            $put_decoded = json_decode($put_resp, true);
 
-        // PUT the modified product back
-        $put_resp        = putApi('products/' . $blaze_product_id, $store['api_url'], $store['auth_code'], $store['partner_key'], $product_obj);
-        $put_decoded     = json_decode($put_resp, true);
-
-        if (!$put_decoded || isset($put_decoded['field'])) {
-            $errors[] = "Store {$store_id}: PUT failed — " . substr($put_resp ?? '', 0, 200);
+            if (!$put_decoded || isset($put_decoded['field'])) {
+                $errors[] = "Store {$store_id}: PUT failed — " . substr($put_resp ?? '', 0, 200);
+                continue;
+            }
         }
+
+        // ---- Step 4: Record this store as done ----
+        $stores_done[(string)$store_id] = $blaze_product_id;
+
+        // ---- Step 5: Write blaze_id back to po_product for this store ----
+        // Match on po_product_id (precise) with safety guards: correct store via po join,
+        // blaze_id not yet set, product created within the last 30 days.
+        setRs(
+            "UPDATE theartisttree.po_product p
+                INNER JOIN theartisttree.po po ON po.po_id = p.po_id
+             SET p.blaze_id = ?
+             WHERE p.po_product_id = ?
+               AND po.store_id     = ?
+               AND p.blaze_id      IS NULL
+               AND p.is_enabled    = 1
+               AND p.is_active     = 1
+               AND p.date_created  >= NOW() - INTERVAL 30 DAY",
+            [$blaze_product_id, $po_product_id, $store_id]
+        );
     }
 
-    // ---- Step 4: Mark done or failed ----
-    if (empty($errors)) {
+    // ---- Step 6: Persist updated stores_done and decide final status ----
+    $stores_done_json = json_encode($stores_done);
+    $all_done         = empty($still_missing) && empty($errors);
+
+    if ($all_done) {
         setRs(
-            "UPDATE product_push_queue SET status = 'done', completed_at = NOW() WHERE id = ?",
-            [$queue_id]
+            "UPDATE product_push_queue
+             SET status = 'done', completed_at = NOW(), stores_done = ?, attempts = attempts + 1
+             WHERE id = ?",
+            [$stores_done_json, $queue_id]
         );
-        $results[] = "Queue #{$queue_id} (SKU {$sku}): done — updated " . count($store_blaze_ids) . " stores.";
+        $results[] = "Queue #{$queue_id} (SKU {$sku}): done — all " . count($stores_done) . " stores complete.";
     } else {
-        $error_str = implode(' | ', $errors);
+        // Some stores succeeded this run, others still missing or had errors — stay pending
+        $pending_stores  = array_merge($still_missing, array_column(
+            array_filter($errors, fn($e) => strpos($e, 'PUT failed') !== false ? true : false),
+            null
+        ));
+        $error_summary = !empty($errors) ? implode(' | ', $errors) : null;
+
         setRs(
-            "UPDATE product_push_queue SET status = 'failed', last_error = ? WHERE id = ?",
-            [$error_str, $queue_id]
+            "UPDATE product_push_queue
+             SET status = 'pending', stores_done = ?, last_error = ?, attempts = attempts + 1
+             WHERE id = ?",
+            [$stores_done_json, $error_summary, $queue_id]
         );
-        $results[] = "Queue #{$queue_id} (SKU {$sku}): FAILED — {$error_str}";
+
+        $done_list    = implode(',', array_keys($stores_done));
+        $missing_list = implode(',', $still_missing);
+        $results[]    = "Queue #{$queue_id} (SKU {$sku}): partial — done stores [{$done_list}], still pending [{$missing_list}]"
+                        . ($error_summary ? " | errors: {$error_summary}" : '');
     }
 }
 

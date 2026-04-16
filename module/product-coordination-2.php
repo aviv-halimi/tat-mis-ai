@@ -20,9 +20,15 @@ if ($_po_status_id) array_push($params, $_po_status_id);
 //$rs = getRs("SELECT s.store_name, p.po_product_id, p.po_product_name, p.is_created, p.is_transferred, po.po_code, po.vendor_name, po.date_ordered, t.po_status_name FROM store s RIGHT JOIN (po_status t RIGHT JOIN (po INNER JOIN po_product p ON p.po_id = po.po_id) ON t.po_status_id = po.po_status_id) ON po.store_id = s.store_id WHERE " . is_enabled('po,p') . " AND p.product_id IS NULL AND po.po_status_id >= 3 AND {$sql_archive}" . iif($__store_id, " AND s.store_id = ?") . iif($_vendor_name, " AND po.vendor_name = ?") . iif($_po_status_id, " AND po.po_status_id = ?") . " ORDER BY po.date_ordered", $params);
 
 
+// Count of active stores the cron processes (mirrors cron's store query)
+$_active_store_count = (int) getRow(getRs(
+    "SELECT COUNT(*) AS cnt FROM store WHERE " . is_enabled() . " AND store_id <> 2"
+))['cnt'];
+
 $rs = getRs("
 	SELECT s.store_name, p.po_product_id, p.po_product_name, p.is_created, p.is_transferred, po.po_code, po.vendor_name, po.vendor_id, po.date_ordered, t.po_status_name, IFNULL(coalesce(p.paid, p.price, p.cost),0) AS unitPrice, p.category_id, s.db, p.brand_id, s.params, po.date_po_event_scheduled as sch_date,
-		(SELECT ppq.status FROM product_push_queue ppq WHERE ppq.po_product_id = p.po_product_id ORDER BY ppq.pushed_at DESC LIMIT 1) AS push_status
+		(SELECT ppq.status FROM product_push_queue ppq WHERE ppq.po_product_id = p.po_product_id ORDER BY ppq.pushed_at DESC LIMIT 1) AS push_status,
+		(SELECT ppq.stores_done FROM product_push_queue ppq WHERE ppq.po_product_id = p.po_product_id ORDER BY ppq.pushed_at DESC LIMIT 1) AS push_stores_done
 		FROM store s 
 		RIGHT JOIN (po_status t 
 		RIGHT JOIN (po 
@@ -320,9 +326,13 @@ if (sizeof($rs)) {
         <td style="text-align:center;white-space:nowrap;vertical-align:middle;">';
 
         // Sync status badge
-        $pushStatus = $r['push_status'] ?? null;
+        $pushStatus     = $r['push_status']      ?? null;
+        $pushStoresDone = $r['push_stores_done'] ?? null;
+        $doneCount      = $pushStoresDone ? count((array)json_decode($pushStoresDone, true)) : 0;
         if ($pushStatus === 'pending' || $pushStatus === 'processing') {
-            echo '<span class="label label-warning" id="push-badge-' . (int)$r['po_product_id'] . '" title="Waiting for Blaze to propagate to all stores">&#8987; Syncing&hellip;</span><br>';
+            $progressHint = ($doneCount > 0 && $_active_store_count > 0)
+                ? " ({$doneCount}/{$_active_store_count})" : '';
+            echo '<span class="label label-warning" id="push-badge-' . (int)$r['po_product_id'] . '" title="Waiting for Blaze to propagate to all stores">&#8987; Syncing' . htmlspecialchars($progressHint) . '&hellip;</span><br>';
         } elseif ($pushStatus === 'done') {
             echo '<span class="label label-success" id="push-badge-' . (int)$r['po_product_id'] . '">&#10003; Live</span><br>';
         } elseif ($pushStatus === 'failed') {
