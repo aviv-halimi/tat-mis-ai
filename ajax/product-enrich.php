@@ -92,9 +92,10 @@ function tat_enrich_generate_description($product_name, $brand_name, $category_n
         'generationConfig' => ['temperature' => 0.7, 'maxOutputTokens' => 256],
     ];
 
-    // Retry on 429 (rate limit) / 503 (overload) with exponential backoff
-    $max_attempts   = 4;
-    $backoff_ms     = 800;   // 0.8s, 1.6s, 3.2s
+    // Retry on 429 (rate limit) / 503 (overload) with exponential backoff.
+    // Honors Gemini's own retryDelay hint from the response body when present.
+    $max_attempts   = 6;
+    $backoff_ms     = 1500;   // starts at 1.5s, doubles each time
     $response       = false;
     $curlErr        = '';
     $httpCode       = 0;
@@ -118,7 +119,23 @@ function tat_enrich_generate_description($product_name, $brand_name, $category_n
         if ($httpCode !== 429 && $httpCode !== 503) break;                       // non-retryable
         if ($attempt === $max_attempts) break;                                   // final attempt failed
 
-        usleep($backoff_ms * 1000);
+        // If Gemini included a retryDelay in the 429 body, honor it (capped at 30s).
+        $delay_ms = $backoff_ms;
+        if ($response) {
+            $body = json_decode($response, true);
+            if (is_array($body)) {
+                $details = $body['error']['details'] ?? [];
+                foreach ($details as $d) {
+                    if (!empty($d['retryDelay']) && preg_match('/^(\d+(?:\.\d+)?)s$/', $d['retryDelay'], $m)) {
+                        $hinted = (int) round(((float) $m[1]) * 1000);
+                        if ($hinted > 0 && $hinted < 30000) $delay_ms = max($delay_ms, $hinted);
+                        break;
+                    }
+                }
+            }
+        }
+
+        usleep($delay_ms * 1000);
         $backoff_ms *= 2;
     }
 
@@ -560,11 +577,13 @@ enrich_step_start('description', 'Generating AI description…');
 $descError   = null;
 $description = tat_enrich_generate_description($product_name, $brand_name, $category_name, $descError);
 
+// Non-fatal: if Gemini fails (rate limit, etc.), continue with empty description
+// and surface the error as a warning in the response so the user can retype or retry.
 if ($descError && $description === '') {
-    echo json_encode(['success' => false, 'error' => $descError]);
-    exit;
+    enrich_step_skip('description');
+} else {
+    enrich_step_done('description');
 }
-enrich_step_done('description');
 
 // ============================================================
 // Step 3–5 — Image discovery (brand folder, trusted, web)
@@ -597,6 +616,9 @@ if ($job_id !== '' && file_exists(enrich_progress_file())) {
 // ============================================================
 // Final JSON response — full enrichment result
 // ============================================================
+// Combine description error + image warning into a single user-visible warning
+$combinedWarning = trim(implode(' | ', array_filter([$descError, $imageWarning])));
+
 echo json_encode([
     'success'          => true,
     'description'      => $description,
@@ -605,7 +627,7 @@ echo json_encode([
     'source_found'     => $source_found ?: 'Web Search',
     'image_source'     => $source_found ?: 'Web Search',
     'search_query'     => $search_query ?: '',
-    'warning'          => $imageWarning,
+    'warning'          => $combinedWarning !== '' ? $combinedWarning : null,
     'brand'            => $brand_name,
     'brand_id'         => $brand_id,
     'category'         => $category_name,
