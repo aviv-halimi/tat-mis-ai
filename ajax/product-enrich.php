@@ -140,7 +140,41 @@ function tat_enrich_generate_description($product_name, $brand_name, $category_n
     }
 
     if ($response === false || $curlErr || $httpCode >= 300) {
-        $error = 'Gemini description request failed' . ($curlErr ? ': ' . $curlErr : '') . ($httpCode ? " (HTTP {$httpCode})" : '');
+        // Log the full 429/error body so we can diagnose which quota hit
+        // (per-minute, per-day, token-based, etc.) against the Google Cloud quota page.
+        $log_dir = dirname(__FILE__) . '/../public/tmp/enrichment';
+        @mkdir($log_dir, 0755, true);
+        @file_put_contents(
+            $log_dir . '/gemini-errors.log',
+            '[' . date('Y-m-d H:i:s') . "] model={$model} http={$httpCode} curlErr={$curlErr}\n"
+            . "response: " . substr((string) $response, 0, 2000) . "\n\n",
+            FILE_APPEND
+        );
+
+        // Pull the quota-violation detail out of the body if present (paid-tier users
+        // typically hit this when a specific RPM/TPM quota on the key/project is too low).
+        $detail = '';
+        if ($response) {
+            $body = json_decode($response, true);
+            if (is_array($body)) {
+                foreach (($body['error']['details'] ?? []) as $d) {
+                    if (($d['@type'] ?? '') === 'type.googleapis.com/google.rpc.QuotaFailure') {
+                        foreach (($d['violations'] ?? []) as $v) {
+                            $detail = trim(($v['quotaId'] ?? '') . ' ' . ($v['quotaMetric'] ?? ''));
+                            if ($detail !== '') break 2;
+                        }
+                    }
+                }
+                if ($detail === '' && !empty($body['error']['message'])) {
+                    $detail = substr((string) $body['error']['message'], 0, 200);
+                }
+            }
+        }
+
+        $error = 'Gemini description request failed'
+               . ($curlErr ? ': ' . $curlErr : '')
+               . ($httpCode ? " (HTTP {$httpCode})" : '')
+               . ($detail  ? " — {$detail}" : '');
         return '';
     }
 
