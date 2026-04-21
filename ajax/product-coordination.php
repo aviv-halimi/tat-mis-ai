@@ -16,7 +16,7 @@ if ($r = getRow($rs)) {
     if ($type == 'created') {
         $params = array('created' => $checked);
         setRs("UPDATE po_product SET is_created = ? WHERE po_product_id = ?", array($checked, $po_product_id));
-        if ($r['is_transferred'] and $checked) $hide = true;
+        if ($checked) $hide = true;
     }
     if ($type == 'transferred') {
         setRs("UPDATE po_product SET is_transferred = ? WHERE po_product_id = ?", array($checked, $po_product_id));

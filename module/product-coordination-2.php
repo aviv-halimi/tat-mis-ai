@@ -1,10 +1,10 @@
 <?php
 include_once('_config.php');
-if (isset($_archive)) $sql_archive = "(p.is_created = 1 AND p.is_transferred = 1 and p.date_created >= now()-interval 3 month)";
-else $sql_archive = "(p.is_created = 0 OR p.is_transferred = 0)";
+if (isset($_archive)) $sql_archive = "(p.is_created = 1 and p.date_created >= now()-interval 3 month)";
+else $sql_archive = "(p.is_created = 0)";
 
-if (isset($_archive)) $sql_archive2 = "(q.is_created = 1 AND q.is_transferred = 1 and q.date_created >= now()-interval 3 month)";
-else $sql_archive2 = "(q.is_created = 0 OR q.is_transferred = 0)";
+if (isset($_archive)) $sql_archive2 = "(q.is_created = 1 and q.date_created >= now()-interval 3 month)";
+else $sql_archive2 = "(q.is_created = 0)";
 
 $__store_id = $_vendor_name = $_po_status_id = null;
 $_ds = $_Session->GetTableDisplaySettings($module_code);
