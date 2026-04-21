@@ -38,6 +38,12 @@ $store_db        = preg_replace('/[^a-zA-Z0-9_]/', '', trim((string) ($_POST['st
 $vendor_id       = (int) ($_POST['vendor_id']    ?? 0);
 $po_product_id   = (int) ($_POST['po_product_id'] ?? 0);
 $image_url       = trim((string) ($_POST['image_url'] ?? ''));
+// Optional crop coordinates (fractions 0..1 of the natural image size) — used
+// when the frontend Cropper couldn't export client-side due to CORS/tainted canvas.
+$crop_x          = isset($_POST['crop_x']) && is_numeric($_POST['crop_x']) ? (float) $_POST['crop_x'] : null;
+$crop_y          = isset($_POST['crop_y']) && is_numeric($_POST['crop_y']) ? (float) $_POST['crop_y'] : null;
+$crop_w          = isset($_POST['crop_w']) && is_numeric($_POST['crop_w']) ? (float) $_POST['crop_w'] : null;
+$crop_h          = isset($_POST['crop_h']) && is_numeric($_POST['crop_h']) ? (float) $_POST['crop_h'] : null;
 $flower_type     = trim((string) ($_POST['flower_type']     ?? ''));
 $weight_per_unit = trim((string) ($_POST['weight_per_unit'] ?? 'Each')) ?: 'Each';
 $custom_gram_type = trim((string) ($_POST['custom_gram_type'] ?? 'Gram'));
@@ -214,6 +220,57 @@ if ($image_url !== '') {
     }
 
     if ($img_bytes && strlen($img_bytes) > 0 && !$img_err) {
+        // ---- Normalize to a 1000×1000 JPEG (crop then resize) ----
+        // If the frontend already sent a 1000×1000 cropped data URI, this is a
+        // cheap re-encode. If it sent a raw URL + crop coords, we apply the crop
+        // here (canvas-tainted remote images need server-side handling). If no
+        // crop coords are given, we center-crop to 1:1 as a safe default.
+        $src_img = @imagecreatefromstring($img_bytes);
+        if ($src_img !== false) {
+            $src_w = imagesx($src_img);
+            $src_h = imagesy($src_img);
+
+            // Determine crop rectangle
+            if ($crop_w !== null && $crop_h !== null && $crop_w > 0 && $crop_h > 0) {
+                $cx = max(0, (int) round(($crop_x ?? 0) * $src_w));
+                $cy = max(0, (int) round(($crop_y ?? 0) * $src_h));
+                $cw = min($src_w - $cx, (int) round($crop_w * $src_w));
+                $ch = min($src_h - $cy, (int) round($crop_h * $src_h));
+            } else {
+                // Center-crop to square
+                $side = min($src_w, $src_h);
+                $cx   = (int) (($src_w - $side) / 2);
+                $cy   = (int) (($src_h - $side) / 2);
+                $cw   = $side;
+                $ch   = $side;
+            }
+
+            $dst = imagecreatetruecolor(1000, 1000);
+            $white = imagecolorallocate($dst, 255, 255, 255);
+            imagefilledrectangle($dst, 0, 0, 1000, 1000, $white);
+            imagecopyresampled($dst, $src_img, 0, 0, $cx, $cy, 1000, 1000, $cw, $ch);
+
+            ob_start();
+            imagejpeg($dst, null, 92);
+            $resized = ob_get_clean();
+
+            imagedestroy($src_img);
+            imagedestroy($dst);
+            unset($img_bytes);
+
+            if ($resized !== false && strlen($resized) > 0) {
+                $img_bytes = $resized;
+                $img_mime  = 'image/jpeg';
+                $debug_image['normalized_to']   = '1000x1000 JPEG';
+                $debug_image['crop_rect']       = ['x' => $cx, 'y' => $cy, 'w' => $cw, 'h' => $ch];
+                $debug_image['normalized_size'] = strlen($img_bytes);
+            } else {
+                $debug_image['normalize_err'] = 'GD imagejpeg returned empty';
+            }
+        } else {
+            $debug_image['normalize_err'] = 'imagecreatefromstring failed';
+        }
+
         // 2. Save to a temp file so cURL can send it as multipart
         $tmp_path = tempnam(sys_get_temp_dir(), 'blaze_img_') . '.jpg';
         file_put_contents($tmp_path, $img_bytes);

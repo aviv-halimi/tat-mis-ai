@@ -372,6 +372,17 @@ else {
 }
 ?>
 
+<!-- Cropper.js for the 1:1 image crop in the enrichment modal -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.5.13/dist/cropper.min.css">
+<script src="https://cdn.jsdelivr.net/npm/cropperjs@1.5.13/dist/cropper.min.js"></script>
+<style>
+  /* Cropper container override — fit within the image box */
+  #enrichImageBox .cropper-container { max-height: 304px; }
+  /* Nicer crop handle visibility */
+  #enrichImageBox .cropper-view-box,
+  #enrichImageBox .cropper-face { border-radius: 0; }
+</style>
+
 <!-- ============================================================
      Enrichment Preview Modal
      ============================================================ -->
@@ -445,12 +456,12 @@ else {
               <!-- Image box — click to open full size in new tab -->
               <div id="enrichImageBox" style="border:1px solid #ddd;border-radius:4px;padding:8px;height:320px;display:flex;align-items:center;justify-content:center;background:#f9f9f9;position:relative;overflow:hidden;">
                 <img id="enrichImage" src="" alt="Product image"
-                     style="max-width:100%;max-height:304px;display:none;border-radius:3px;cursor:zoom-in;"
-                     title="Click to open full size"
+                     style="max-width:100%;max-height:304px;display:none;border-radius:3px;"
                 />
                 <span id="enrichImagePlaceholder" style="color:#aaa;font-size:13px;">No images found.</span>
-                <!-- Expand hint overlay (bottom-right corner) -->
-                <span id="enrichImageExpandHint" style="display:none;position:absolute;bottom:10px;right:10px;background:rgba(0,0,0,.45);color:#fff;font-size:10px;padding:2px 6px;border-radius:3px;pointer-events:none;">&#x26F6; open</span>
+              </div>
+              <div style="text-align:center;font-size:11px;color:#888;margin-top:4px;">
+                Drag the corners to adjust the 1:1 crop &mdash; the cropped image will be resized to 1000&times;1000 before upload.
               </div>
               <!-- Carousel navigation -->
               <div id="enrichCarouselNav" style="display:none;text-align:center;margin-top:6px;">
@@ -622,6 +633,10 @@ window.addEventListener('load', function() {
     $body.css('max-height', Math.max(300, avail) + 'px');
   }
   $('#enrichModal').on('shown.bs.modal', resizeEnrichModalBody);
+  $('#enrichModal').on('hidden.bs.modal', function() {
+    // Tear down Cropper so the image element is free for the next product
+    if (typeof destroyCropper === 'function') destroyCropper();
+  });
   $(window).on('resize', function() {
     if ($('#enrichModal').hasClass('in')) resizeEnrichModalBody();
   });
@@ -634,6 +649,7 @@ window.addEventListener('load', function() {
   var enrichCurrentJobId = null; // active job — responses for other jobs are ignored
   var enrichCurrentXhr   = null; // in-flight XHR (aborted when a new enrichment starts)
   var enrichProgressPoller = null;
+  var enrichCropper      = null; // Cropper.js instance for the current carousel image
 
   var sourceIcons = {
     'Brand Drive Folder':    '&#128190; Source: Brand Drive Folder',
@@ -646,12 +662,44 @@ window.addEventListener('load', function() {
   };
 
   /* ---- helpers ---- */
+  function destroyCropper() {
+    if (enrichCropper) {
+      try { enrichCropper.destroy(); } catch (e) {}
+      enrichCropper = null;
+    }
+  }
+
+  function initCropper() {
+    destroyCropper();
+    var img = document.getElementById('enrichImage');
+    if (!img || !img.src) return;
+    enrichCropper = new Cropper(img, {
+      aspectRatio:   1,
+      viewMode:      1,           // crop box cannot exceed the image
+      autoCropArea:  0.9,         // default crop covers ~90% of the image, centered
+      background:    false,
+      movable:       false,
+      zoomable:      false,
+      rotatable:     false,
+      scalable:      false,
+      dragMode:      'none',      // user drags the crop box, not the image
+      guides:        true,
+      center:        true,
+      responsive:    true,
+      checkOrientation: false
+    });
+  }
+
   function showImage(idx) {
     if (!enrichImages.length) return;
     idx = Math.max(0, Math.min(idx, enrichImages.length - 1));
     enrichImgIdx = idx;
     var url = enrichImages[idx];
-    $('#enrichImage').attr('src', url).show();
+
+    destroyCropper();
+
+    var $img = $('#enrichImage');
+    $img.attr('src', url).show();
     $('#enrichImagePlaceholder').hide();
     $('#enrichImgCounter').text((idx + 1) + ' / ' + enrichImages.length);
 
@@ -659,15 +707,10 @@ window.addEventListener('load', function() {
     var src = enrichImageSources[idx] || 'Web Search';
     $('#enrichImageSource').html(sourceIcons[src] || ('&#127760; Source: ' + src));
 
-    // Show the expand hint when an image is visible
-    $('#enrichImageExpandHint').show();
+    // Wait for the new image to load before attaching Cropper
+    $img.one('load', function() { initCropper(); });
+    if ($img[0].complete && $img[0].naturalWidth > 0) initCropper();
   }
-
-  // Click image → open full size in new tab
-  $(document).on('click', '#enrichImage', function() {
-    var url = enrichImages[enrichImgIdx];
-    if (url) window.open(url, '_blank');
-  });
 
   function populateDropdown(selectId, items, selectedId) {
     var $sel = $('#' + selectId);
@@ -715,9 +758,9 @@ window.addEventListener('load', function() {
     enrichImageSources = [];
     enrichImgIdx       = 0;
     enrichStoreDb      = storeDb;
+    destroyCropper();
     $('#enrichImage').attr('src', '').hide();
     $('#enrichImagePlaceholder').show().text('');
-    $('#enrichImageExpandHint').hide();
 
     /* store IDs so Push to Blaze can use them */
     $('#enrichModal')
@@ -1002,27 +1045,68 @@ window.addEventListener('load', function() {
     $('#enrichBlazeStatus').text('').css('color', '');
     $('#enrichBlazeResponseArea').hide();
 
+    // Build the final image. Two paths:
+    //   1. If Cropper can export client-side (same-origin / CORS-friendly image),
+    //      send a 1000×1000 JPEG data URI — the backend just re-encodes it.
+    //   2. Otherwise the canvas is tainted; we send the raw URL + crop coords
+    //      (fractions of the natural image) and let the backend crop + resize.
+    var imagePayload = enrichImages.length ? enrichImages[enrichImgIdx] : '';
+    var cropCoords   = null;
+
+    if (enrichCropper) {
+      // Capture crop rectangle in natural-image pixels regardless of path.
+      var data   = enrichCropper.getData(true);       // rounded, natural px
+      var imgEl  = document.getElementById('enrichImage');
+      var natW   = imgEl && imgEl.naturalWidth  ? imgEl.naturalWidth  : 0;
+      var natH   = imgEl && imgEl.naturalHeight ? imgEl.naturalHeight : 0;
+      if (natW && natH && data.width > 0 && data.height > 0) {
+        cropCoords = {
+          crop_x: data.x      / natW,
+          crop_y: data.y      / natH,
+          crop_w: data.width  / natW,
+          crop_h: data.height / natH
+        };
+      }
+
+      // Prefer client-side export (avoids re-downloading the image server-side).
+      try {
+        var canvas = enrichCropper.getCroppedCanvas({
+          width:       1000,
+          height:      1000,
+          imageSmoothingEnabled: true,
+          imageSmoothingQuality: 'high',
+          fillColor:   '#ffffff'
+        });
+        if (canvas) imagePayload = canvas.toDataURL('image/jpeg', 0.92);
+      } catch (e) {
+        console.warn('Cropper export failed (tainted canvas?) — falling back to server-side crop:', e);
+      }
+    }
+
+    var pushData = {
+      name:             name,
+      description:      description,
+      price:            price,
+      davis_price:      davisPrice,
+      dixon_price:      dixonPrice,
+      brand_id:         brandId,
+      category_id:      categoryId,
+      store_db:         storeDb,
+      vendor_id:        vendorId,
+      po_product_id:    poProductId,
+      image_url:        imagePayload,
+      flower_type:      flowerType,
+      weight_per_unit:  weightPerUnit,
+      custom_gram_type: customGramType,
+      custom_weight:    customWeight
+    };
+    if (cropCoords) $.extend(pushData, cropCoords);
+
     $.ajax({
       url: 'ajax/product-blaze-push.php',
       method: 'POST',
       dataType: 'json',
-      data: {
-        name:             name,
-        description:      description,
-        price:            price,
-        davis_price:      davisPrice,
-        dixon_price:      dixonPrice,
-        brand_id:         brandId,
-        category_id:      categoryId,
-        store_db:         storeDb,
-        vendor_id:        vendorId,
-        po_product_id:    poProductId,
-        image_url:        enrichImages.length ? enrichImages[enrichImgIdx] : '',
-        flower_type:      flowerType,
-        weight_per_unit:  weightPerUnit,
-        custom_gram_type: customGramType,
-        custom_weight:    customWeight
-      }
+      data: pushData
     }).done(function(resp) {
       $('#enrichBtnPushBlaze').prop('disabled', false).html('<i class="fa fa-cloud-upload"></i> Push to Blaze');
 
