@@ -398,17 +398,20 @@ if ($success && !empty($blaze_response_decoded['id']) && !empty($debug_image['as
     $debug_asset_attach = ['get_http' => $get_code, 'get_err' => $get_err ?: null];
 
     if (!$get_err && $get_code === 200 && $get_resp && isJson($get_resp)) {
-        $full_product = json_decode($get_resp, true);
+        // Decode WITHOUT assoc=true so empty JSON objects (e.g. prepackageQuantities: {})
+        // stay as stdClass and re-encode as "{}" rather than "[]". Blaze's PUT endpoint
+        // expects HashMap for those fields and rejects arrays with HTTP 400.
+        $full_product = json_decode($get_resp);
 
-        // Step 2: inject asset into the assets array
-        $full_product['assets'] = [[
-            'id'       => $asset_obj['id'],
-            'key'      => $asset_obj['key'],
-            'type'     => 'Photo',
-            'active'   => true,
-            'priority' => 0,
-            'secured'  => false,
-        ]];
+        // Step 2: inject asset into the assets array (this one IS an array in Blaze)
+        $asset_stub = new stdClass();
+        $asset_stub->id       = $asset_obj['id'];
+        $asset_stub->key      = $asset_obj['key'];
+        $asset_stub->type     = 'Photo';
+        $asset_stub->active   = true;
+        $asset_stub->priority = 0;
+        $asset_stub->secured  = false;
+        $full_product->assets = [$asset_stub];
 
         // Step 3: PUT the full object back
         $put_body = json_encode($full_product);
