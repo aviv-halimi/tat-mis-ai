@@ -165,20 +165,52 @@ if ($image_url !== '') {
             $img_err = 'Invalid data URI format';
         }
     } else {
-        // Remote URL — download via cURL
-        $img_ch = curl_init($image_url);
-        curl_setopt_array($img_ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS      => 5,
-            CURLOPT_TIMEOUT        => 30,
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_USERAGENT      => 'Mozilla/5.0 (compatible; EnrichBot/1.0)',
-            CURLOPT_SSL_VERIFYPEER => false,
-        ]);
-        $img_bytes = curl_exec($img_ch);
-        $img_err   = curl_error($img_ch);
-        curl_close($img_ch);
+        // Dropbox/Drive/master enrichment images are cached locally at
+        // {BASE_URL}/public/tmp/enrichment/…. Downloading via HTTP round-trips
+        // through the auth middleware and can return a login HTML page instead
+        // of the image. Detect these and read straight from disk.
+        $enrich_tmp_url_prefix = defined('BASE_URL') ? rtrim(BASE_URL, '/') . '/public/tmp/enrichment/' : '';
+        $local_enrich_path     = null;
+        if ($enrich_tmp_url_prefix !== '' && strpos($image_url, $enrich_tmp_url_prefix) === 0) {
+            $rel_name = basename(parse_url($image_url, PHP_URL_PATH) ?: '');
+            if ($rel_name !== '') {
+                $local_enrich_path = rtrim(BASE_PATH, '/\\') . '/public/tmp/enrichment/' . $rel_name;
+            }
+        }
+
+        if ($local_enrich_path && is_file($local_enrich_path)) {
+            $img_bytes = @file_get_contents($local_enrich_path);
+            $debug_image['read_from_disk']  = $local_enrich_path;
+            $debug_image['local_file_size'] = $img_bytes ? strlen($img_bytes) : 0;
+            if ($img_bytes === false) $img_err = 'Failed to read cached image file from disk';
+        } else {
+            // Remote URL — download via cURL
+            $img_ch = curl_init($image_url);
+            curl_setopt_array($img_ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS      => 5,
+                CURLOPT_TIMEOUT        => 30,
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_USERAGENT      => 'Mozilla/5.0 (compatible; EnrichBot/1.0)',
+                CURLOPT_SSL_VERIFYPEER => false,
+            ]);
+            $img_bytes = curl_exec($img_ch);
+            $img_err   = curl_error($img_ch);
+            $img_http  = (int) curl_getinfo($img_ch, CURLINFO_HTTP_CODE);
+            $img_ctype = (string) curl_getinfo($img_ch, CURLINFO_CONTENT_TYPE);
+            curl_close($img_ch);
+
+            $debug_image['download_http']  = $img_http;
+            $debug_image['download_ctype'] = $img_ctype;
+            $debug_image['download_size']  = $img_bytes ? strlen($img_bytes) : 0;
+
+            // Guard against auth-middleware redirects returning HTML
+            if ($img_bytes && stripos($img_ctype, 'text/html') !== false) {
+                $img_err   = 'Downloaded response is HTML (likely an auth redirect), not an image';
+                $img_bytes = false;
+            }
+        }
     }
 
     if ($img_bytes && strlen($img_bytes) > 0 && !$img_err) {
