@@ -221,10 +221,6 @@ foreach ($queue as $q) {
         $results[] = "Queue #{$queue_id} (SKU {$sku}): done — all " . count($stores_done) . " stores complete.";
     } else {
         // Some stores succeeded this run, others still missing or had errors — stay pending
-        $pending_stores  = array_merge($still_missing, array_column(
-            array_filter($errors, fn($e) => strpos($e, 'PUT failed') !== false ? true : false),
-            null
-        ));
         $error_summary = !empty($errors) ? implode(' | ', $errors) : null;
 
         setRs(
