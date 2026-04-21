@@ -92,19 +92,35 @@ function tat_enrich_generate_description($product_name, $brand_name, $category_n
         'generationConfig' => ['temperature' => 0.7, 'maxOutputTokens' => 256],
     ];
 
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST           => true,
-        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
-        CURLOPT_POSTFIELDS     => json_encode($payload),
-        CURLOPT_TIMEOUT        => 60,
-        CURLOPT_CONNECTTIMEOUT => 10,
-    ]);
-    $response = curl_exec($ch);
-    $curlErr  = curl_error($ch);
-    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+    // Retry on 429 (rate limit) / 503 (overload) with exponential backoff
+    $max_attempts   = 4;
+    $backoff_ms     = 800;   // 0.8s, 1.6s, 3.2s
+    $response       = false;
+    $curlErr        = '';
+    $httpCode       = 0;
+
+    for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_POSTFIELDS     => json_encode($payload),
+            CURLOPT_TIMEOUT        => 60,
+            CURLOPT_CONNECTTIMEOUT => 10,
+        ]);
+        $response = curl_exec($ch);
+        $curlErr  = curl_error($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($response !== false && !$curlErr && $httpCode < 300) break;          // success
+        if ($httpCode !== 429 && $httpCode !== 503) break;                       // non-retryable
+        if ($attempt === $max_attempts) break;                                   // final attempt failed
+
+        usleep($backoff_ms * 1000);
+        $backoff_ms *= 2;
+    }
 
     if ($response === false || $curlErr || $httpCode >= 300) {
         $error = 'Gemini description request failed' . ($curlErr ? ': ' . $curlErr : '') . ($httpCode ? " (HTTP {$httpCode})" : '');

@@ -631,6 +631,9 @@ window.addEventListener('load', function() {
   var enrichImageSources = [];   // parallel to enrichImages — one source label per URL
   var enrichImgIdx       = 0;
   var enrichStoreDb      = '';
+  var enrichCurrentJobId = null; // active job — responses for other jobs are ignored
+  var enrichCurrentXhr   = null; // in-flight XHR (aborted when a new enrichment starts)
+  var enrichProgressPoller = null;
 
   var sourceIcons = {
     'Brand Drive Folder':    '&#128190; Source: Brand Drive Folder',
@@ -698,10 +701,22 @@ window.addEventListener('load', function() {
       return;
     }
 
+    // Abort any in-flight enrichment from a previous click so its response
+    // doesn't overwrite this modal with stale data.
+    if (enrichCurrentXhr && enrichCurrentXhr.readyState !== 4) {
+      try { enrichCurrentXhr.abort(); } catch (e) {}
+    }
+    if (enrichProgressPoller) {
+      clearInterval(enrichProgressPoller);
+      enrichProgressPoller = null;
+    }
+
     enrichImages       = [];
     enrichImageSources = [];
     enrichImgIdx       = 0;
     enrichStoreDb      = storeDb;
+    $('#enrichImage').attr('src', '').hide();
+    $('#enrichImagePlaceholder').show().text('');
     $('#enrichImageExpandHint').hide();
 
     /* store IDs so Push to Blaze can use them */
@@ -817,10 +832,19 @@ window.addEventListener('load', function() {
 
     // Generate a unique job ID for this enrichment run
     var jobId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    enrichCurrentJobId = jobId;
 
     // Poll enrich-progress.php every 500ms for live step updates
-    var progressPoller = setInterval(function() {
-      $.getJSON('ajax/enrich-progress.php', { job_id: jobId }, function(prog) {
+    enrichProgressPoller = setInterval(function() {
+      if (enrichCurrentJobId !== jobId) return;  // stale poller — ignore
+      $.ajax({
+        url:      'ajax/enrich-progress.php',
+        method:   'GET',
+        dataType: 'json',
+        cache:    false,
+        data:     { job_id: jobId }
+      }).done(function(prog) {
+        if (enrichCurrentJobId !== jobId) return;  // abandoned
         var steps = prog.steps || {};
         $.each(steps, function(stepId, step) {
           var state = step.state || '';
@@ -838,10 +862,11 @@ window.addEventListener('load', function() {
       });
     }, 500);
 
-    $.ajax({
+    enrichCurrentXhr = $.ajax({
       url:      'ajax/product-enrich.php',
       method:   'POST',
       dataType: 'json',
+      cache:    false,
       data: {
         id:          id,
         name:        name,
@@ -853,17 +878,16 @@ window.addEventListener('load', function() {
         job_id:      jobId
       }
     }).done(function(resp) {
-      clearInterval(progressPoller);
-      // Do one final poll to show the last completed steps before hiding overlay
-      $.getJSON('ajax/enrich-progress.php', { job_id: jobId }, function(prog) {
-        var steps = prog.steps || {};
-        $.each(steps, function(stepId, step) {
-          if ((step.state || '') === 'done') enrichSetStep(stepId, 'done');
-        });
-      });
+      // If a newer enrichment has started, ignore this stale response.
+      if (enrichCurrentJobId !== jobId) return;
+      clearInterval(enrichProgressPoller);
+      enrichProgressPoller = null;
       enrichApplyResult(resp);
     }).fail(function(xhr, status, error) {
-      clearInterval(progressPoller);
+      // Ignore aborted/stale responses
+      if (status === 'abort' || enrichCurrentJobId !== jobId) return;
+      clearInterval(enrichProgressPoller);
+      enrichProgressPoller = null;
       $('#enrichLoadingOverlay').hide();
       $('#enrichContent').show();
       $('#enrichStatusBadge')
