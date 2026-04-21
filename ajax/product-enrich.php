@@ -79,7 +79,13 @@ function tat_enrich_generate_description($product_name, $brand_name, $category_n
     }
     if (!$apiKey) { $error = 'Gemini API key is not configured.'; return ''; }
 
-    $model = (defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-2.0-flash';
+    // Default to gemini-2.5-flash — gemini-2.0-flash frequently returns HTTP 429
+    // "Resource exhausted" from Google's Dynamic Shared Quota during peak hours,
+    // even for paid-tier projects that have used <1% of their own quota.
+    // Override with GEMINI_DESC_MODEL in _config.php if a different model is preferred.
+    $model = (defined('GEMINI_DESC_MODEL') && GEMINI_DESC_MODEL !== '')
+        ? GEMINI_DESC_MODEL
+        : ((defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-2.5-flash');
     $url   = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode($model) . ':generateContent?key=' . urlencode($apiKey);
 
     $prompt = "Act as a cannabis retail copywriter. Write a compelling, 3-sentence product description for {$product_name}";
