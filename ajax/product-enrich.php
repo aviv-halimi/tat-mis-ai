@@ -93,9 +93,16 @@ function tat_enrich_generate_description($product_name, $brand_name, $category_n
     if ($category_name !== '') $prompt .= " in the {$category_name} category";
     $prompt .= ". Focus on effects and quality. Output: Raw text only.";
 
+    // gemini-2.5-flash uses "thinking" tokens by default — they count against
+    // maxOutputTokens and can truncate the visible output. A 3-sentence
+    // description doesn't need reasoning, so disable thinking and raise the cap.
     $payload = [
         'contents'         => [['parts' => [['text' => $prompt]]]],
-        'generationConfig' => ['temperature' => 0.7, 'maxOutputTokens' => 256],
+        'generationConfig' => [
+            'temperature'     => 0.7,
+            'maxOutputTokens' => 512,
+            'thinkingConfig'  => ['thinkingBudget' => 0],
+        ],
     ];
 
     // Retry on 429 (rate limit) / 503 (overload) with exponential backoff.
