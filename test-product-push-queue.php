@@ -212,12 +212,30 @@ foreach ($store_rows as $s) {
 
     // ---- 3) Minimal PUT test (only if ?put=1) ----
     if ($do_put) {
-        echo '<h3>Step 3: PUT ' . h($get_url) . ' (minimal change — add DiscountEligible tag)</h3>';
+        echo '<h3>Step 3: PUT ' . h($get_url) . ' (DiscountEligible tag + per-store vendorId fix)</h3>';
 
         // Decode WITHOUT assoc so empty JSON objects stay as stdClass and re-encode as {} (see product-blaze-push.php comment)
         $put_obj = json_decode($json);
         if (!isset($put_obj->tags) || !is_array($put_obj->tags)) $put_obj->tags = [];
         if (!in_array('DiscountEligible', $put_obj->tags)) $put_obj->tags[] = 'DiscountEligible';
+
+        // Fix: Blaze propagation strips vendorId on destination stores. Resolve
+        // it by looking up the source vendor name in this store's local vendor
+        // table (same strategy ajax/product-blaze-push.php uses for store 1).
+        $resolved_vendor_id = null;
+        if ($src_vendor_name) {
+            $vrow = getRow(getRs(
+                "SELECT id FROM `{$s['db']}`.vendor WHERE name = ? AND " . is_enabled() . " LIMIT 1",
+                [$src_vendor_name]
+            ));
+            $resolved_vendor_id = !empty($vrow['id']) ? $vrow['id'] : null;
+        }
+        if ($resolved_vendor_id) {
+            $put_obj->vendorId = $resolved_vendor_id;
+            echo '<div class="small ok">Set vendorId = <b>' . h($resolved_vendor_id) . '</b> (resolved from source vendor name "' . h($src_vendor_name) . '")</div>';
+        } else {
+            echo '<div class="small bad">Could not resolve vendorId from name — PUT will likely fail.</div>';
+        }
 
         $t0 = microtime(true);
         $put_resp = putApi('products/' . $blaze_id, $s['api_url'], $s['auth_code'], $s['partner_key'], $put_obj);
