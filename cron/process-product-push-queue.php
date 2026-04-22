@@ -46,6 +46,35 @@ $queue = getRs(
     "SELECT * FROM product_push_queue WHERE status = 'pending' AND attempts < 72 ORDER BY pushed_at"
 );
 
+// Cache of {store_db}|{vendor_name} => Blaze vendor ObjectId (nullable).
+// Blaze's multi-store propagation can assign a vendorId that doesn't exist in
+// the destination store, which makes the PUT fail with "Vendor is not found".
+// Re-resolving by vendor name per destination store fixes that.
+$vendor_cache = [];
+function resolvePerStoreVendorId($store_db, $vendor_name, &$vendor_cache) {
+    if (!$store_db || !$vendor_name) return null;
+    $key = $store_db . '|' . strtolower($vendor_name);
+    if (array_key_exists($key, $vendor_cache)) return $vendor_cache[$key];
+
+    $row = getRow(getRs(
+        "SELECT id FROM `{$store_db}`.vendor WHERE name = ? AND " . is_enabled() . " LIMIT 1",
+        [$vendor_name]
+    ));
+    $id = !empty($row['id']) ? $row['id'] : null;
+
+    // Fallback: case-insensitive + trimmed, in case of whitespace/casing drift
+    if (!$id) {
+        $row = getRow(getRs(
+            "SELECT id FROM `{$store_db}`.vendor WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND " . is_enabled() . " LIMIT 1",
+            [$vendor_name]
+        ));
+        $id = !empty($row['id']) ? $row['id'] : null;
+    }
+
+    $vendor_cache[$key] = $id;
+    return $id;
+}
+
 $results = [];
 
 foreach ($queue as $q) {
@@ -57,6 +86,28 @@ foreach ($queue as $q) {
     if ($sku === '') {
         setRs("UPDATE product_push_queue SET status = 'failed', last_error = 'Missing SKU' WHERE id = ?", [$queue_id]);
         continue;
+    }
+
+    // ---- Look up the source PO's vendor name (used to re-resolve vendorId per destination store) ----
+    // Prefer the denormalized po.vendor_name, fall back to the source store's vendor table.
+    $source_store_db    = (string) ($q['store_db'] ?? '');
+    $source_vendor_name = null;
+    $po_row = getRow(getRs(
+        "SELECT po.vendor_id, po.vendor_name
+         FROM theartisttree.po_product pp
+         INNER JOIN theartisttree.po po ON po.po_id = pp.po_id
+         WHERE pp.po_product_id = ? LIMIT 1",
+        [$po_product_id]
+    ));
+    if ($po_row) {
+        $source_vendor_name = $po_row['vendor_name'] ?? null;
+        if (!$source_vendor_name && !empty($po_row['vendor_id']) && $source_store_db !== '') {
+            $vrow = getRow(getRs(
+                "SELECT name FROM `{$source_store_db}`.vendor WHERE vendor_id = ? LIMIT 1",
+                [(int)$po_row['vendor_id']]
+            ));
+            $source_vendor_name = $vrow['name'] ?? null;
+        }
     }
 
     // ---- Decode which stores have already been successfully updated ----
@@ -183,6 +234,26 @@ foreach ($queue as $q) {
             }
             $product_obj->unitPrice = $new_price;
             $changed = true;
+        }
+
+        // -- Resolve per-store vendorId (Blaze propagation sometimes assigns an ID
+        //    that doesn't exist in the destination store → "Vendor is not found").
+        //    Look up by source-store vendor name in this store's blaze DB, and
+        //    only overwrite if the resolved ID differs from what GET returned. --
+        if ($source_vendor_name) {
+            $resolved_vendor_id = resolvePerStoreVendorId($store['db'], $source_vendor_name, $vendor_cache);
+            if ($resolved_vendor_id) {
+                $current_vendor_id = $product_obj->vendorId ?? null;
+                if ($current_vendor_id !== $resolved_vendor_id) {
+                    $product_obj->vendorId = $resolved_vendor_id;
+                    $changed = true;
+                }
+            } else {
+                // Couldn't resolve by name — warn so we see it in last_error, but
+                // still try the PUT with whatever GET returned. If Blaze rejects,
+                // we'll capture the error message below.
+                $errors[] = "Store {$store_id}: vendor '{$source_vendor_name}' not found in {$store['db']}.vendor";
+            }
         }
 
         if ($changed) {
