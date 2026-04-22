@@ -230,25 +230,49 @@ if ($image_url !== '') {
             $src_w = imagesx($src_img);
             $src_h = imagesy($src_img);
 
-            // Determine crop rectangle
+            // Natural-pixel crop rectangle. The frontend Cropper can deliver
+            // a crop box that extends beyond the image (default = square
+            // containing the whole image); we letterbox with white below.
             if ($crop_w !== null && $crop_h !== null && $crop_w > 0 && $crop_h > 0) {
-                $cx = max(0, (int) round(($crop_x ?? 0) * $src_w));
-                $cy = max(0, (int) round(($crop_y ?? 0) * $src_h));
-                $cw = min($src_w - $cx, (int) round($crop_w * $src_w));
-                $ch = min($src_h - $cy, (int) round($crop_h * $src_h));
+                $crop_px = (float) (($crop_x ?? 0) * $src_w);
+                $crop_py = (float) (($crop_y ?? 0) * $src_h);
+                $crop_pw = (float) ($crop_w * $src_w);
+                $crop_ph = (float) ($crop_h * $src_h);
             } else {
-                // Center-crop to square
-                $side = min($src_w, $src_h);
-                $cx   = (int) (($src_w - $side) / 2);
-                $cy   = (int) (($src_h - $side) / 2);
-                $cw   = $side;
-                $ch   = $side;
+                // Default = smallest square that contains the entire image
+                $side    = (float) max($src_w, $src_h);
+                $crop_px = ($src_w - $side) / 2;
+                $crop_py = ($src_h - $side) / 2;
+                $crop_pw = $side;
+                $crop_ph = $side;
             }
 
             $dst = imagecreatetruecolor(1000, 1000);
             $white = imagecolorallocate($dst, 255, 255, 255);
             imagefilledrectangle($dst, 0, 0, 1000, 1000, $white);
-            imagecopyresampled($dst, $src_img, 0, 0, $cx, $cy, 1000, 1000, $cw, $ch);
+
+            // Intersection of crop rect and image rect (source pixels)
+            $sx1 = max(0.0, $crop_px);
+            $sy1 = max(0.0, $crop_py);
+            $sx2 = min((float) $src_w, $crop_px + $crop_pw);
+            $sy2 = min((float) $src_h, $crop_py + $crop_ph);
+
+            if ($sx2 > $sx1 && $sy2 > $sy1 && $crop_pw > 0 && $crop_ph > 0) {
+                $scale_x = 1000.0 / $crop_pw;
+                $scale_y = 1000.0 / $crop_ph;
+
+                $dx = (int) round(($sx1 - $crop_px) * $scale_x);
+                $dy = (int) round(($sy1 - $crop_py) * $scale_y);
+                $dw = (int) round(($sx2 - $sx1) * $scale_x);
+                $dh = (int) round(($sy2 - $sy1) * $scale_y);
+
+                $src_ix = (int) round($sx1);
+                $src_iy = (int) round($sy1);
+                $src_iw = (int) round($sx2 - $sx1);
+                $src_ih = (int) round($sy2 - $sy1);
+
+                imagecopyresampled($dst, $src_img, $dx, $dy, $src_ix, $src_iy, $dw, $dh, $src_iw, $src_ih);
+            }
 
             ob_start();
             imagejpeg($dst, null, 92);
@@ -261,8 +285,11 @@ if ($image_url !== '') {
             if ($resized !== false && strlen($resized) > 0) {
                 $img_bytes = $resized;
                 $img_mime  = 'image/jpeg';
-                $debug_image['normalized_to']   = '1000x1000 JPEG';
-                $debug_image['crop_rect']       = ['x' => $cx, 'y' => $cy, 'w' => $cw, 'h' => $ch];
+                $debug_image['normalized_to']   = '1000x1000 JPEG (letterbox)';
+                $debug_image['crop_rect']       = [
+                    'x' => $crop_px, 'y' => $crop_py,
+                    'w' => $crop_pw, 'h' => $crop_ph,
+                ];
                 $debug_image['normalized_size'] = strlen($img_bytes);
             } else {
                 $debug_image['normalize_err'] = 'GD imagejpeg returned empty';

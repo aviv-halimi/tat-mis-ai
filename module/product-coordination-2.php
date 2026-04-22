@@ -760,8 +760,8 @@ window.addEventListener('load', function() {
     if (!img || !img.src) return;
     enrichCropper = new Cropper(img, {
       aspectRatio:   1,
-      viewMode:      1,           // crop box cannot exceed the image
-      autoCropArea:  0.9,         // default crop covers ~90% of the image, centered
+      viewMode:      0,           // allow crop box to extend beyond image (for letterbox default)
+      autoCropArea:  1,           // explicit crop set in ready() below
       background:    false,
       movable:       false,
       zoomable:      false,
@@ -771,7 +771,21 @@ window.addEventListener('load', function() {
       guides:        true,
       center:        true,
       responsive:    true,
-      checkOrientation: false
+      checkOrientation: false,
+      ready: function() {
+        // Default crop = smallest square that contains the ENTIRE image,
+        // centered. Narrow dimension gets white bars on export.
+        try {
+          var d = enrichCropper.getImageData();
+          var side = Math.max(d.naturalWidth, d.naturalHeight);
+          enrichCropper.setData({
+            x:      (d.naturalWidth  - side) / 2,
+            y:      (d.naturalHeight - side) / 2,
+            width:  side,
+            height: side
+          });
+        } catch (e) { /* ignore — fall back to Cropper default */ }
+      }
     });
   }
 
