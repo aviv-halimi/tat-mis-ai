@@ -672,11 +672,16 @@ function qbo_create_bill($store_id, $vendor_ref_id, $subtotal, $discounts, $doc_
             ),
         );
     }
-    if ($discounts > 0) {
+    // Push the receiving-discount line whenever the net is non-zero. A positive
+    // $discounts is a rebate (reduces the bill); a negative $discounts (e.g. an
+    // Auto-Discount to Match Invoice when the invoice came in higher than the
+    // PO) becomes a positive adjustment line that raises the bill to match.
+    $discounts_rounded = round($discounts, 2);
+    if ($discounts_rounded != 0) {
         $lines[] = array(
             'DetailType' => 'AccountBasedExpenseLineDetail',
-            'Amount' => -round($discounts, 2),
-            'Description' => 'Monthly Rebates',
+            'Amount' => -$discounts_rounded,
+            'Description' => ($discounts_rounded > 0) ? 'Monthly Rebates' : 'Invoice Adjustment',
             'AccountBasedExpenseLineDetail' => array(
                 'AccountRef' => array('value' => $account_rebates),
             ),
