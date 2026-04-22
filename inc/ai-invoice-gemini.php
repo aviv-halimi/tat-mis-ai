@@ -7,7 +7,9 @@
  * contact is the contact/recipient name on the invoice; null if not found. Used for Nabis vendor formatting.
  * Second parameter receives a debug log array when provided.
  *
- * Requires GEMINI_API_KEY. Model: gemini-2.0-flash (or set GEMINI_MODEL).
+ * Requires GEMINI_API_KEY. Primary model: GEMINI_INVOICE_MODEL (default gemini-2.5-flash).
+ * On 429/503 (quota exhaustion / overload), retries with exponential backoff, then falls back
+ * to a second model to ride out Google's Dynamic Shared Quota spikes on any single model.
  */
 
 if (!defined('GEMINI_API_KEY')) {
@@ -16,6 +18,123 @@ if (!defined('GEMINI_API_KEY')) {
 
 if (!defined('GEMINI_MODEL')) {
     define('GEMINI_MODEL', 'gemini-2.0-flash');
+}
+
+// Default invoice model: 2.5-flash. gemini-2.0-flash frequently returns HTTP 429
+// "Resource exhausted" from Google's Dynamic Shared Quota during peak hours,
+// even for paid-tier projects barely using their own quota. 2.5-flash has a
+// separate shared pool that is much less contended for PDF-inline workloads.
+// Override with GEMINI_INVOICE_MODEL in _config.php if needed.
+if (!defined('GEMINI_INVOICE_MODEL')) {
+    define('GEMINI_INVOICE_MODEL', 'gemini-2.5-flash');
+}
+
+// Fallback model tried when the primary returns 429/503 after retries.
+if (!defined('GEMINI_INVOICE_FALLBACK_MODEL')) {
+    define('GEMINI_INVOICE_FALLBACK_MODEL', 'gemini-2.0-flash');
+}
+
+/**
+ * Internal: POST an invoice PDF + prompt to a specific Gemini model with
+ * exponential-backoff retry on 429 (rate limit) / 503 (overload).
+ * Honors Gemini's own `retryDelay` hint from the error body when present.
+ *
+ * Returns [raw_response_string|false, http_code_int, curl_error_string].
+ */
+function geminiInvoiceCallWithRetry($model, $apiKey, $pdfBytes, $prompt, array &$debug_log)
+{
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode($model) . ':generateContent?key=' . urlencode($apiKey);
+
+    $generationConfig = array(
+        'temperature'     => 0,
+        'maxOutputTokens' => 512,
+    );
+    // gemini-2.5-* uses "thinking" tokens by default — they eat maxOutputTokens
+    // and can truncate/empty the JSON reply. Invoice extraction is a lookup,
+    // not reasoning, so disable thinking on 2.5 models.
+    if (stripos($model, '2.5') !== false) {
+        $generationConfig['thinkingConfig'] = array('thinkingBudget' => 0);
+    }
+
+    $payload = array(
+        'contents' => array(
+            array(
+                'parts' => array(
+                    array(
+                        'inline_data' => array(
+                            'mime_type' => 'application/pdf',
+                            'data'      => base64_encode($pdfBytes),
+                        ),
+                    ),
+                    array('text' => $prompt),
+                ),
+            ),
+        ),
+        'generationConfig' => $generationConfig,
+    );
+    $body = json_encode($payload);
+
+    $max_attempts = 4;
+    $backoff_ms   = 1500; // 1.5s, 3s, 6s, 12s
+    $response     = false;
+    $curlErr      = '';
+    $httpCode     = 0;
+
+    for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, array(
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_HTTPHEADER     => array('Content-Type: application/json'),
+            CURLOPT_POSTFIELDS     => $body,
+            CURLOPT_TIMEOUT        => 90,
+            CURLOPT_CONNECTTIMEOUT => 10,
+        ));
+        $response = curl_exec($ch);
+        $curlErr  = curl_error($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $debug_log[] = "Gemini[{$model}] attempt {$attempt} HTTP {$httpCode}"
+            . ($curlErr ? " curl: {$curlErr}" : "")
+            . " response: " . (is_string($response) && strlen($response) < 1500
+                ? $response
+                : substr((string) $response, 0, 1500) . (strlen((string) $response) > 1500 ? '...' : ''));
+
+        if ($response !== false && !$curlErr && $httpCode < 300) {
+            break; // success
+        }
+        if ($httpCode !== 429 && $httpCode !== 503) {
+            break; // non-retryable
+        }
+        if ($attempt === $max_attempts) {
+            break; // give up; caller may fall back to another model
+        }
+
+        // Honor Gemini's retryDelay hint if it gives one, capped at 20s so a
+        // single slow invoice doesn't stall the request cycle for minutes.
+        $delay_ms = $backoff_ms;
+        if ($response) {
+            $errBody = json_decode($response, true);
+            if (is_array($errBody)) {
+                $details = isset($errBody['error']['details']) ? $errBody['error']['details'] : array();
+                foreach ($details as $d) {
+                    if (!empty($d['retryDelay']) && preg_match('/^(\d+(?:\.\d+)?)s$/', $d['retryDelay'], $m)) {
+                        $hinted = (int) round(((float) $m[1]) * 1000);
+                        if ($hinted > 0 && $hinted < 20000) {
+                            $delay_ms = max($delay_ms, $hinted);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        usleep($delay_ms * 1000);
+        $backoff_ms *= 2;
+    }
+
+    return array($response, $httpCode, $curlErr);
 }
 
 function parseInvoiceFromPdfGemini($file_path, &$debug_log = null)
@@ -42,8 +161,8 @@ function parseInvoiceFromPdfGemini($file_path, &$debug_log = null)
         return null;
     }
 
-    $model = (defined('GEMINI_MODEL') && GEMINI_MODEL !== '') ? GEMINI_MODEL : 'gemini-2.0-flash';
-    $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode($model) . ':generateContent?key=' . urlencode($apiKey);
+    $primary_model  = (defined('GEMINI_INVOICE_MODEL') && GEMINI_INVOICE_MODEL !== '') ? GEMINI_INVOICE_MODEL : 'gemini-2.5-flash';
+    $fallback_model = (defined('GEMINI_INVOICE_FALLBACK_MODEL') && GEMINI_INVOICE_FALLBACK_MODEL !== '') ? GEMINI_INVOICE_FALLBACK_MODEL : 'gemini-2.0-flash';
 
     $prompt = <<<PROMPT
 Analyze this invoice PDF and extract exactly four values. Reply with ONLY a single JSON object, no other text.
@@ -67,43 +186,30 @@ Example responses:
 {"total_amount_due": 1500.00, "payment_terms": null, "invoice_number": null, "contact": null}
 PROMPT;
 
-    $payload = [
-        'contents' => [
-            [
-                'parts' => [
-                    [
-                        'inline_data' => [
-                            'mime_type' => 'application/pdf',
-                            'data' => base64_encode($pdfBytes),
-                        ],
-                    ],
-                    [
-                        'text' => $prompt,
-                    ],
-                ],
-            ],
-        ],
-        'generationConfig' => [
-            'temperature' => 0,
-            'maxOutputTokens' => 256,
-        ],
-    ];
+    // Try primary model first; on quota/overload failures, retry with backoff,
+    // then fall back to the secondary model. This rides out Dynamic Shared Quota
+    // spikes that hit one model family at a time.
+    $models_to_try = array($primary_model);
+    if ($fallback_model !== '' && $fallback_model !== $primary_model) {
+        $models_to_try[] = $fallback_model;
+    }
 
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-        CURLOPT_POSTFIELDS => json_encode($payload),
-    ]);
-
-    $response = curl_exec($ch);
-    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlErr = curl_error($ch);
-    curl_close($ch);
-
-    $debug_log[] = "Gemini HTTP $httpCode" . ($curlErr ? " curl: $curlErr" : "")
-        . " response: " . (is_string($response) && strlen($response) < 1500 ? $response : substr((string) $response, 0, 1500) . (strlen((string) $response) > 1500 ? '...' : ''));
+    $response = false;
+    $httpCode = 0;
+    $curlErr  = '';
+    foreach ($models_to_try as $idx => $try_model) {
+        list($response, $httpCode, $curlErr) = geminiInvoiceCallWithRetry($try_model, $apiKey, $pdfBytes, $prompt, $debug_log);
+        if ($response !== false && !$curlErr && $httpCode < 300) {
+            break; // success
+        }
+        // Only fall through to next model on quota/overload conditions.
+        if ($httpCode !== 429 && $httpCode !== 503) {
+            break;
+        }
+        if ($idx < count($models_to_try) - 1) {
+            $debug_log[] = "Primary model {$try_model} exhausted (HTTP {$httpCode}); falling back to " . $models_to_try[$idx + 1];
+        }
+    }
 
     if ($response === false || $curlErr || $httpCode >= 300) {
         return null;
