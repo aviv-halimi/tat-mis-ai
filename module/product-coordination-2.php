@@ -473,12 +473,15 @@ else {
               <div class="text-center m-t-6">
                 <span id="enrichImageSource" style="font-size:11px;color:#888;"></span>
               </div>
-              <!-- Upload own image -->
+              <!-- Upload / Enlarge actions -->
               <div class="text-center m-t-6">
-                <label class="btn btn-xs btn-default" style="margin:0;cursor:pointer;" title="Upload your own image">
+                <label class="btn btn-xs btn-default" style="margin:0 4px 0 0;cursor:pointer;" title="Upload your own image">
                   <i class="fa fa-upload"></i> Upload Image
                   <input type="file" id="enrichImageUpload" accept="image/*" style="display:none;" />
                 </label>
+                <button type="button" id="enrichBtnEnlarge" class="btn btn-xs btn-default" title="Open the original image full-size in a new tab" style="margin:0;">
+                  <i class="fa fa-search-plus"></i> Enlarge
+                </button>
               </div>
               <!-- Status -->
               <div class="text-center m-t-10">
@@ -1035,6 +1038,28 @@ window.addEventListener('load', function() {
     if (enrichImages.length) showImage(enrichImgIdx + 1);
   });
 
+  /* ---- Enlarge: open the current image full-size in a new tab ---- */
+  $(document).on('click', '#enrichBtnEnlarge', function() {
+    if (!enrichImages.length) return;
+    var url = enrichImages[enrichImgIdx];
+    if (!url) return;
+
+    // Data URIs (uploaded files) won't open well in a plain window.open —
+    // render them inside a styled HTML wrapper instead.
+    if (url.indexOf('data:') === 0) {
+      var w = window.open('', '_blank');
+      if (w) {
+        w.document.write('<!doctype html><html><head><title>Image preview</title>'
+          + '<style>html,body{margin:0;background:#222;height:100%;display:flex;align-items:center;justify-content:center;}'
+          + 'img{max-width:100%;max-height:100%;}</style></head><body>'
+          + '<img src="' + url + '" alt="Preview" /></body></html>');
+        w.document.close();
+      }
+    } else {
+      window.open(url, '_blank', 'noopener');
+    }
+  });
+
   /* ---- Search Again ---- */
   $(document).on('click', '#enrichBtnSearchAgain', function() {
     var query = $('#enrichSearchQuery').val().trim();
@@ -1127,41 +1152,41 @@ window.addEventListener('load', function() {
     $('#enrichBlazeStatus').text('').css('color', '');
     $('#enrichBlazeResponseArea').hide();
 
-    // Build the final image. Two paths:
-    //   1. If Cropper can export client-side (same-origin / CORS-friendly image),
-    //      send a 1000×1000 JPEG data URI — the backend just re-encodes it.
-    //   2. Otherwise the canvas is tainted; we send the raw URL + crop coords
-    //      (fractions of the natural image) and let the backend crop + resize.
+    // Always send the URL of the currently-selected carousel image, plus
+    // the crop rectangle (as fractions of the natural image) from Cropper.
+    // The backend downloads/reads the image, applies the crop, and resizes
+    // to 1000x1000. This is more reliable than exporting a canvas data URI
+    // client-side: Cropper's internal image can get out of sync with the
+    // DOM <img> during fast carousel navigation, and the canvas export
+    // sometimes ends up with the wrong image attached.
     var imagePayload = enrichImages.length ? enrichImages[enrichImgIdx] : '';
     var cropCoords   = null;
 
-    if (enrichCropper) {
-      // Capture crop rectangle in natural-image pixels regardless of path.
-      var data   = enrichCropper.getData(true);       // rounded, natural px
-      var imgEl  = document.getElementById('enrichImage');
-      var natW   = imgEl && imgEl.naturalWidth  ? imgEl.naturalWidth  : 0;
-      var natH   = imgEl && imgEl.naturalHeight ? imgEl.naturalHeight : 0;
-      if (natW && natH && data.width > 0 && data.height > 0) {
-        cropCoords = {
-          crop_x: data.x      / natW,
-          crop_y: data.y      / natH,
-          crop_w: data.width  / natW,
-          crop_h: data.height / natH
-        };
-      }
+    // Safety: make sure the on-screen <img> src still matches the carousel
+    // index; if something is out of sync, force showImage and bail out so
+    // the user can re-click Push with a correctly-bound state.
+    var shownSrc = $('#enrichImage').attr('src') || '';
+    if (imagePayload && shownSrc && shownSrc !== imagePayload) {
+      console.warn('Enrich: image src drift detected — realigning before push.', { shownSrc: shownSrc, selected: imagePayload });
+      showImage(enrichImgIdx);
+    }
 
-      // Prefer client-side export (avoids re-downloading the image server-side).
+    if (enrichCropper) {
       try {
-        var canvas = enrichCropper.getCroppedCanvas({
-          width:       1000,
-          height:      1000,
-          imageSmoothingEnabled: true,
-          imageSmoothingQuality: 'high',
-          fillColor:   '#ffffff'
-        });
-        if (canvas) imagePayload = canvas.toDataURL('image/jpeg', 0.92);
+        var data   = enrichCropper.getData(true);       // rounded, natural px
+        var imgEl  = document.getElementById('enrichImage');
+        var natW   = imgEl && imgEl.naturalWidth  ? imgEl.naturalWidth  : 0;
+        var natH   = imgEl && imgEl.naturalHeight ? imgEl.naturalHeight : 0;
+        if (natW && natH && data.width > 0 && data.height > 0) {
+          cropCoords = {
+            crop_x: data.x      / natW,
+            crop_y: data.y      / natH,
+            crop_w: data.width  / natW,
+            crop_h: data.height / natH
+          };
+        }
       } catch (e) {
-        console.warn('Cropper export failed (tainted canvas?) — falling back to server-side crop:', e);
+        console.warn('Could not read crop coords from Cropper:', e);
       }
     }
 
