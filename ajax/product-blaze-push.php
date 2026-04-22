@@ -469,14 +469,16 @@ if ($success && !empty($blaze_response_decoded['id']) && $po_product_id > 0) {
          ($davis_price > 0 ? $davis_price : null), ($dixon_price > 0 ? $dixon_price : null)]
     );
 
-    // Mark all duplicate rows with the same product name as created + transferred so they
-    // no longer appear in the product-coordination list.
+    // Mark duplicate rows as transferred so they collapse into the single
+    // pending sync row. is_created stays 0 until the cron confirms the
+    // product has propagated to every active store — at which point the
+    // cron flips is_created = 1 and the row leaves the coordination list.
     if ($queue_product_name !== '') {
         setRs(
             "UPDATE theartisttree.po_product
-             SET is_created = 1, is_transferred = 1
+             SET is_transferred = 1
              WHERE po_product_name = ?
-               AND (is_created = 0 OR is_transferred = 0)",
+               AND is_transferred = 0",
             [$queue_product_name]
         );
     }

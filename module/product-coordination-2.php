@@ -622,6 +622,88 @@ window.addEventListener('load', function() {
   var $ = window.jQuery;
   if (!$) { return; }
 
+  /* ============================================================
+     Push-to-Blaze propagation badge polling
+     ============================================================
+     Any row whose push is still pending/processing carries a
+     <span id="push-badge-{po_product_id}"> element. Poll the
+     status endpoint every 10s and update the badge; once the
+     queue item is 'done' and the row's is_created flips to 1,
+     fade the row out of the coordination list.
+  */
+  var activeStoreCount = <?php echo (int)$_active_store_count; ?>;
+  var pushPollTimer    = null;
+
+  function collectPendingIds() {
+    var ids = [];
+    $('[id^="push-badge-"]').each(function() {
+      var m = this.id.match(/^push-badge-(\d+)$/);
+      if (m) ids.push(parseInt(m[1], 10));
+    });
+    return ids;
+  }
+
+  function renderBadge($badge, status, doneCount) {
+    $badge.removeClass('label-success label-warning label-danger label-default');
+    if (status === 'done') {
+      $badge.addClass('label-success').html('&#10003; Live');
+    } else if (status === 'failed') {
+      $badge.addClass('label-danger')
+            .attr('title', 'Sync failed — check product_push_queue')
+            .html('&#10007; Sync Failed');
+    } else {
+      var hint = (doneCount > 0 && activeStoreCount > 0)
+                 ? ' (' + doneCount + '/' + activeStoreCount + ')' : '';
+      $badge.addClass('label-warning')
+            .attr('title', 'Waiting for Blaze to propagate to all stores')
+            .html('&#8987; Syncing' + hint + '&hellip;');
+    }
+  }
+
+  window.pollPushStatus = function() {
+    var ids = collectPendingIds();
+    if (!ids.length) return;
+
+    $.ajax({
+      url:      'ajax/product-push-status.php',
+      method:   'GET',
+      dataType: 'json',
+      cache:    false,
+      data:     { ids: ids.join(',') }
+    }).done(function(resp) {
+      if (!resp || !resp.success || !resp.statuses) return;
+      if (resp.active_store_count) activeStoreCount = resp.active_store_count;
+
+      $.each(resp.statuses, function(poProductId, info) {
+        var $badge = $('#push-badge-' + poProductId);
+        if (!$badge.length) return;
+
+        renderBadge($badge, info.status, info.stores_done_count || 0);
+
+        // Once the cron flips is_created=1 the row should disappear
+        // from the coordination list on next refresh — fade it out now.
+        if (info.is_created == 1) {
+          var $row = $badge.closest('tr');
+          if ($row.length) {
+            $row.fadeOut(600, function() { $(this).remove(); });
+          }
+        }
+      });
+    });
+  };
+
+  // Start polling every 10s if there's anything pending.
+  function ensurePushPoller() {
+    if (pushPollTimer) return;
+    if (collectPendingIds().length === 0) return;
+    pushPollTimer = setInterval(window.pollPushStatus, 10000);
+    window.pollPushStatus();
+  }
+  ensurePushPoller();
+  // Re-check periodically so a fresh push (after ensurePushPoller saw 0)
+  // still starts the timer.
+  setInterval(ensurePushPoller, 5000);
+
   // Resize modal body to fill available window height dynamically
   function resizeEnrichModalBody() {
     var $modal   = $('#enrichModal');
@@ -1130,6 +1212,11 @@ window.addEventListener('load', function() {
             );
           }
         }
+        // Auto-close the modal so the user can continue with the next product.
+        // The status badge will keep updating in the background via polling.
+        setTimeout(function() { $('#enrichModal').modal('hide'); }, 900);
+        // Kick off an immediate poll so the badge reflects current state.
+        if (typeof window.pollPushStatus === 'function') window.pollPushStatus();
       } else {
         var errMsg = (resp && resp.curl_error) ? resp.curl_error
                    : (resp && resp.blaze_response && resp.blaze_response.message) ? resp.blaze_response.message

@@ -75,11 +75,20 @@ foreach ($queue as $q) {
     }
 
     if (empty($stores_pending)) {
-        // All stores already done — mark complete
+        // All stores already done — mark complete and clear duplicates
         setRs(
             "UPDATE product_push_queue SET status = 'done', completed_at = NOW() WHERE id = ?",
             [$queue_id]
         );
+        if ($product_name !== '') {
+            setRs(
+                "UPDATE theartisttree.po_product
+                 SET is_created = 1, is_transferred = 1
+                 WHERE po_product_name = ?
+                   AND (is_created = 0 OR is_transferred = 0)",
+                [$product_name]
+            );
+        }
         $results[] = "Queue #{$queue_id} (SKU {$sku}): already complete (all stores in stores_done).";
         continue;
     }
@@ -218,6 +227,19 @@ foreach ($queue as $q) {
              WHERE id = ?",
             [$stores_done_json, $queue_id]
         );
+
+        // Propagation complete — now it's safe to flag every duplicate
+        // po_product row as created so they leave the coordination list.
+        if ($product_name !== '') {
+            setRs(
+                "UPDATE theartisttree.po_product
+                 SET is_created = 1, is_transferred = 1
+                 WHERE po_product_name = ?
+                   AND (is_created = 0 OR is_transferred = 0)",
+                [$product_name]
+            );
+        }
+
         $results[] = "Queue #{$queue_id} (SKU {$sku}): done — all " . count($stores_done) . " stores complete.";
     } else {
         // Some stores succeeded this run, others still missing or had errors — stay pending
