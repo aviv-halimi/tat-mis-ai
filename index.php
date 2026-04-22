@@ -21,7 +21,16 @@ if ($r = getRow($rs)) {
       <!-- src="embedding.3.0.js" -->
 	  <script type="module" src="https://us-west-2b.online.tableau.com/javascripts/api/tableau.embedding.3.latest.min.js"></script>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js" integrity="sha512-E8QSvWZ0eCLGk4km3hxSsNmGWbLtSCSUcewDQPQWZF6pEU8GlT8a5fF32wOl1i8ftdMhssTrF/OhyGWwonTcXA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    
+
+      <style>
+        /* Force the Tableau viz to span the full width of its container */
+        tableau-viz {
+          display: block;
+          width: 100% !important;
+          min-height: 80vh;
+        }
+        .panel-inverse .panel-body { padding: 0; overflow: hidden; }
+      </style>
 
       <div class="panel panel-inverse"><!--
         <div class="panel-heading">
@@ -89,6 +98,58 @@ if ($r = getRow($rs)) {
   
     // Set the token attribute of the tableauViz element
     tableauViz.setAttribute(\'token\', token);
+
+    // Ensure the viz takes up the full available width on initial load.
+    // Tableau calculates its render size when it first loads - if the
+    // surrounding layout has not finalized, it can come up narrower than
+    // the window. Remove any hard-coded width/height from the embed and
+    // force a resize once the viz becomes interactive so it fills the
+    // container without the user needing to resize the browser window.
+    (function() {
+      if (!tableauViz) return;
+
+      function sizeToContainer() {
+        try {
+          tableauViz.removeAttribute(\'width\');
+          tableauViz.style.width = \'100%\';
+          // Give the viz a usable default height if one was not set
+          if (!tableauViz.getAttribute(\'height\') && !tableauViz.style.height) {
+            tableauViz.style.height = Math.max(window.innerHeight - 150, 600) + \'px\';
+          }
+        } catch (e) { /* no-op */ }
+      }
+
+      function forceRedraw() {
+        // Trigger a window resize which the Tableau embed listens to
+        // internally, causing it to recompute its layout at the real
+        // container width.
+        window.dispatchEvent(new Event(\'resize\'));
+      }
+
+      sizeToContainer();
+
+      tableauViz.addEventListener(\'firstinteractive\', function() {
+        sizeToContainer();
+        // Fire a couple of resize pulses to defeat any race with the
+        // sidebar/panel finishing its own layout.
+        forceRedraw();
+        setTimeout(forceRedraw, 100);
+        setTimeout(forceRedraw, 500);
+      });
+
+      tableauViz.addEventListener(\'firstvizsizeknown\', function() {
+        sizeToContainer();
+        forceRedraw();
+      });
+
+      // Also observe container width changes in case the sidebar
+      // collapses/expands or the browser finishes reflowing after load.
+      if (\'ResizeObserver\' in window) {
+        var ro = new ResizeObserver(function() { forceRedraw(); });
+        var container = tableauViz.parentElement;
+        if (container) ro.observe(container);
+      }
+    })();
   </script>
       
       ';
