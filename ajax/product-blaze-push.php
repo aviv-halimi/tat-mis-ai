@@ -131,8 +131,9 @@ if ($category_id > 0 && $store_db !== '') {
 }
 
 // ---- Resolve vendor: {store_db}.vendor.name → blaze1.vendor.id ----
-$blaze_vendor_id = null;
-$debug_vendor    = ['input_vendor_id' => $vendor_id, 'store_db' => $store_db];
+$blaze_vendor_id        = null;
+$blaze_secondary_vendors = [];
+$debug_vendor           = ['input_vendor_id' => $vendor_id, 'store_db' => $store_db];
 
 if ($vendor_id > 0 && $store_db !== '') {
     // Step 1: get vendor name from the originating store
@@ -152,6 +153,27 @@ if ($vendor_id > 0 && $store_db !== '') {
         $blaze_vendor_id           = $store1_vendor['id'] ?? null;
         $debug_vendor['store1_id'] = $blaze_vendor_id;
     }
+}
+
+// ---- Vendor group: co-op vendors that share inventory on Blaze ----
+// When the resolved vendor is a member of this group, Blaze wants ONE canonical
+// primary vendor (the first ID below) with the remaining group members attached
+// as secondaryVendors so products are cross-visible to all co-op members.
+$BLAZE_COOP_VENDOR_GROUP = [
+    '68fbaf6e36ff53a9b9d10457',
+    '68ed31e7b9121ceb14aa573f',
+    '5dcf89fb002f09082a7558ba',
+    '68cdcf401c44c0b22a777c91',
+];
+if ($blaze_vendor_id && in_array($blaze_vendor_id, $BLAZE_COOP_VENDOR_GROUP, true)) {
+    $primary_coop_vendor      = $BLAZE_COOP_VENDOR_GROUP[0];
+    $debug_vendor['coop_swap'] = [
+        'resolved_vendor'  => $blaze_vendor_id,
+        'primary'          => $primary_coop_vendor,
+        'secondary'        => array_values(array_slice($BLAZE_COOP_VENDOR_GROUP, 1)),
+    ];
+    $blaze_vendor_id         = $primary_coop_vendor;
+    $blaze_secondary_vendors = array_values(array_slice($BLAZE_COOP_VENDOR_GROUP, 1));
 }
 
 // ---- Upload image to Blaze as a public asset → get assetKey ----
@@ -360,6 +382,7 @@ $product_payload = [
 if ($blaze_brand_id)    $product_payload['brandId']    = $blaze_brand_id;
 if ($blaze_category_id) $product_payload['categoryId'] = $blaze_category_id;
 if ($blaze_vendor_id)   $product_payload['vendorId']   = $blaze_vendor_id;
+if (!empty($blaze_secondary_vendors)) $product_payload['secondaryVendors'] = $blaze_secondary_vendors;
 if ($flower_type !== '') $product_payload['flowerType'] = $flower_type;
 
 // customGramType and customWeight are only sent for Custom Weight
