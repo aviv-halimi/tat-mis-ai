@@ -12,6 +12,11 @@
  */
 require_once dirname(__FILE__) . '/../_config.php';
 
+// GD needs headroom when decoding user-uploaded images (phone photos can be 10+ MP,
+// which expands to ~40-50 MB of raw pixel data inside GD). Match product-enrich.php
+// and product-image-search.php so uploaded-image pushes don't silently OOM.
+@ini_set('memory_limit', '512M');
+
 header('Cache-Control: no-cache');
 header('Content-type: application/json');
 

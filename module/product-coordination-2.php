@@ -1166,15 +1166,20 @@ window.addEventListener('load', function() {
     $('#enrichBlazeStatus').text('').css('color', '');
     $('#enrichBlazeResponseArea').hide();
 
-    // Always send the URL of the currently-selected carousel image, plus
-    // the crop rectangle (as fractions of the natural image) from Cropper.
-    // The backend downloads/reads the image, applies the crop, and resizes
-    // to 1000x1000. This is more reliable than exporting a canvas data URI
-    // client-side: Cropper's internal image can get out of sync with the
-    // DOM <img> during fast carousel navigation, and the canvas export
-    // sometimes ends up with the wrong image attached.
+    // For carousel images (remote URLs + local enrichment cache), send the URL
+    // plus the crop rectangle and let the backend do the crop + 1000x1000 resize.
+    // That's more reliable than a client-side canvas export since the image
+    // bindings can drift during fast carousel navigation.
+    //
+    // For USER-UPLOADED images the "URL" is actually a multi-MB base64 data URI.
+    // Posting that through form-urlencoded as image_url balloons the request,
+    // stresses the backend decode/GD pipeline, and in practice causes the push
+    // to drop the image (or fail entirely). data: URLs are same-origin, so the
+    // Cropper canvas is never tainted — we can safely export a clean pre-cropped
+    // 1000x1000 JPEG on the client and send that tiny payload instead.
     var imagePayload = enrichImages.length ? enrichImages[enrichImgIdx] : '';
     var cropCoords   = null;
+    var isUploaded   = imagePayload.indexOf('data:') === 0;
 
     // Safety: make sure the on-screen <img> src still matches the carousel
     // index; if something is out of sync, force showImage and bail out so
@@ -1201,6 +1206,27 @@ window.addEventListener('load', function() {
         }
       } catch (e) {
         console.warn('Could not read crop coords from Cropper:', e);
+      }
+    }
+
+    // Uploaded image → export the already-cropped 1000x1000 JPEG from Cropper.
+    // Canvas export is safe for data: sources (never tainted), and the resulting
+    // ~100-300 KB data URI is dramatically smaller than the raw upload, so the
+    // server decode + Blaze multipart upload both become fast + reliable.
+    if (isUploaded && enrichCropper) {
+      try {
+        var canvas = enrichCropper.getCroppedCanvas({
+          width:                 1000,
+          height:                1000,
+          fillColor:             '#ffffff',
+          imageSmoothingQuality: 'high'
+        });
+        if (canvas) {
+          imagePayload = canvas.toDataURL('image/jpeg', 0.92);
+          cropCoords   = null;   // already cropped; backend will just re-encode
+        }
+      } catch (e) {
+        console.warn('Client-side crop export failed for uploaded image, falling back to server-side crop:', e);
       }
     }
 
