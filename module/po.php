@@ -1057,7 +1057,7 @@ $_re = getRs("SELECT po_event_status_id FROM po_event WHERE " . is_enabled() . "
 if ($_e = getRow($_re)) {
   $_latest_event_status_id = (int)$_e['po_event_status_id'];
 }
-if ($r['po_status_id'] == 3 and $_latest_event_status_id !== 2) {
+if ($r['po_status_id'] == 3) {
   echo '<div class="btn-group m-b-5 m-r-5"><a href="javascript:;" class="btn btn-dialog btn-warning" data-url="po-event" data-c="' . $po_code . '" data-title="Schedule Delivery" titlte="Schedule Delivery"><i class="fa fa-clock"></i> Schedule Delivery </a></div> ';
 }
 if ($r['po_status_id'] == 3 and $_latest_event_status_id === 2) {
