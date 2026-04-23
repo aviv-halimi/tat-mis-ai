@@ -1052,10 +1052,15 @@ echo '
 <input type="hidden" name="f" value="coa_filenames" />
 <div class="mb-2 clearfix">';
 
-if ($r['po_status_id'] == 3 and $r['po_event_status_id'] != 2) {
+$_latest_event_status_id = null;
+$_re = getRs("SELECT po_event_status_id FROM po_event WHERE " . is_enabled() . " AND po_id = ? ORDER BY po_event_id DESC LIMIT 1", array($_po_id));
+if ($_e = getRow($_re)) {
+  $_latest_event_status_id = (int)$_e['po_event_status_id'];
+}
+if ($r['po_status_id'] == 3 and $_latest_event_status_id !== 2) {
   echo '<div class="btn-group m-b-5 m-r-5"><a href="javascript:;" class="btn btn-dialog btn-warning" data-url="po-event" data-c="' . $po_code . '" data-title="Schedule Delivery" titlte="Schedule Delivery"><i class="fa fa-clock"></i> Schedule Delivery </a></div> ';
 }
-if ($r['po_status_id'] == 3 and $r['po_event_status_id'] == 2) {
+if ($r['po_status_id'] == 3 and $_latest_event_status_id === 2) {
   echo '<div class="btn-group m-b-5 m-r-5"><a href="javascript:;" class="btn btn-warning btn-po-unschedule" data-c="' . $po_code . '" data-title="Are you sure you want to un-schedule the delivery for PO: ' . $po_number . '?"><i class="fa fa-clock"></i> Un-schedule Delivery </a></div> ';
 }
 
