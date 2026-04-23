@@ -30,6 +30,24 @@ $(document).ready(function(e) {
     });
   });
 
+  $(document).on("click", ".btn-po-unschedule", function(e) {
+    e.preventDefault();
+    var $this = $(this);
+    Swal.fire({
+      title: "Confirm un-schedule?",
+      html: $this.data("title"),
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonColor: "#d33",
+      cancelButtonColor: "#3085d6",
+      confirmButtonText: "Yes, un-schedule"
+    }).then((result) => {
+      if (result.value) {
+        postAjax("po-unschedule", {po_code: $this.data("c")}, "status");
+      }
+    });
+  });
+
   $(document).on("click", ".btn-invoice-validate-po", function(e) {
     var btn = $(this);
     var poId = btn.data("po-id");
@@ -1036,6 +1054,9 @@ echo '
 
 if ($r['po_status_id'] == 3 and $r['po_event_status_id'] != 2) {
   echo '<div class="btn-group m-b-5 m-r-5"><a href="javascript:;" class="btn btn-dialog btn-warning" data-url="po-event" data-c="' . $po_code . '" data-title="Schedule Delivery" titlte="Schedule Delivery"><i class="fa fa-clock"></i> Schedule Delivery </a></div> ';
+}
+if ($r['po_status_id'] == 3 and $r['po_event_status_id'] == 2) {
+  echo '<div class="btn-group m-b-5 m-r-5"><a href="javascript:;" class="btn btn-warning btn-po-unschedule" data-c="' . $po_code . '" data-title="Are you sure you want to un-schedule the delivery for PO: ' . $po_number . '?"><i class="fa fa-clock"></i> Un-schedule Delivery </a></div> ';
 }
 
 if (in_array($_Session->admin_group_id,array(1,3,11,12,15))) {
