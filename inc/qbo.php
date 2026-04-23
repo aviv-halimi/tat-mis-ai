@@ -870,7 +870,7 @@ define('QBO_DOCNUMBER_WITH_PO_NAME_IDS', '68cdcf401c44c0b22a777c91,5dcf89fb002f0
  */
 function po_qbo_push_bill($po_code) {
     $rs = getRs(
-        "SELECT p.po_id, p.po_code, p.po_number, p.po_name, p.po_status_id, p.store_id, p.vendor_id, p.r_subtotal, p.date_received, p.invoice_filename, p.invoice_number, p.payment_terms, s.db AS store_db " .
+        "SELECT p.po_id, p.po_code, p.po_number, p.po_name, p.po_status_id, p.store_id, p.vendor_id, p.r_subtotal, p.r_discount_amount, p.r_discount_rate, p.date_received, p.invoice_filename, p.invoice_number, p.payment_terms, s.db AS store_db " .
         "FROM po p INNER JOIN store s ON s.store_id = p.store_id WHERE p.po_code = ? AND " . is_enabled('p,s'),
         array($po_code)
     );
@@ -900,13 +900,37 @@ function po_qbo_push_bill($po_code) {
             'dialog' => array('url' => 'po-qbo-map-vendor', 'title' => 'Map vendor to QuickBooks', 'a' => null, 'c' => $po_code),
         );
     }
+    $subtotal = (float)$po['r_subtotal'];
+    // PO-level receiving discount (stored on the po row itself; e.g. the main
+    // "Discount" line visible in the PO receiving totals). This is a separate
+    // field from the itemized po_discount rows and MUST be included when
+    // pushing the bill to QBO; omitting it under-reports the true discount.
+    $r_discount_rate = isset($po['r_discount_rate']) ? (float)$po['r_discount_rate'] : 0.0;
+    $r_discount_amount_col = isset($po['r_discount_amount']) ? (float)$po['r_discount_amount'] : 0.0;
+    $po_level_discount = ($r_discount_rate > 0)
+        ? ($subtotal * $r_discount_rate / 100)
+        : $r_discount_amount_col;
+    // Itemized po_discount rows (auto vendor/brand discounts and after-tax
+    // discounts). These may be stored as a fixed amount OR as a percentage
+    // (discount_rate). The previous implementation only summed discount_amount,
+    // silently dropping any rate-based row.
     $dr = getRs(
-        "SELECT COALESCE(SUM(d.discount_amount), 0) AS discounts FROM po_discount d WHERE d.po_id = ? AND d.is_enabled = 1 AND d.is_active = 1 AND d.is_receiving = 1",
+        "SELECT d.discount_rate, d.discount_amount FROM po_discount d WHERE d.po_id = ? AND d.is_enabled = 1 AND d.is_active = 1 AND d.is_receiving = 1",
         array($po['po_id'])
     );
-    $discount_row = getRow($dr);
-    $discounts = $discount_row ? (float)$discount_row['discounts'] : 0.0;
-    $subtotal = (float)$po['r_subtotal'];
+    $po_discount_total = 0.0;
+    $rate_base = max(0.0, $subtotal - $po_level_discount);
+    if (is_array($dr)) {
+        foreach ($dr as $d) {
+            $row_rate = isset($d['discount_rate']) ? (float)$d['discount_rate'] : 0.0;
+            if ($row_rate > 0) {
+                $po_discount_total += $rate_base * $row_rate / 100;
+            } else {
+                $po_discount_total += isset($d['discount_amount']) ? (float)$d['discount_amount'] : 0.0;
+            }
+        }
+    }
+    $discounts = $po_level_discount + $po_discount_total;
     $txn_date = !empty($po['date_received']) ? date('Y-m-d', strtotime($po['date_received'])) : date('Y-m-d');
     $invoice_num = trim(!empty($po['invoice_number']) ? $po['invoice_number'] : '');
     $po_name = trim(!empty($po['po_name']) ? $po['po_name'] : '');
