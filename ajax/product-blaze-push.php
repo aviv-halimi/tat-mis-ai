@@ -406,33 +406,33 @@ if ($weight_per_unit === 'Custom Weight' && $custom_weight !== null) {
     $product_payload['customWeight']   = $custom_weight;
 }
 
-// ---- Attach the uploaded asset and own it at the shop (CHILD) level ----
-// Per Blaze's published ProductAddRequest schema, both `assets` and
-// `sourceMap` are accepted at create time. We've established empirically:
-//   - sourceMap.assets defaults to "PARENT" → UI reads from the master
-//   - the master is unreachable via the Partner API
-//     (GET /products/{master_id} returns 400 "Product is not found")
-//   - sourceMap is silently dropped on PUT (PartnerProductUpdateRequest
-//     doesn't accept it), so the only chance to set it is on POST
-//
-// So at create time we (a) attach the asset stub and (b) flip
-// sourceMap.assets to "CHILD" so the UI reads the asset from the
-// shop-level product we control. A previous attempt that included only
-// `assets` (without the sourceMap flip) appeared to break propagation;
-// owning the field at the shop level should be a valid, server-recognized
-// configuration that lets propagation proceed normally.
+// ---- Attach the uploaded asset to the new product at create time ----
+// Empirical findings from extensive Blaze API testing:
+//   - POST without `assets`: master spawns and propagation works, but
+//     sourceMap.assets defaults to "PARENT" and the master is unreachable
+//     via the Partner API (GET /products/{master_id} → 400), so the UI
+//     never sees an asset.
+//   - POST with `assets`: master is NOT spawned (Blaze treats the product
+//     as self-contained), so propagation breaks — but the image is
+//     visible on the shop-level product detail page.
+//   - sourceMap is silently ignored both on POST (when assets are present)
+//     and on PUT, so we can't override it.
+// Sending `assets` in the POST is the only path that surfaces the image
+// in the UI, so that's what we do here. We send `name` too so Blaze's
+// search/list indexer (which appears to key off the asset name) has
+// enough metadata to render a thumbnail.
 if (!empty($debug_image['asset_raw']['id']) && !empty($debug_image['asset_raw']['key'])) {
     $asset_obj_create = $debug_image['asset_raw'];
     $product_payload['assets'] = [[
         'id'        => $asset_obj_create['id'],
         'key'       => $asset_obj_create['key'],
+        'name'      => $asset_obj_create['name'] ?? null,
         'type'      => 'Photo',
         'assetType' => 'Photo',
         'active'    => true,
         'priority'  => 0,
         'secured'   => false,
     ]];
-    $product_payload['sourceMap'] = ['assets' => 'CHILD'];
 }
 
 // ---- POST to create the product ----
