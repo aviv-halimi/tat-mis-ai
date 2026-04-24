@@ -329,16 +329,19 @@ if ($image_url !== '') {
         $tmp_path = tempnam(sys_get_temp_dir(), 'blaze_img_') . '.jpg';
         file_put_contents($tmp_path, $img_bytes);
 
-        // Build a safe upload filename. Blaze derives the S3 key from the
-        // multipart filename and splits on the LAST dot to determine the
-        // extension — so a product name like "Gelonade 3.5" becomes an S3
-        // key ending in ".5" instead of ".jpg", S3 serves no Content-Type,
-        // and Blaze can't generate publicURL/thumbURL. Strip dots and any
-        // non [A-Za-z0-9_-] chars before appending the real extension.
+        // Build a safe upload name/filename. Blaze derives the S3 key from the
+        // `name` POST field (NOT the multipart filename) and splits on the
+        // LAST dot to determine the extension — so a product name like
+        // "Gelonade 3.5" becomes an S3 key ending in ".5" instead of ".jpg",
+        // S3 serves no Content-Type, and Blaze can't generate publicURL /
+        // thumbURL / mediumURL. Strip dots (and all non [A-Za-z0-9_-] chars)
+        // from BOTH the `name` field and the multipart filename before
+        // appending the real `.jpg` extension.
         $safe_upload_name = preg_replace('/[^A-Za-z0-9_-]+/', '-', $product_name);
         $safe_upload_name = trim(preg_replace('/-+/', '-', $safe_upload_name), '-');
         if ($safe_upload_name === '') $safe_upload_name = 'product';
         $upload_filename  = $safe_upload_name . '.jpg';
+        $debug_image['upload_name']     = $safe_upload_name;
         $debug_image['upload_filename'] = $upload_filename;
 
         // 3. Upload to Blaze
@@ -349,7 +352,7 @@ if ($image_url !== '') {
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => [
                 'file'      => new CURLFile($tmp_path, $img_mime, $upload_filename),
-                'name'      => $product_name,
+                'name'      => $safe_upload_name,
                 'assetType' => 'Photo',
             ],
             CURLOPT_HTTPHEADER     => [
