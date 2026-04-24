@@ -406,23 +406,12 @@ if ($weight_per_unit === 'Custom Weight' && $custom_weight !== null) {
     $product_payload['customWeight']   = $custom_weight;
 }
 
-// Attach the uploaded image as part of the initial ProductAddRequest.
-// The Partner API's ProductAddRequest schema lists `assets: CompanyAsset[]`,
-// and sending it in the POST body lets Blaze create the master/child product
-// with the asset already attached — avoiding the PARENT-sourcing issue we
-// hit when attaching via a follow-up PUT on the shop-level child.
-if (!empty($debug_image['asset_raw']['id']) && !empty($debug_image['asset_raw']['key'])) {
-    $asset_obj = $debug_image['asset_raw'];
-    $product_payload['assets'] = [[
-        'id'        => $asset_obj['id'],
-        'key'       => $asset_obj['key'],
-        'type'      => 'Photo',
-        'assetType' => 'Photo',
-        'active'    => true,
-        'priority'  => 0,
-        'secured'   => false,
-    ]];
-}
+// NOTE: do NOT include `assets` in the POST body. Empirically, including
+// assets at create time prevents Blaze from spawning the company-level
+// master product and propagating the new product to other shops in the
+// company. The asset is attached via a follow-up PUT on the shop-level
+// product id below, which preserves the normal create → master spawn →
+// propagate flow.
 
 // ---- POST to create the product ----
 $blaze_endpoint = $api_url . 'products';
@@ -456,19 +445,102 @@ if ($response && isJson($response)) {
 
 $success = !$curlErr && $httpCode >= 200 && $httpCode < 300;
 
-// ---- Surface where Blaze placed the asset on the created product ----
-// The asset is sent in the POST body above (ProductAddRequest.assets). Pull a
-// quick summary of what Blaze persisted so we can see it in the debug log.
+// ---- Attach asset via GET-then-PUT on the shop-level product ----
+// Strategy: GET the freshly-created product, inject the asset into its
+// `assets` array, PUT the full object back. PUTting the full server-side
+// object (rather than a partial payload) avoids NullPointerException from
+// Blaze's update endpoint on fields like prepackageQuantities.
 $debug_asset_attach = null;
-if ($success && is_array($blaze_response_decoded)) {
+if ($success && !empty($blaze_response_decoded['id']) && !empty($debug_image['asset_raw']['id'])) {
+    $product_id = $blaze_response_decoded['id'];
+    $asset_obj  = $debug_image['asset_raw'];
+    $get_url    = $api_url . 'products/' . urlencode($product_id);
+
     $debug_asset_attach = [
-        'strategy'        => 'asset_in_post_body',
-        'product_id'      => $blaze_response_decoded['id']       ?? null,
-        'masterId'        => $blaze_response_decoded['masterId'] ?? null,
-        'parentId'        => $blaze_response_decoded['parentId'] ?? null,
-        'assets_source'   => $blaze_response_decoded['sourceMap']['assets'] ?? null,
-        'returned_assets' => $blaze_response_decoded['assets']   ?? null,
+        'strategy'   => 'put_on_shop_level',
+        'product_id' => $product_id,
     ];
+
+    // Step 1: GET the product back from Blaze
+    $get_ch = curl_init($get_url);
+    curl_setopt_array($get_ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPGET        => true,
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: ' . $auth_code,
+            'X-API-KEY: '     . $partner_key,
+        ],
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_SSL_VERIFYPEER => false,
+    ]);
+    $get_resp = curl_exec($get_ch);
+    $get_err  = curl_error($get_ch);
+    $get_code = (int) curl_getinfo($get_ch, CURLINFO_HTTP_CODE);
+    curl_close($get_ch);
+
+    $debug_asset_attach['get_http'] = $get_code;
+    $debug_asset_attach['get_err']  = $get_err ?: null;
+
+    if (!$get_err && $get_code === 200 && $get_resp && isJson($get_resp)) {
+        // Decode WITHOUT assoc=true so empty JSON objects (e.g.
+        // prepackageQuantities: {}) stay as stdClass and re-encode as "{}"
+        // rather than "[]". Blaze's PUT endpoint expects HashMap for those
+        // fields and rejects arrays with HTTP 400.
+        $full_product = json_decode($get_resp);
+
+        $debug_asset_attach['masterId']      = $full_product->masterId ?? null;
+        $debug_asset_attach['parentId']      = $full_product->parentId ?? null;
+        $debug_asset_attach['assets_source'] = isset($full_product->sourceMap->assets)
+            ? $full_product->sourceMap->assets : null;
+
+        // Step 2: inject asset into the assets array
+        $asset_stub = new stdClass();
+        $asset_stub->id       = $asset_obj['id'];
+        $asset_stub->key      = $asset_obj['key'];
+        $asset_stub->type     = 'Photo';
+        $asset_stub->active   = true;
+        $asset_stub->priority = 0;
+        $asset_stub->secured  = false;
+        $full_product->assets = [$asset_stub];
+
+        // Step 3: PUT the full object back to the shop-level product id
+        $put_body = json_encode($full_product);
+        $put_ch   = curl_init($get_url);
+        curl_setopt_array($put_ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST  => 'PUT',
+            CURLOPT_POSTFIELDS     => $put_body,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'Authorization: '  . $auth_code,
+                'X-API-KEY: '      . $partner_key,
+                'Content-Length: ' . strlen($put_body),
+            ],
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => false,
+        ]);
+        $put_resp = curl_exec($put_ch);
+        $put_err  = curl_error($put_ch);
+        $put_code = (int) curl_getinfo($put_ch, CURLINFO_HTTP_CODE);
+        curl_close($put_ch);
+
+        $debug_asset_attach['put_http'] = $put_code;
+        $debug_asset_attach['put_err']  = $put_err ?: null;
+
+        if (!$put_err && $put_code >= 200 && $put_code < 300 && $put_resp) {
+            $updated = json_decode($put_resp, true);
+            if ($updated) {
+                $blaze_response_decoded = $updated;
+                $debug_asset_attach['put_returned_assets'] = $updated['assets'] ?? null;
+            }
+        } else {
+            $debug_asset_attach['put_raw'] = $put_resp;
+        }
+    } else {
+        $debug_asset_attach['get_raw'] = $get_resp;
+    }
 }
 
 // ---- Insert into propagation queue on successful push ----
