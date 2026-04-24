@@ -335,13 +335,20 @@ if ($image_url !== '') {
         // "Gelonade 3.5" becomes an S3 key ending in ".5" instead of ".jpg",
         // S3 serves no Content-Type, and Blaze can't generate publicURL /
         // thumbURL / mediumURL. Strip dots (and all non [A-Za-z0-9_-] chars)
-        // from BOTH the `name` field and the multipart filename before
-        // appending the real `.jpg` extension.
+        // from the base name first, then append a real `.jpg` extension.
+        //
+        // IMPORTANT: include the `.jpg` extension in the `name` field itself.
+        // If we send `name` without any extension, Blaze falls back to the
+        // multipart MIME (`image/jpeg`) and writes the S3 key as `.jpeg` —
+        // which Blaze's UI / CDN thumbnailer apparently does not recognize
+        // (uploaded products show the default placeholder instead of the
+        // image, even though the asset uploaded successfully).
         $safe_upload_name = preg_replace('/[^A-Za-z0-9_-]+/', '-', $product_name);
         $safe_upload_name = trim(preg_replace('/-+/', '-', $safe_upload_name), '-');
         if ($safe_upload_name === '') $safe_upload_name = 'product';
         $upload_filename  = $safe_upload_name . '.jpg';
-        $debug_image['upload_name']     = $safe_upload_name;
+        $upload_name      = $safe_upload_name . '.jpg'; // sent in `name` POST field
+        $debug_image['upload_name']     = $upload_name;
         $debug_image['upload_filename'] = $upload_filename;
 
         // 3. Upload to Blaze
@@ -352,7 +359,7 @@ if ($image_url !== '') {
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => [
                 'file'      => new CURLFile($tmp_path, $img_mime, $upload_filename),
-                'name'      => $safe_upload_name,
+                'name'      => $upload_name,
                 'assetType' => 'Photo',
             ],
             CURLOPT_HTTPHEADER     => [
