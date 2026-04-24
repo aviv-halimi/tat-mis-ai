@@ -504,6 +504,17 @@ if ($success && !empty($blaze_response_decoded['id']) && !empty($debug_image['as
         $asset_stub->secured  = false;
         $full_product->assets = [$asset_stub];
 
+        // Step 2b: flip sourceMap.assets to "CHILD" so the UI reads the
+        // assets array from this shop-level product instead of falling back
+        // to the (empty, unwritable) master. The master is unreachable via
+        // the Partner API (GET /products/{master_id} returns 400), so the
+        // only way to surface our uploaded image in Blaze's UI is to take
+        // ownership of the assets field at the shop level.
+        if (!isset($full_product->sourceMap) || !is_object($full_product->sourceMap)) {
+            $full_product->sourceMap = new stdClass();
+        }
+        $full_product->sourceMap->assets = 'CHILD';
+
         // Step 3: PUT the full object back to the shop-level product id
         $put_body = json_encode($full_product);
         $put_ch   = curl_init($get_url);
@@ -533,101 +544,11 @@ if ($success && !empty($blaze_response_decoded['id']) && !empty($debug_image['as
             $updated = json_decode($put_resp, true);
             if ($updated) {
                 $blaze_response_decoded = $updated;
-                $debug_asset_attach['put_returned_assets'] = $updated['assets'] ?? null;
+                $debug_asset_attach['put_returned_assets']      = $updated['assets']                   ?? null;
+                $debug_asset_attach['put_returned_assets_src']  = $updated['sourceMap']['assets']      ?? null;
             }
         } else {
             $debug_asset_attach['put_raw'] = $put_resp;
-        }
-
-        // Step 4: ALSO PUT the asset onto the master/parent product.
-        // The shop-level GET response says `sourceMap.assets = "PARENT"`,
-        // meaning Blaze's UI reads the assets array from the master product
-        // — so even though the shop-level PUT above succeeded, the image
-        // won't render until the master also has it. Try writing the asset
-        // to the master via the same documented endpoint
-        // (PUT /products/{productId}). If Blaze rejects master writes via
-        // the Partner API we'll see the exact HTTP code in `master_put`.
-        $master_id = $full_product->masterId ?? null;
-        if ($master_id && $master_id !== $product_id) {
-            $debug_asset_attach['master_put'] = ['master_id' => $master_id];
-
-            $master_get_url = $api_url . 'products/' . urlencode($master_id);
-            $mget_ch = curl_init($master_get_url);
-            curl_setopt_array($mget_ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_HTTPGET        => true,
-                CURLOPT_HTTPHEADER     => [
-                    'Authorization: ' . $auth_code,
-                    'X-API-KEY: '     . $partner_key,
-                ],
-                CURLOPT_TIMEOUT        => 30,
-                CURLOPT_CONNECTTIMEOUT => 10,
-                CURLOPT_SSL_VERIFYPEER => false,
-            ]);
-            $mget_resp = curl_exec($mget_ch);
-            $mget_err  = curl_error($mget_ch);
-            $mget_code = (int) curl_getinfo($mget_ch, CURLINFO_HTTP_CODE);
-            curl_close($mget_ch);
-
-            $debug_asset_attach['master_put']['get_http'] = $mget_code;
-            $debug_asset_attach['master_put']['get_err']  = $mget_err ?: null;
-
-            if (!$mget_err && $mget_code === 200 && $mget_resp && isJson($mget_resp)) {
-                $master_product = json_decode($mget_resp);
-
-                $debug_asset_attach['master_put']['master_assets_source'] =
-                    isset($master_product->sourceMap->assets)
-                        ? $master_product->sourceMap->assets : null;
-
-                $master_asset_stub = new stdClass();
-                $master_asset_stub->id       = $asset_obj['id'];
-                $master_asset_stub->key      = $asset_obj['key'];
-                $master_asset_stub->type     = 'Photo';
-                $master_asset_stub->active   = true;
-                $master_asset_stub->priority = 0;
-                $master_asset_stub->secured  = false;
-                $master_product->assets = [$master_asset_stub];
-
-                $mput_body = json_encode($master_product);
-                $mput_ch   = curl_init($master_get_url);
-                curl_setopt_array($mput_ch, [
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_CUSTOMREQUEST  => 'PUT',
-                    CURLOPT_POSTFIELDS     => $mput_body,
-                    CURLOPT_HTTPHEADER     => [
-                        'Content-Type: application/json',
-                        'Authorization: '  . $auth_code,
-                        'X-API-KEY: '      . $partner_key,
-                        'Content-Length: ' . strlen($mput_body),
-                    ],
-                    CURLOPT_TIMEOUT        => 30,
-                    CURLOPT_CONNECTTIMEOUT => 10,
-                    CURLOPT_SSL_VERIFYPEER => false,
-                ]);
-                $mput_resp = curl_exec($mput_ch);
-                $mput_err  = curl_error($mput_ch);
-                $mput_code = (int) curl_getinfo($mput_ch, CURLINFO_HTTP_CODE);
-                curl_close($mput_ch);
-
-                $debug_asset_attach['master_put']['put_http'] = $mput_code;
-                $debug_asset_attach['master_put']['put_err']  = $mput_err ?: null;
-
-                if (!$mput_err && $mput_code >= 200 && $mput_code < 300 && $mput_resp) {
-                    $mupdated = json_decode($mput_resp, true);
-                    $debug_asset_attach['master_put']['put_returned_assets']
-                        = $mupdated['assets'] ?? null;
-                } else {
-                    $debug_asset_attach['master_put']['put_raw'] = $mput_resp;
-                }
-            } else {
-                $debug_asset_attach['master_put']['get_raw'] = $mget_resp;
-            }
-        } else {
-            $debug_asset_attach['master_put'] = [
-                'skipped_reason' => $master_id
-                    ? 'master_id_equals_product_id'
-                    : 'no_master_id',
-            ];
         }
     } else {
         $debug_asset_attach['get_raw'] = $get_resp;
