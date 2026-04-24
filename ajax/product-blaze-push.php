@@ -406,12 +406,34 @@ if ($weight_per_unit === 'Custom Weight' && $custom_weight !== null) {
     $product_payload['customWeight']   = $custom_weight;
 }
 
-// NOTE: do NOT include `assets` in the POST body. Empirically, including
-// assets at create time prevents Blaze from spawning the company-level
-// master product and propagating the new product to other shops in the
-// company. The asset is attached via a follow-up PUT on the shop-level
-// product id below, which preserves the normal create → master spawn →
-// propagate flow.
+// ---- Attach the uploaded asset and own it at the shop (CHILD) level ----
+// Per Blaze's published ProductAddRequest schema, both `assets` and
+// `sourceMap` are accepted at create time. We've established empirically:
+//   - sourceMap.assets defaults to "PARENT" → UI reads from the master
+//   - the master is unreachable via the Partner API
+//     (GET /products/{master_id} returns 400 "Product is not found")
+//   - sourceMap is silently dropped on PUT (PartnerProductUpdateRequest
+//     doesn't accept it), so the only chance to set it is on POST
+//
+// So at create time we (a) attach the asset stub and (b) flip
+// sourceMap.assets to "CHILD" so the UI reads the asset from the
+// shop-level product we control. A previous attempt that included only
+// `assets` (without the sourceMap flip) appeared to break propagation;
+// owning the field at the shop level should be a valid, server-recognized
+// configuration that lets propagation proceed normally.
+if (!empty($debug_image['asset_raw']['id']) && !empty($debug_image['asset_raw']['key'])) {
+    $asset_obj_create = $debug_image['asset_raw'];
+    $product_payload['assets'] = [[
+        'id'        => $asset_obj_create['id'],
+        'key'       => $asset_obj_create['key'],
+        'type'      => 'Photo',
+        'assetType' => 'Photo',
+        'active'    => true,
+        'priority'  => 0,
+        'secured'   => false,
+    ]];
+    $product_payload['sourceMap'] = ['assets' => 'CHILD'];
+}
 
 // ---- POST to create the product ----
 $blaze_endpoint = $api_url . 'products';
@@ -445,114 +467,23 @@ if ($response && isJson($response)) {
 
 $success = !$curlErr && $httpCode >= 200 && $httpCode < 300;
 
-// ---- Attach asset via GET-then-PUT on the shop-level product ----
-// Strategy: GET the freshly-created product, inject the asset into its
-// `assets` array, PUT the full object back. PUTting the full server-side
-// object (rather than a partial payload) avoids NullPointerException from
-// Blaze's update endpoint on fields like prepackageQuantities.
+// ---- Surface what Blaze persisted from our create-time fields ----
+// The asset and sourceMap.assets="CHILD" override are sent in the POST
+// payload above. Capture a quick summary of the resulting product so we
+// can verify in the debug log that:
+//   - masterId is still populated (i.e. propagation chain intact)
+//   - sourceMap.assets is "CHILD" (i.e. the UI now reads our image)
+//   - assets[] survived round-trip
 $debug_asset_attach = null;
-if ($success && !empty($blaze_response_decoded['id']) && !empty($debug_image['asset_raw']['id'])) {
-    $product_id = $blaze_response_decoded['id'];
-    $asset_obj  = $debug_image['asset_raw'];
-    $get_url    = $api_url . 'products/' . urlencode($product_id);
-
+if ($success && is_array($blaze_response_decoded)) {
     $debug_asset_attach = [
-        'strategy'   => 'put_on_shop_level',
-        'product_id' => $product_id,
+        'strategy'        => 'asset_in_post_with_sourcemap_override',
+        'product_id'      => $blaze_response_decoded['id']                  ?? null,
+        'masterId'        => $blaze_response_decoded['masterId']            ?? null,
+        'parentId'        => $blaze_response_decoded['parentId']            ?? null,
+        'assets_source'   => $blaze_response_decoded['sourceMap']['assets'] ?? null,
+        'returned_assets' => $blaze_response_decoded['assets']              ?? null,
     ];
-
-    // Step 1: GET the product back from Blaze
-    $get_ch = curl_init($get_url);
-    curl_setopt_array($get_ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPGET        => true,
-        CURLOPT_HTTPHEADER     => [
-            'Authorization: ' . $auth_code,
-            'X-API-KEY: '     . $partner_key,
-        ],
-        CURLOPT_TIMEOUT        => 30,
-        CURLOPT_CONNECTTIMEOUT => 10,
-        CURLOPT_SSL_VERIFYPEER => false,
-    ]);
-    $get_resp = curl_exec($get_ch);
-    $get_err  = curl_error($get_ch);
-    $get_code = (int) curl_getinfo($get_ch, CURLINFO_HTTP_CODE);
-    curl_close($get_ch);
-
-    $debug_asset_attach['get_http'] = $get_code;
-    $debug_asset_attach['get_err']  = $get_err ?: null;
-
-    if (!$get_err && $get_code === 200 && $get_resp && isJson($get_resp)) {
-        // Decode WITHOUT assoc=true so empty JSON objects (e.g.
-        // prepackageQuantities: {}) stay as stdClass and re-encode as "{}"
-        // rather than "[]". Blaze's PUT endpoint expects HashMap for those
-        // fields and rejects arrays with HTTP 400.
-        $full_product = json_decode($get_resp);
-
-        $debug_asset_attach['masterId']      = $full_product->masterId ?? null;
-        $debug_asset_attach['parentId']      = $full_product->parentId ?? null;
-        $debug_asset_attach['assets_source'] = isset($full_product->sourceMap->assets)
-            ? $full_product->sourceMap->assets : null;
-
-        // Step 2: inject asset into the assets array
-        $asset_stub = new stdClass();
-        $asset_stub->id       = $asset_obj['id'];
-        $asset_stub->key      = $asset_obj['key'];
-        $asset_stub->type     = 'Photo';
-        $asset_stub->active   = true;
-        $asset_stub->priority = 0;
-        $asset_stub->secured  = false;
-        $full_product->assets = [$asset_stub];
-
-        // Step 2b: flip sourceMap.assets to "CHILD" so the UI reads the
-        // assets array from this shop-level product instead of falling back
-        // to the (empty, unwritable) master. The master is unreachable via
-        // the Partner API (GET /products/{master_id} returns 400), so the
-        // only way to surface our uploaded image in Blaze's UI is to take
-        // ownership of the assets field at the shop level.
-        if (!isset($full_product->sourceMap) || !is_object($full_product->sourceMap)) {
-            $full_product->sourceMap = new stdClass();
-        }
-        $full_product->sourceMap->assets = 'CHILD';
-
-        // Step 3: PUT the full object back to the shop-level product id
-        $put_body = json_encode($full_product);
-        $put_ch   = curl_init($get_url);
-        curl_setopt_array($put_ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CUSTOMREQUEST  => 'PUT',
-            CURLOPT_POSTFIELDS     => $put_body,
-            CURLOPT_HTTPHEADER     => [
-                'Content-Type: application/json',
-                'Authorization: '  . $auth_code,
-                'X-API-KEY: '      . $partner_key,
-                'Content-Length: ' . strlen($put_body),
-            ],
-            CURLOPT_TIMEOUT        => 30,
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_SSL_VERIFYPEER => false,
-        ]);
-        $put_resp = curl_exec($put_ch);
-        $put_err  = curl_error($put_ch);
-        $put_code = (int) curl_getinfo($put_ch, CURLINFO_HTTP_CODE);
-        curl_close($put_ch);
-
-        $debug_asset_attach['put_http'] = $put_code;
-        $debug_asset_attach['put_err']  = $put_err ?: null;
-
-        if (!$put_err && $put_code >= 200 && $put_code < 300 && $put_resp) {
-            $updated = json_decode($put_resp, true);
-            if ($updated) {
-                $blaze_response_decoded = $updated;
-                $debug_asset_attach['put_returned_assets']      = $updated['assets']                   ?? null;
-                $debug_asset_attach['put_returned_assets_src']  = $updated['sourceMap']['assets']      ?? null;
-            }
-        } else {
-            $debug_asset_attach['put_raw'] = $put_resp;
-        }
-    } else {
-        $debug_asset_attach['get_raw'] = $get_resp;
-    }
 }
 
 // ---- Insert into propagation queue on successful push ----
