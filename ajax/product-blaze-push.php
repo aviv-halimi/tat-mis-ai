@@ -441,37 +441,63 @@ $success = !$curlErr && $httpCode >= 200 && $httpCode < 300;
 // ---- Attach asset via GET-then-PUT (round-trip the server's own object) ----
 // Strategy: GET the freshly-created product, inject the asset, PUT back the same
 // full structure — avoids NullPointerException from sending a partial payload.
+//
+// IMPORTANT: POST /products on a multi-shop company creates a SHOP-LEVEL child
+// product that inherits most fields (including `assets`) from an auto-generated
+// company-level MASTER product via `sourceMap.assets = "PARENT"`. Attaching the
+// asset directly to the shop-level child makes Blaze happily accept the PUT but
+// the UI reads the assets field from the MASTER — so the image never renders.
+//
+// Fix: after creating the child, resolve `masterId` from the GET, then do the
+// asset-inject PUT against the MASTER product. We also PUT the asset onto the
+// shop-level child for completeness (so the record is consistent at both
+// levels, which matches what the Blaze admin UI does when you upload an image).
 $debug_asset_attach = null;
 if ($success && !empty($blaze_response_decoded['id']) && !empty($debug_image['asset_raw']['id'])) {
     $product_id = $blaze_response_decoded['id'];
     $asset_obj  = $debug_image['asset_raw'];
-    $get_url    = $api_url . 'products/' . urlencode($product_id);
 
-    // Step 1: GET the product back from Blaze
-    $get_ch = curl_init($get_url);
-    curl_setopt_array($get_ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPGET        => true,
-        CURLOPT_HTTPHEADER     => [
-            'Authorization: ' . $auth_code,
-            'X-API-KEY: '     . $partner_key,
-        ],
-        CURLOPT_TIMEOUT        => 30,
-        CURLOPT_CONNECTTIMEOUT => 10,
-        CURLOPT_SSL_VERIFYPEER => false,
-    ]);
-    $get_resp = curl_exec($get_ch);
-    $get_err  = curl_error($get_ch);
-    $get_code = (int) curl_getinfo($get_ch, CURLINFO_HTTP_CODE);
-    curl_close($get_ch);
+    $debug_asset_attach = ['attempts' => []];
 
-    $debug_asset_attach = ['get_http' => $get_code, 'get_err' => $get_err ?: null];
+    $do_attach = function($target_id) use ($api_url, $auth_code, $partner_key, $asset_obj) {
+        $attempt = ['target_id' => $target_id];
 
-    if (!$get_err && $get_code === 200 && $get_resp && isJson($get_resp)) {
+        // Step 1: GET the product back from Blaze
+        $get_url = $api_url . 'products/' . urlencode($target_id);
+        $get_ch  = curl_init($get_url);
+        curl_setopt_array($get_ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPGET        => true,
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: ' . $auth_code,
+                'X-API-KEY: '     . $partner_key,
+            ],
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => false,
+        ]);
+        $get_resp = curl_exec($get_ch);
+        $get_err  = curl_error($get_ch);
+        $get_code = (int) curl_getinfo($get_ch, CURLINFO_HTTP_CODE);
+        curl_close($get_ch);
+
+        $attempt['get_http'] = $get_code;
+        $attempt['get_err']  = $get_err ?: null;
+
+        if ($get_err || $get_code !== 200 || !$get_resp || !isJson($get_resp)) {
+            $attempt['get_raw'] = $get_resp;
+            return [$attempt, null];
+        }
+
         // Decode WITHOUT assoc=true so empty JSON objects (e.g. prepackageQuantities: {})
         // stay as stdClass and re-encode as "{}" rather than "[]". Blaze's PUT endpoint
         // expects HashMap for those fields and rejects arrays with HTTP 400.
         $full_product = json_decode($get_resp);
+
+        $attempt['product_masterId'] = $full_product->masterId     ?? null;
+        $attempt['product_parentId'] = $full_product->parentId     ?? null;
+        $attempt['assets_source']    = isset($full_product->sourceMap->assets)
+            ? $full_product->sourceMap->assets : null;
 
         // Step 2: inject asset into the assets array (this one IS an array in Blaze)
         $asset_stub = new stdClass();
@@ -485,9 +511,7 @@ if ($success && !empty($blaze_response_decoded['id']) && !empty($debug_image['as
 
         // Step 3: PUT the full object back
         $put_body = json_encode($full_product);
-        $put_url  = $get_url;
-
-        $put_ch = curl_init($put_url);
+        $put_ch   = curl_init($get_url);
         curl_setopt_array($put_ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CUSTOMREQUEST  => 'PUT',
@@ -507,17 +531,35 @@ if ($success && !empty($blaze_response_decoded['id']) && !empty($debug_image['as
         $put_code = (int) curl_getinfo($put_ch, CURLINFO_HTTP_CODE);
         curl_close($put_ch);
 
-        $debug_asset_attach['put_http']     = $put_code;
-        $debug_asset_attach['put_err']      = $put_err ?: null;
-        $debug_asset_attach['put_response'] = $put_resp ? json_decode($put_resp, true) : null;
+        $attempt['put_http'] = $put_code;
+        $attempt['put_err']  = $put_err ?: null;
 
-        // Use the updated product as the final response if PUT succeeded
+        $decoded_put = null;
         if (!$put_err && $put_code >= 200 && $put_code < 300 && $put_resp) {
-            $updated = json_decode($put_resp, true);
-            if ($updated) $blaze_response_decoded = $updated;
+            $decoded_put = json_decode($put_resp, true);
+        } else {
+            $attempt['put_raw'] = $put_resp;
         }
-    } else {
-        $debug_asset_attach['get_raw'] = $get_resp;
+
+        return [$attempt, $decoded_put];
+    };
+
+    // Step A: attach to the shop-level (child) product. This also gives us
+    // the masterId so we can resolve the parent in one round trip.
+    list($child_attempt, $child_put) = $do_attach($product_id);
+    $debug_asset_attach['attempts']['child'] = $child_attempt;
+    if ($child_put) $blaze_response_decoded = $child_put;
+
+    // Step B: if the child has a masterId distinct from its own id, attach
+    // the asset to the MASTER too. Without this, the Blaze UI reads the image
+    // from the master (which has no assets) and shows no image on the product.
+    $master_id = $child_attempt['product_masterId'] ?? null;
+    if ($master_id && $master_id !== $product_id) {
+        list($master_attempt, $master_put) = $do_attach($master_id);
+        $debug_asset_attach['attempts']['master'] = $master_attempt;
+        // Prefer the master's PUT response as the final payload so the caller
+        // sees the authoritative (company-level) product state.
+        if ($master_put) $blaze_response_decoded = $master_put;
     }
 }
 
