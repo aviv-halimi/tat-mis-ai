@@ -1277,10 +1277,9 @@ window.addEventListener('load', function() {
             );
           }
         }
-        // Auto-close the modal so the user can continue with the next product.
-        // The status badge will keep updating in the background via polling.
-        setTimeout(function() { $('#enrichModal').modal('hide'); }, 900);
-        // Kick off an immediate poll so the badge reflects current state.
+        // Keep the modal open so the user can review the Blaze API response log
+        // at the bottom. They can close it manually when done.
+        // Kick off an immediate poll so the row badge reflects current state.
         if (typeof window.pollPushStatus === 'function') window.pollPushStatus();
       } else {
         var errMsg = (resp && resp.curl_error) ? resp.curl_error
