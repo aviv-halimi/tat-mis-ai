@@ -412,21 +412,24 @@ if ($weight_per_unit === 'Custom Weight' && $custom_weight !== null) {
 //     sourceMap.assets defaults to "PARENT" and the master is unreachable
 //     via the Partner API (GET /products/{master_id} → 400), so the UI
 //     never sees an asset.
-//   - POST with `assets`: master is NOT spawned (Blaze treats the product
-//     as self-contained), so propagation breaks — but the image is
-//     visible on the shop-level product detail page.
-//   - sourceMap is silently ignored both on POST (when assets are present)
-//     and on PUT, so we can't override it.
-// Sending `assets` in the POST is the only path that surfaces the image
-// in the UI, so that's what we do here. We send `name` too so Blaze's
-// search/list indexer (which appears to key off the asset name) has
-// enough metadata to render a thumbnail.
+//   - POST with `assets` (minimal stub, no `name`): Blaze treats the
+//     product as self-contained, masterId stays null and propagation is
+//     skipped — but the image IS visible on the shop-level product.
+//   - POST with `assets` AND asset.name set: Blaze treats the asset as
+//     a company-level asset, spawns the master and propagates, but
+//     sourceMap.assets = "PARENT" → UI shows no image at all.
+//   - sourceMap is silently ignored on both POST (with assets) and PUT,
+//     so we can't override it.
+// Until Blaze fixes the master/sourceMap mechanism (or exposes master
+// writes), the only way to surface the image in the UI is the minimal
+// stub — at the cost of automatic company-wide propagation.
+// IMPORTANT: do NOT include `name` on the asset stub here. Adding `name`
+// flips Blaze into the propagation path which hides the image.
 if (!empty($debug_image['asset_raw']['id']) && !empty($debug_image['asset_raw']['key'])) {
     $asset_obj_create = $debug_image['asset_raw'];
     $product_payload['assets'] = [[
         'id'        => $asset_obj_create['id'],
         'key'       => $asset_obj_create['key'],
-        'name'      => $asset_obj_create['name'] ?? null,
         'type'      => 'Photo',
         'assetType' => 'Photo',
         'active'    => true,
