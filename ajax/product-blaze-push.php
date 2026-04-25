@@ -419,29 +419,35 @@ if ($weight_per_unit === 'Custom Weight' && $custom_weight !== null) {
 //     sourceMap.assets defaults to "PARENT" and the master is unreachable
 //     via the Partner API (GET /products/{master_id} → 400), so the UI
 //     never sees an asset.
-//   - POST with `assets` (minimal stub, no `name`): Blaze treats the
-//     product as self-contained, masterId stays null and propagation is
-//     skipped — but the image IS visible on the shop-level product.
-//   - POST with `assets` AND asset.name set: Blaze treats the asset as
-//     a company-level asset, spawns the master and propagates, but
-//     sourceMap.assets = "PARENT" → UI shows no image at all.
-//   - sourceMap is silently ignored on both POST (with assets) and PUT,
-//     so we can't override it.
-// Until Blaze fixes the master/sourceMap mechanism (or exposes master
-// writes), the only way to surface the image in the UI is the minimal
-// stub — at the cost of automatic company-wide propagation.
-// IMPORTANT: do NOT include `name` on the asset stub here. Adding `name`
-// flips Blaze into the propagation path which hides the image.
+//   - POST with a *minimal* asset stub (`id`/`key`/`type`...): the master
+//     spawns and propagation works, but Blaze copies the stub verbatim
+//     into the master without dereferencing `id`/`key` to fill in the
+//     CDN variant URLs from the asset library — so publicURL/thumbURL/
+//     mediumURL etc. all come back null on the product, and the UI shows
+//     the placeholder.
+//   - POST with the *full* asset object (including publicURL, thumbURL,
+//     mediumURL, largeURL, largeX2URL, origURL, name): the master gets a
+//     fully-populated asset → image renders everywhere.
+// We send every field the upload endpoint returned so Blaze's master
+// snapshot has everything the UI needs, regardless of sourceMap routing.
 if (!empty($debug_image['asset_raw']['id']) && !empty($debug_image['asset_raw']['key'])) {
-    $asset_obj_create = $debug_image['asset_raw'];
+    $a = $debug_image['asset_raw'];
     $product_payload['assets'] = [[
-        'id'        => $asset_obj_create['id'],
-        'key'       => $asset_obj_create['key'],
-        'type'      => 'Photo',
-        'assetType' => 'Photo',
-        'active'    => true,
-        'priority'  => 0,
-        'secured'   => false,
+        'id'              => $a['id'],
+        'key'             => $a['key'],
+        'name'            => $a['name']            ?? null,
+        'type'            => $a['type']            ?? 'Photo',
+        'assetType'       => $a['assetType']       ?? 'Photo',
+        'active'          => $a['active']          ?? true,
+        'priority'        => $a['priority']        ?? 0,
+        'secured'         => $a['secured']         ?? false,
+        'publicURL'       => $a['publicURL']       ?? null,
+        'thumbURL'        => $a['thumbURL']        ?? null,
+        'mediumURL'       => $a['mediumURL']       ?? null,
+        'largeURL'        => $a['largeURL']        ?? null,
+        'largeX2URL'      => $a['largeX2URL']      ?? null,
+        'origURL'         => $a['origURL']         ?? null,
+        'platformFileUrl' => $a['platformFileUrl'] ?? null,
     ]];
 }
 
