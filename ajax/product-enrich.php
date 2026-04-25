@@ -204,13 +204,14 @@ function tat_enrich_generate_description($product_name, $brand_name, $category_n
 /**
  * Extract the Blaze flowerType from parenthetical hints in the product name.
  * (I/H) → Indica-Dominant, (S/H) → Sativa-Dominant,
- * (I) → Indica, (S) → Sativa, (H) → Hybrid.
+ * (I) → Indica, (S) → Sativa, (H) → Hybrid, (CBD) → CBD.
  * Returns one of the accepted Blaze values, or '' if unrecognised.
  */
 function tat_extract_flower_type(string $name): string
 {
     if (preg_match('/\(I\/H\)/i', $name)) return 'Indica-Dominant';
     if (preg_match('/\(S\/H\)/i', $name)) return 'Sativa-Dominant';
+    if (preg_match('/\(CBD\)/i',  $name)) return 'CBD';
     if (preg_match('/\(I\)/i',    $name)) return 'Indica';
     if (preg_match('/\(S\)/i',    $name)) return 'Sativa';
     if (preg_match('/\(H\)/i',    $name)) return 'Hybrid';

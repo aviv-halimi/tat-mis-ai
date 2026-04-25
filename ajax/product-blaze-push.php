@@ -329,25 +329,20 @@ if ($image_url !== '') {
         $tmp_path = tempnam(sys_get_temp_dir(), 'blaze_img_') . '.jpg';
         file_put_contents($tmp_path, $img_bytes);
 
-        // Build a safe upload name/filename. Blaze derives the S3 key from the
-        // `name` POST field (NOT the multipart filename) and splits on the
-        // LAST dot to determine the extension — so a product name like
-        // "Gelonade 3.5" becomes an S3 key ending in ".5" instead of ".jpg",
-        // S3 serves no Content-Type, and Blaze can't generate publicURL /
-        // thumbURL / mediumURL. Strip dots (and all non [A-Za-z0-9_-] chars)
-        // from the base name first, then append a real `.jpg` extension.
-        //
-        // IMPORTANT: include the `.jpg` extension in the `name` field itself.
-        // If we send `name` without any extension, Blaze falls back to the
-        // multipart MIME (`image/jpeg`) and writes the S3 key as `.jpeg` —
-        // which Blaze's UI / CDN thumbnailer apparently does not recognize
-        // (uploaded products show the default placeholder instead of the
-        // image, even though the asset uploaded successfully).
+        // Build the upload name/filename for /asset/upload/public.
+        //   - Blaze derives the S3 key from the `name` POST field (NOT the
+        //     multipart filename) and splits on the LAST dot to determine
+        //     the extension. Sanitize to [A-Za-z0-9_-] so a product name
+        //     like "Gelonade 3.5" can't collapse the extension to `.5`.
+        //   - The `name` field MUST include the `.jpg` suffix. Without it
+        //     Blaze falls back to the multipart MIME (image/jpeg) and writes
+        //     the S3 key as `.jpeg`, which the UI / CDN thumbnailer doesn't
+        //     recognize (publicURL/thumbURL/etc. all come back null).
         $safe_upload_name = preg_replace('/[^A-Za-z0-9_-]+/', '-', $product_name);
         $safe_upload_name = trim(preg_replace('/-+/', '-', $safe_upload_name), '-');
         if ($safe_upload_name === '') $safe_upload_name = 'product';
         $upload_filename  = $safe_upload_name . '.jpg';
-        $upload_name      = $safe_upload_name . '.jpg'; // sent in `name` POST field
+        $upload_name      = $safe_upload_name . '.jpg';
         $debug_image['upload_name']     = $upload_name;
         $debug_image['upload_filename'] = $upload_filename;
 
@@ -392,13 +387,38 @@ if ($image_url !== '') {
     }
 }
 
+// ---- Map UI labels → Blaze enum values ----
+// Blaze's weightperunit / customgramtype enums are documented loosely;
+// these mappings come from confirmed working values in the production
+// Blaze instance (NWH = "5dae60917c3a500845335a84"). Anything we don't
+// recognise falls through as EACH / GRAM so Blaze can't 400 us on a
+// typo from the UI.
+$WEIGHT_PER_UNIT_MAP = [
+    'Each'            => 'EACH',
+    'Half Gram Unit'  => 'HALF_GRAM',
+    'Full Gram Unit'  => 'FULL_GRAM',
+    'Eighth Per Unit' => 'EIGHTH',
+    'Custom Weight'   => 'CUSTOM_GRAMS',
+];
+$CUSTOM_GRAM_TYPE_MAP = [
+    'Gram'        => 'GRAM',
+    'Milligrams'  => 'MILLIGRAM',
+    'Ounce'       => 'OUNCE',
+    // 'Fluid Ounce' is intentionally absent — we don't use it in practice
+    // and the Blaze enum value isn't confirmed; leaving it unmapped means
+    // it would fall back to GRAM if someone selects it.
+];
+
+$blaze_wpu        = $WEIGHT_PER_UNIT_MAP[$weight_per_unit] ?? 'EACH';
+$blaze_gram_type  = $CUSTOM_GRAM_TYPE_MAP[$custom_gram_type] ?? 'GRAM';
+
 // ---- Build Blaze ProductAddRequest payload ----
 $product_payload = [
     'name'          => $product_name,
     'description'   => $description,
     'unitPrice'     => $price,
     'active'        => true,
-    'weightPerUnit' => $weight_per_unit,
+    'weightPerUnit' => $blaze_wpu,
 ];
 
 if ($blaze_brand_id)    $product_payload['brandId']    = $blaze_brand_id;
@@ -408,28 +428,18 @@ if (!empty($blaze_secondary_vendors)) $product_payload['secondaryVendors'] = $bl
 if ($flower_type !== '') $product_payload['flowerType'] = $flower_type;
 
 // customGramType and customWeight are only sent for Custom Weight
-if ($weight_per_unit === 'Custom Weight' && $custom_weight !== null) {
-    $product_payload['customGramType'] = $custom_gram_type ?: 'Gram';
+if ($blaze_wpu === 'CUSTOM_GRAMS' && $custom_weight !== null) {
+    $product_payload['customGramType'] = $blaze_gram_type;
     $product_payload['customWeight']   = $custom_weight;
 }
 
-// ---- Attach the uploaded asset to the new product at create time ----
-// Empirical findings from extensive Blaze API testing:
-//   - POST without `assets`: master spawns and propagation works, but
-//     sourceMap.assets defaults to "PARENT" and the master is unreachable
-//     via the Partner API (GET /products/{master_id} → 400), so the UI
-//     never sees an asset.
-//   - POST with a *minimal* asset stub (`id`/`key`/`type`...): the master
-//     spawns and propagation works, but Blaze copies the stub verbatim
-//     into the master without dereferencing `id`/`key` to fill in the
-//     CDN variant URLs from the asset library — so publicURL/thumbURL/
-//     mediumURL etc. all come back null on the product, and the UI shows
-//     the placeholder.
-//   - POST with the *full* asset object (including publicURL, thumbURL,
-//     mediumURL, largeURL, largeX2URL, origURL, name): the master gets a
-//     fully-populated asset → image renders everywhere.
-// We send every field the upload endpoint returned so Blaze's master
-// snapshot has everything the UI needs, regardless of sourceMap routing.
+// ---- Attach the uploaded asset to the new product ----
+// Send the full asset object Blaze returned from /asset/upload/public.
+// Sending only an id/key stub causes Blaze to snapshot the stub verbatim
+// into the master without dereferencing the asset library — so the CDN
+// variant URLs (publicURL/thumbURL/mediumURL/...) come back null on the
+// product and the UI renders a placeholder. Mirroring back every field
+// the upload returned ensures the master has everything the UI needs.
 if (!empty($debug_image['asset_raw']['id']) && !empty($debug_image['asset_raw']['key'])) {
     $a = $debug_image['asset_raw'];
     $product_payload['assets'] = [[
@@ -483,17 +493,10 @@ if ($response && isJson($response)) {
 
 $success = !$curlErr && $httpCode >= 200 && $httpCode < 300;
 
-// ---- Surface what Blaze persisted from our create-time fields ----
-// The asset and sourceMap.assets="CHILD" override are sent in the POST
-// payload above. Capture a quick summary of the resulting product so we
-// can verify in the debug log that:
-//   - masterId is still populated (i.e. propagation chain intact)
-//   - sourceMap.assets is "CHILD" (i.e. the UI now reads our image)
-//   - assets[] survived round-trip
+// ---- Summarize what Blaze persisted, for the debug log ----
 $debug_asset_attach = null;
 if ($success && is_array($blaze_response_decoded)) {
     $debug_asset_attach = [
-        'strategy'        => 'asset_in_post_with_sourcemap_override',
         'product_id'      => $blaze_response_decoded['id']                  ?? null,
         'masterId'        => $blaze_response_decoded['masterId']            ?? null,
         'parentId'        => $blaze_response_decoded['parentId']            ?? null,

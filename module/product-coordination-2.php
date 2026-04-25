@@ -522,6 +522,7 @@ else {
                     <option>Indica Leaning</option>
                     <option>Indica-Dominant</option>
                     <option>Sativa-Dominant</option>
+                    <option>CBD</option>
                   </select>
                 </div>
               </div>
