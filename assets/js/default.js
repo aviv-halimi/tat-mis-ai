@@ -580,6 +580,15 @@ function initAssets(select2) {
   $(document).on('click', '.btn-po-qbo-push-advance', function(e) {
     e.preventDefault();
     var $btn = $(this);
+    if ($btn.is(':disabled') || $btn.attr('disabled')) {
+      Swal.fire({
+        icon: 'error',
+        title: 'AI Total does not match',
+        text: 'The AI Total does not match the PO Total. Push to QBO is disabled until the totals match.',
+        confirmButtonColor: '#3085d6'
+      });
+      return;
+    }
     var c = $btn.data('c');
     var $modal = $('#po-qbo-advance-modal');
     var $steps = $modal.find('.po-qbo-advance-steps li');

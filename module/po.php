@@ -943,7 +943,13 @@ if ($t['po_status_id'] > 3) {
     $status6_row = getRow(getRs("SELECT module_code FROM po_status WHERE po_status_id = 6"));
     $can_push_qbo = $status6_row && $_Session->HasModulePermission($status6_row['module_code']);
     if ($can_push_qbo) {
-      echo '<button type="button" class="btn btn-lg btn-primary btn-block btn-po-qbo-push-advance" data-c="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '" data-store-id="' . (int)$t['store_id'] . '" data-po-id="' . (int)$_po_id . '"><i class="fa fa-external-link-alt mr-2"></i> Push to QBO and Advance</button>';
+      $totals_match = !empty($_ai_amount_match);
+      $disabled_attr = $totals_match ? '' : ' disabled';
+      $title_attr = $totals_match ? '' : ' title="AI Total does not match PO Total"';
+      echo '<button type="button" class="btn btn-lg btn-primary btn-block btn-po-qbo-push-advance"' . $disabled_attr . $title_attr . ' data-c="' . htmlspecialchars($po_code, ENT_QUOTES, 'UTF-8') . '" data-store-id="' . (int)$t['store_id'] . '" data-po-id="' . (int)$_po_id . '"><i class="fa fa-external-link-alt mr-2"></i> Push to QBO and Advance</button>';
+      if (!$totals_match) {
+        echo '<div class="text-danger small mt-2 text-center"><i class="fa fa-exclamation-triangle mr-1"></i> AI Total does not match PO Total. Push to QBO is disabled until totals match.</div>';
+      }
     }
     echo '
       </div>
