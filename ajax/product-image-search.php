@@ -34,11 +34,13 @@ register_shutdown_function(function(): void {
     }
 });
 
-$query    = trim((string) ($_POST['query']    ?? ''));
-$name     = trim((string) ($_POST['name']     ?? ''));
-$brand    = trim((string) ($_POST['brand']    ?? ''));
-$brand_id = (int) ($_POST['brand_id'] ?? 0);
-$store_db = preg_replace('/[^a-zA-Z0-9_]/', '', trim((string) ($_POST['store_db'] ?? '')));
+$query           = trim((string) ($_POST['query']    ?? ''));
+$name            = trim((string) ($_POST['name']     ?? ''));
+$brand           = trim((string) ($_POST['brand']    ?? ''));
+$brand_id        = (int) ($_POST['brand_id'] ?? 0);
+$category_id     = (int) ($_POST['category_id'] ?? 0);
+$weight_per_unit = trim((string) ($_POST['weight_per_unit'] ?? ''));
+$store_db        = preg_replace('/[^a-zA-Z0-9_]/', '', trim((string) ($_POST['store_db'] ?? '')));
 
 if ($query === '') {
     echo json_encode(['success' => false, 'error' => 'Missing query.']);
@@ -215,6 +217,47 @@ function pis_serper_search(string $query, string $apiKey, int $num = 10): array
 }
 
 // --------------------------------------------------------
+// Step 1.5: Similar products already in our store DB
+// Looks up `{store_db}.product` for the same brand_id / category_id /
+// weightPerUnit and returns up to 5 existing product.photo AWS URLs so
+// the user can re-use a pre-approved photo from a sibling product.
+// Mirrors the lookup in ajax/product-enrich.php so Search Again behaves
+// the same as the initial enrichment.
+// --------------------------------------------------------
+$PIS_WEIGHT_PER_UNIT_BLAZE = [
+    'Each'            => 'EACH',
+    'Half Gram Unit'  => 'HALF_GRAM',
+    'Full Gram Unit'  => 'FULL_GRAM',
+    'Eighth Per Unit' => 'EIGHTH',
+    'Custom Weight'   => 'CUSTOM_GRAMS',
+];
+$similar_product_urls = [];
+$blaze_wpu_for_lookup = $PIS_WEIGHT_PER_UNIT_BLAZE[$weight_per_unit] ?? '';
+if ($store_db !== '' && $brand_id > 0 && $category_id > 0 && $blaze_wpu_for_lookup !== '') {
+    $sim_rows = getRs(
+        "SELECT photo
+           FROM `{$store_db}`.product
+          WHERE brand_id      = ?
+            AND category_id   = ?
+            AND weightPerUnit = ?
+            AND photo IS NOT NULL
+            AND photo <> ''
+            AND is_active     = 1
+          ORDER BY product_id DESC
+          LIMIT 50",
+        [$brand_id, $category_id, $blaze_wpu_for_lookup]
+    );
+    $sim_seen = [];
+    foreach ($sim_rows as $sr) {
+        $u = trim((string) ($sr['photo'] ?? ''));
+        if ($u === '' || isset($sim_seen[$u])) continue;
+        $sim_seen[$u] = true;
+        $similar_product_urls[] = $u;
+        if (count($similar_product_urls) >= 5) break;
+    }
+}
+
+// --------------------------------------------------------
 // Step 2b: Non-Drive / non-Dropbox brand folder URL → Serper site: search
 // --------------------------------------------------------
 $brand_site_urls = [];
@@ -229,7 +272,7 @@ $trusted_urls = pis_serper_search($trusted_q, $serper_key, 5);
 $web_urls     = pis_serper_search($web_q,     $serper_key, 5);
 
 // --------------------------------------------------------
-// Combine: Brand Folder (Drive or Dropbox) → Master Drive → Trusted Menu → Web Search
+// Combine: Brand Folder (Drive or Dropbox) → Master Drive → Similar Products → Brand Site → Trusted Menu → Web
 // --------------------------------------------------------
 $all_urls      = [];
 $image_sources = [];
@@ -248,6 +291,14 @@ foreach ($master_drive_urls as $url) {
     if (!isset($seen[$url])) {
         $all_urls[]      = $url;
         $image_sources[] = 'Google Drive';
+        $seen[$url]      = true;
+    }
+}
+
+foreach ($similar_product_urls as $url) {
+    if (!isset($seen[$url])) {
+        $all_urls[]      = $url;
+        $image_sources[] = 'Similar Product in Blaze';
         $seen[$url]      = true;
     }
 }
@@ -283,11 +334,12 @@ if (empty($all_urls)) {
 
 // Overall source label for the status badge
 $sources = [];
-if (!empty($brand_folder_urls)) $sources[] = $folder_label;
-if (!empty($master_drive_urls)) $sources[] = 'Google Drive';
-if (!empty($brand_site_urls))   $sources[] = 'Brand Site';
-if (!empty($trusted_urls))      $sources[] = 'Trusted Menu';
-if (!empty($web_urls))          $sources[] = 'Web Search';
+if (!empty($brand_folder_urls))    $sources[] = $folder_label;
+if (!empty($master_drive_urls))    $sources[] = 'Google Drive';
+if (!empty($similar_product_urls)) $sources[] = 'Similar Product in Blaze';
+if (!empty($brand_site_urls))      $sources[] = 'Brand Site';
+if (!empty($trusted_urls))         $sources[] = 'Trusted Menu';
+if (!empty($web_urls))             $sources[] = 'Web Search';
 $image_source = implode(' + ', $sources) ?: 'Web Search';
 
 echo json_encode([

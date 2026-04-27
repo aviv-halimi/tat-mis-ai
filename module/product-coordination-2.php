@@ -422,6 +422,10 @@ else {
               <span class="enrich-step-icon">&#9711;</span>
               <span class="enrich-step-label">Searching master Drive folder</span>
             </li>
+            <li class="enrich-step" data-step="similar_products">
+              <span class="enrich-step-icon">&#9711;</span>
+              <span class="enrich-step-label">Searching similar products in Blaze</span>
+            </li>
             <li class="enrich-step" data-step="trusted_search">
               <span class="enrich-step-icon">&#9711;</span>
               <span class="enrich-step-label">Searching Weedmaps, Leafly &amp; Dutchie</span>
@@ -746,13 +750,14 @@ window.addEventListener('load', function() {
   var enrichCropper      = null; // Cropper.js instance for the current carousel image
 
   var sourceIcons = {
-    'Brand Drive Folder':    '&#128190; Source: Brand Drive Folder',
-    'Brand Dropbox Folder':  '&#128230; Source: Brand Dropbox Folder',
-    'Google Drive':          '&#128190; Source: Google Drive',
-    'Brand Site':            '&#127968; Source: Brand Site',
-    'Trusted Menu':          '&#127758; Source: Trusted Menu',
-    'Web Search':            '&#127760; Source: Web Search',
-    'Uploaded':           '&#128190; Source: Uploaded'
+    'Brand Drive Folder':       '&#128190; Source: Brand Drive Folder',
+    'Brand Dropbox Folder':     '&#128230; Source: Brand Dropbox Folder',
+    'Google Drive':             '&#128190; Source: Google Drive',
+    'Similar Product in Blaze': '&#127807; Source: Similar Product in Blaze',
+    'Brand Site':               '&#127968; Source: Brand Site',
+    'Trusted Menu':             '&#127758; Source: Trusted Menu',
+    'Web Search':               '&#127760; Source: Web Search',
+    'Uploaded':                 '&#128190; Source: Uploaded'
   };
 
   /* ---- helpers ---- */
@@ -1097,11 +1102,13 @@ window.addEventListener('load', function() {
       method: 'POST',
       dataType: 'json',
       data: {
-        query:    query,
-        name:     $('#enrichProductName').val().trim(),
-        brand:    $('#enrichBrandSelect option:selected').text().trim(),
-        brand_id: parseInt($('#enrichModal').data('brand_id') || 0, 10),
-        store_db: enrichStoreDb
+        query:           query,
+        name:            $('#enrichProductName').val().trim(),
+        brand:           $('#enrichBrandSelect option:selected').text().trim(),
+        brand_id:        parseInt($('#enrichModal').data('brand_id') || 0, 10),
+        category_id:     parseInt($('#enrichCategorySelect').val() || $('#enrichModal').data('category_id') || 0, 10),
+        weight_per_unit: $('#enrichWeightPerUnit').val() || '',
+        store_db:        enrichStoreDb
       }
     }).done(function(resp) {
       if (resp && resp.success && resp.images && resp.images.length) {

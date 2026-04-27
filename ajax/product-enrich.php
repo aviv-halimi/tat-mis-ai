@@ -306,6 +306,61 @@ define('ENRICHMENT_TMP_DIR', BASE_PATH . 'public/tmp/enrichment');
 define('ENRICHMENT_TMP_URL', BASE_URL . '/public/tmp/enrichment');
 define('SERPER_API_KEY',     'b3c39559a928534f00749286e3b8503856c72c02');
 
+// UI label → Blaze weightPerUnit enum stored in `{store_db}.product.weightPerUnit`.
+// Mirrors the mapping in ajax/product-blaze-push.php so similar-product lookups
+// match exactly what Blaze persisted at create time.
+const TAT_WEIGHT_PER_UNIT_BLAZE = [
+    'Each'            => 'EACH',
+    'Half Gram Unit'  => 'HALF_GRAM',
+    'Full Gram Unit'  => 'FULL_GRAM',
+    'Eighth Per Unit' => 'EIGHTH',
+    'Custom Weight'   => 'CUSTOM_GRAMS',
+];
+
+/**
+ * Find up to $limit existing-product photo URLs in `{store_db}.product` that
+ * share the same brand_id / category_id / weightPerUnit as the new item being
+ * built. Returns deduped, non-empty AWS asset URLs (the same publicURL we
+ * snapshot into product.photo on the Blaze sync).
+ */
+function tat_find_similar_product_photos(
+    string $store_db,
+    int $brand_id,
+    int $category_id,
+    string $weight_per_unit_label,
+    int $limit = 5
+): array {
+    if ($store_db === '' || $brand_id <= 0 || $category_id <= 0) return [];
+
+    $blaze_wpu = TAT_WEIGHT_PER_UNIT_BLAZE[$weight_per_unit_label] ?? '';
+    if ($blaze_wpu === '') return [];
+
+    $rows = getRs(
+        "SELECT photo
+           FROM `{$store_db}`.product
+          WHERE brand_id      = ?
+            AND category_id   = ?
+            AND weightPerUnit = ?
+            AND photo IS NOT NULL
+            AND photo <> ''
+            AND is_active     = 1
+          ORDER BY product_id DESC
+          LIMIT 50",
+        [$brand_id, $category_id, $blaze_wpu]
+    );
+
+    $urls = [];
+    $seen = [];
+    foreach ($rows as $r) {
+        $url = trim((string) ($r['photo'] ?? ''));
+        if ($url === '' || isset($seen[$url])) continue;
+        $seen[$url] = true;
+        $urls[] = $url;
+        if (count($urls) >= $limit) break;
+    }
+    return $urls;
+}
+
 /**
  * Step B: Image discovery.
  *
@@ -356,7 +411,9 @@ function tat_enrich_discover_images(
     &$image_sources = null,
     int $brand_id   = 0,
     string $store_db = '',
-    ?callable $on_progress = null
+    ?callable $on_progress = null,
+    int $category_id = 0,
+    string $weight_per_unit_label = ''
 ): array {
     $source_found  = null;
     $warning       = null;
@@ -508,6 +565,15 @@ function tat_enrich_discover_images(
     }
 
     // --------------------------------------------------------
+    // Step B2.5: Similar products already in our store DB
+    // --------------------------------------------------------
+    if ($on_progress) $on_progress('similar_products', ['state' => 'active', 'label' => 'Searching similar products in Blaze…']);
+    $similar_product_urls = tat_find_similar_product_photos(
+        $store_db, $brand_id, $category_id, $weight_per_unit_label, 5
+    );
+    if ($on_progress) $on_progress('similar_products', ['state' => 'done', 'count' => count($similar_product_urls)]);
+
+    // --------------------------------------------------------
     // Step B3: Non-Drive brand asset URL → Serper site: search
     // --------------------------------------------------------
     $brand_site_urls = [];
@@ -532,7 +598,7 @@ function tat_enrich_discover_images(
 
     // --------------------------------------------------------
     // Combine all sources — up to 5 per source, deduped
-    // Order: Brand Folder (Drive or Dropbox) → Master Drive → Brand Site → Trusted Menu → Web
+    // Order: Brand Folder (Drive or Dropbox) → Master Drive → Similar Products → Brand Site → Trusted Menu → Web
     // --------------------------------------------------------
     $all_urls      = [];
     $image_sources = [];
@@ -551,6 +617,14 @@ function tat_enrich_discover_images(
         if (!isset($seen[$url])) {
             $all_urls[]      = $url;
             $image_sources[] = 'Google Drive';
+            $seen[$url]      = true;
+        }
+    }
+
+    foreach ($similar_product_urls as $url) {
+        if (!isset($seen[$url])) {
+            $all_urls[]      = $url;
+            $image_sources[] = 'Similar Product in Blaze';
             $seen[$url]      = true;
         }
     }
@@ -586,11 +660,12 @@ function tat_enrich_discover_images(
 
     // Overall combined source label (for status badge)
     $sources = [];
-    if (!empty($brand_folder_urls)) $sources[] = $folder_label;
-    if (!empty($master_drive_urls)) $sources[] = 'Google Drive';
-    if (!empty($brand_site_urls))   $sources[] = 'Brand Site';
-    if (!empty($trusted_urls))      $sources[] = 'Trusted Menu';
-    if (!empty($web_urls))          $sources[] = 'Web Search';
+    if (!empty($brand_folder_urls))    $sources[] = $folder_label;
+    if (!empty($master_drive_urls))    $sources[] = 'Google Drive';
+    if (!empty($similar_product_urls)) $sources[] = 'Similar Product in Blaze';
+    if (!empty($brand_site_urls))      $sources[] = 'Brand Site';
+    if (!empty($trusted_urls))         $sources[] = 'Trusted Menu';
+    if (!empty($web_urls))             $sources[] = 'Web Search';
     $source_found = implode(' + ', $sources) ?: 'Web Search';
 
     // Populate the "Search Again" box with the plain search term only —
@@ -646,15 +721,18 @@ function _enrich_progress_cb(string $step_id, array $data): void {
     enrich_step($step_id, $data);
 }
 
+// Extract weight up-front so we can use the Blaze-mapped enum to look up
+// similar products in `{store_db}.product` during image discovery.
+$flower_type = tat_extract_flower_type($product_name);
+$weight_info = tat_extract_weight_info($product_name);
+
 $images = tat_enrich_discover_images(
     $product_name, $brand_name, $category_name,
     $source_found, $imageWarning, $search_query, $image_sources,
     $brand_id, $store_db,
-    '_enrich_progress_cb'
+    '_enrich_progress_cb',
+    $category_id, $weight_info['weight_per_unit']
 );
-
-$flower_type = tat_extract_flower_type($product_name);
-$weight_info = tat_extract_weight_info($product_name);
 
 // Clean up progress file (job is complete, no need to keep it)
 if ($job_id !== '' && file_exists(enrich_progress_file())) {
