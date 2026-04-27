@@ -579,6 +579,14 @@ else {
                 </div>
               </div>
 
+              <div class="form-group" style="margin-bottom:8px;">
+                <label style="font-size:12px;margin-bottom:0;font-weight:normal;cursor:pointer;">
+                  <input type="checkbox" id="enrichAvailableOnline" checked style="margin-right:6px;vertical-align:middle;" />
+                  Available Online
+                  <span style="color:#aaa;font-weight:normal;">(syncs to Weedmaps)</span>
+                </label>
+              </div>
+
             </div><!-- /col-sm-8 -->
           </div><!-- /row -->
 
@@ -889,6 +897,7 @@ window.addEventListener('load', function() {
     $('#enrichCustomGramType').val('Gram');
     $('#enrichCustomWeight').val('');
     $('#enrichCustomGramTypeWrap, #enrichCustomWeightWrap').hide();
+    $('#enrichAvailableOnline').prop('checked', true);
     $('#enrichWarning').hide().text('');
     $('#enrichStatusBadge')
       .show()
@@ -1160,6 +1169,7 @@ window.addEventListener('load', function() {
     var weightPerUnit   = $('#enrichWeightPerUnit').val()    || 'Each';
     var customGramType  = $('#enrichCustomGramType').val()   || 'Gram';
     var customWeight    = parseFloat($('#enrichCustomWeight').val()) || 0;
+    var availableOnline = $('#enrichAvailableOnline').is(':checked') ? 1 : 0;
 
     if (!name) { alert('Product name is required before pushing to Blaze.'); return; }
 
@@ -1246,7 +1256,8 @@ window.addEventListener('load', function() {
       flower_type:      flowerType,
       weight_per_unit:  weightPerUnit,
       custom_gram_type: customGramType,
-      custom_weight:    customWeight
+      custom_weight:    customWeight,
+      enable_weedmap:   availableOnline
     };
     if (cropCoords) $.extend(pushData, cropCoords);
 

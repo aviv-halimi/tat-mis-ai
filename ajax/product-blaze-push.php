@@ -54,6 +54,12 @@ $weight_per_unit = trim((string) ($_POST['weight_per_unit'] ?? 'Each')) ?: 'Each
 $custom_gram_type = trim((string) ($_POST['custom_gram_type'] ?? 'Gram'));
 $custom_weight   = isset($_POST['custom_weight']) && is_numeric($_POST['custom_weight']) && (float) $_POST['custom_weight'] > 0
                    ? (float) $_POST['custom_weight'] : null;
+// "Available Online" checkbox in the enrichment modal — defaults to true
+// (checked) and maps to Blaze's enableWeedmap flag, which controls whether
+// the product is published to Weedmaps menus.
+$enable_weedmap  = isset($_POST['enable_weedmap'])
+                   ? filter_var($_POST['enable_weedmap'], FILTER_VALIDATE_BOOLEAN)
+                   : true;
 
 if ($product_name === '') {
     echo json_encode(['success' => false, 'error' => 'Missing product name.']);
@@ -419,6 +425,7 @@ $product_payload = [
     'unitPrice'     => $price,
     'active'        => true,
     'weightPerUnit' => $blaze_wpu,
+    'enableWeedmap' => (bool) $enable_weedmap,
 ];
 
 if ($blaze_brand_id)    $product_payload['brandId']    = $blaze_brand_id;
