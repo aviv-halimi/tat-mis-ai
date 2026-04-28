@@ -161,25 +161,38 @@ if ($vendor_id > 0 && $store_db !== '') {
     }
 }
 
-// ---- Vendor group: co-op vendors that share inventory on Blaze ----
-// When the resolved vendor is a member of this group, Blaze wants ONE canonical
-// primary vendor (the first ID below) with the remaining group members attached
-// as secondaryVendors so products are cross-visible to all co-op members.
-$BLAZE_COOP_VENDOR_GROUP = [
-    '68fbaf6e36ff53a9b9d10457',
-    '68ed31e7b9121ceb14aa573f',
-    '5dcf89fb002f09082a7558ba',
-    '68cdcf401c44c0b22a777c91',
+// ---- Vendor groups: co-op vendors that share inventory on Blaze ----
+// When the resolved vendor is a member of any group below, Blaze wants ONE
+// canonical primary vendor (the first ID in that group) with the remaining
+// group members attached as secondaryVendors so products are cross-visible
+// to all co-op members.
+$BLAZE_COOP_VENDOR_GROUPS = [
+    [
+        '68fbaf6e36ff53a9b9d10457',
+        '68ed31e7b9121ceb14aa573f',
+        '5dcf89fb002f09082a7558ba',
+        '68cdcf401c44c0b22a777c91',
+    ],
+    [
+        '68cdcf401c44c0b22a777c87',
+        '5ec5e7907f0b0b08f1a47a9e',
+        '68ed4aa52f8729f1e4d12d67',
+    ],
 ];
-if ($blaze_vendor_id && in_array($blaze_vendor_id, $BLAZE_COOP_VENDOR_GROUP, true)) {
-    $primary_coop_vendor      = $BLAZE_COOP_VENDOR_GROUP[0];
-    $debug_vendor['coop_swap'] = [
-        'resolved_vendor'  => $blaze_vendor_id,
-        'primary'          => $primary_coop_vendor,
-        'secondary'        => array_values(array_slice($BLAZE_COOP_VENDOR_GROUP, 1)),
-    ];
-    $blaze_vendor_id         = $primary_coop_vendor;
-    $blaze_secondary_vendors = array_values(array_slice($BLAZE_COOP_VENDOR_GROUP, 1));
+if ($blaze_vendor_id) {
+    foreach ($BLAZE_COOP_VENDOR_GROUPS as $group) {
+        if (in_array($blaze_vendor_id, $group, true)) {
+            $primary_coop_vendor       = $group[0];
+            $debug_vendor['coop_swap'] = [
+                'resolved_vendor'  => $blaze_vendor_id,
+                'primary'          => $primary_coop_vendor,
+                'secondary'        => array_values(array_slice($group, 1)),
+            ];
+            $blaze_vendor_id         = $primary_coop_vendor;
+            $blaze_secondary_vendors = array_values(array_slice($group, 1));
+            break;
+        }
+    }
 }
 
 // ---- Upload image to Blaze as a public asset → get assetKey ----
