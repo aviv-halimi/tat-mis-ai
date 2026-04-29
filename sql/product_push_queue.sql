@@ -27,3 +27,9 @@ CREATE TABLE IF NOT EXISTS `product_push_queue` (
 
 -- Blaze ID on po_product so each store row records its own Blaze product ID (run to add):
 -- ALTER TABLE `theartisttree`.`po_product` ADD COLUMN `blaze_id` VARCHAR(64) NULL DEFAULT NULL COMMENT 'Blaze product ObjectId for this store' AFTER `product_id`;
+
+-- Per-store PUT request/response capture for post-mortem debugging (run to add):
+-- The cron writes a JSON map keyed by store_id with the exact wire request body,
+-- response body, http_code, and a few flattened price/tag fields so you can diff
+-- what was sent vs what Blaze echoed back without parsing the full payload.
+-- ALTER TABLE `product_push_queue` ADD COLUMN `last_put_debug` MEDIUMTEXT NULL COMMENT 'JSON {store_id: {request_body, response_body, http_code, ...}} for the most recent PUT cycle' AFTER `stores_done`;

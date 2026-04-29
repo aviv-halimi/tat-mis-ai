@@ -30,6 +30,52 @@ define('SkipAuth', true);
 require_once(dirname(__FILE__) . '/../_config.php');
 set_time_limit(0);
 
+/**
+ * Local PUT helper for this cron only.
+ *
+ * The shared inc/functions.php putApi() encodes the body with JSON_NUMERIC_CHECK,
+ * which silently re-types every numeric-looking string in the (huge) Blaze
+ * product object to a JSON number. With nested objects like priceBreaks /
+ * taxTables / vendor / brand, that's enough to make Blaze validate-and-discard
+ * portions of the document while still applying simpler scalar changes (e.g.
+ * a tag append) — exactly the symptom we hit on blaze13.
+ *
+ * Encode the body verbatim and capture the wire request + response so we can
+ * diff what was sent vs what Blaze returned for each store.
+ */
+function pushQueuePut($endpoint, $api_url, $auth_code, $partner_key, $data) {
+    $url       = rtrim($api_url, '/') . '/' . ltrim($endpoint, '/');
+    $json_data = json_encode($data);
+
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL            => $url,
+        CURLOPT_CUSTOMREQUEST  => 'PUT',
+        CURLOPT_POSTFIELDS     => $json_data,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_TIMEOUT        => 60,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_HTTPHEADER     => [
+            'Content-Type: application/json',
+            'Authorization: '  . $auth_code,
+            'X-API-KEY: '      . $partner_key,
+            'Content-Length: ' . strlen($json_data),
+        ],
+    ]);
+    $resp      = curl_exec($ch);
+    $http_code = (int)    curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curl_err  = curl_error($ch);
+    curl_close($ch);
+
+    return [
+        'request_body'  => $json_data,
+        'response_body' => $resp,
+        'http_code'     => $http_code,
+        'curl_error'    => $curl_err ?: null,
+    ];
+}
+
 // ---- Load all active stores (skip store_id=2 like daily-discounts does) ----
 $store_rows = getRs(
     "SELECT store_id, db, api_url, auth_code, partner_key FROM store WHERE " . is_enabled() . " AND store_id <> 2 ORDER BY store_id"
@@ -139,7 +185,8 @@ foreach ($queue as $q) {
     // ---- Step 2: Mark as processing to prevent duplicate concurrent runs ----
     setRs("UPDATE product_push_queue SET status = 'processing' WHERE id = ?", [$queue_id]);
 
-    $errors = [];
+    $errors    = [];
+    $put_debug = []; // per-store snapshot of the PUT request/response wire payloads
 
     // ---- Step 3: Apply updates to each newly-found store ----
     foreach ($newly_found as $store_id => $blaze_product_id) {
@@ -189,11 +236,33 @@ foreach ($queue as $q) {
             // PUT the modified product back. Everything outside of the tag /
             // price tweaks above (including vendorId) is sent back exactly as
             // Blaze returned it from GET — we don't touch any other fields.
-            $put_resp    = putApi('products/' . $blaze_product_id, $store['api_url'], $store['auth_code'], $store['partner_key'], $product_obj);
-            $put_decoded = json_decode($put_resp, true);
+            // Use the local helper (no JSON_NUMERIC_CHECK) and capture the
+            // exact wire payload + Blaze response for diagnostics.
+            $put_result  = pushQueuePut(
+                'products/' . $blaze_product_id,
+                $store['api_url'],
+                $store['auth_code'],
+                $store['partner_key'],
+                $product_obj
+            );
+            $put_resp    = $put_result['response_body'];
+            $put_decoded = $put_resp ? json_decode($put_resp, true) : null;
+
+            $put_debug[(string)$store_id] = [
+                'blaze_product_id'   => $blaze_product_id,
+                'http_code'          => $put_result['http_code'],
+                'curl_error'         => $put_result['curl_error'],
+                'request_unitPrice'  => isset($product_obj->unitPrice) ? $product_obj->unitPrice : null,
+                'request_pb0_price'  => isset($product_obj->priceBreaks[0]->price) ? $product_obj->priceBreaks[0]->price : null,
+                'response_unitPrice' => is_array($put_decoded) ? ($put_decoded['unitPrice'] ?? null) : null,
+                'response_pb0_price' => is_array($put_decoded) ? ($put_decoded['priceBreaks'][0]['price'] ?? null) : null,
+                'response_tags'      => is_array($put_decoded) ? ($put_decoded['tags'] ?? null) : null,
+                'request_body'       => $put_result['request_body'],
+                'response_body'      => $put_resp,
+            ];
 
             if (!$put_decoded || isset($put_decoded['field'])) {
-                $errors[] = "Store {$store_id}: PUT failed — " . substr($put_resp ?? '', 0, 200);
+                $errors[] = "Store {$store_id}: PUT failed (http {$put_result['http_code']}) — " . substr($put_resp ?? '', 0, 200);
                 continue;
             }
         }
@@ -258,6 +327,22 @@ foreach ($queue as $q) {
         $missing_list = implode(',', $still_missing);
         $results[]    = "Queue #{$queue_id} (SKU {$sku}): partial — done stores [{$done_list}], still pending [{$missing_list}]"
                         . ($error_summary ? " | errors: {$error_summary}" : '');
+    }
+
+    // ---- Persist per-store PUT debug snapshot for post-mortem diffing ----
+    // Stored in a separate column so a missing column (schema not yet ALTERed)
+    // can't break the queue update above. See sql/product_push_queue.sql.
+    if (!empty($put_debug)) {
+        try {
+            setRs(
+                "UPDATE product_push_queue SET last_put_debug = ? WHERE id = ?",
+                [json_encode($put_debug, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), $queue_id]
+            );
+        } catch (Throwable $e) {
+            // Column probably doesn't exist yet — fall back to noting it once.
+            $results[] = "Queue #{$queue_id}: could not persist last_put_debug ({$e->getMessage()}). "
+                       . "Run the ALTER in sql/product_push_queue.sql to enable PUT debug capture.";
+        }
     }
 }
 
