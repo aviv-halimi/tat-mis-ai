@@ -2,6 +2,8 @@
 /**
  * Debug rerun page for the product push queue.
  *
+ * Direct URL: /cron/test-product-push-queue.php?id={queue_id}&run=1
+ *
  * Given a product_push_queue.id, replays the same per-store work that
  * cron/process-product-push-queue.php would do for that row — including
  * for stores already in stores_done — and renders the exact JSON body
@@ -11,8 +13,9 @@
  * purely diagnostic. The Blaze PUTs DO go through to Blaze, however, so
  * each rerun is a real write against the per-store inventories.
  *
- * Uses inc/product-push-helpers.php so the body construction + PUT
- * encoding are byte-identical to the cron.
+ * Lives in cron/ (not module/) because the module/ routing layer interferes
+ * with direct hits. Uses inc/product-push-helpers.php so the body
+ * construction + PUT encoding are byte-identical to the cron.
  */
 include_once(dirname(__FILE__) . '/../_config.php');
 require_once(dirname(__FILE__) . '/../inc/product-push-helpers.php');
@@ -192,7 +195,6 @@ function ttp_pretty_json($raw) {
         </p>
 
         <form method="GET" action="" class="form-inline">
-            <input type="hidden" name="m" value="test-product-push-queue">
             <input type="hidden" name="run" value="1">
             <div class="form-group" style="margin-right:8px;">
                 <label for="id" style="margin-right:6px;">Queue ID:</label>
