@@ -113,13 +113,15 @@ if ($run && $queue_row) {
         }
 
         // ---- Step 3: Apply identical mutations the cron does ----
+        // Unlike the cron, the test page ALWAYS issues the PUT below — even
+        // when no mutations were applied — so we can observe Blaze's response
+        // to a no-op-shaped roundtrip and confirm the wire payload is what
+        // we expect.
         $changed = applyProductPushMutations($product_obj, $store_id, $queue_row);
         $row['changed'] = $changed;
 
         if (!$changed) {
-            $row['note']        = 'No mutations needed (tag already present and no per-store price set).';
-            $results[$store_id] = $row;
-            continue;
+            $row['note'] = 'No mutations applied (tag already present and no per-store price set) — PUTting anyway for diagnostic parity.';
         }
 
         // Snapshot the would-be-sent values for the at-a-glance row above the JSON dumps.
@@ -251,8 +253,8 @@ function ttp_pretty_json($raw) {
                 <?php if ($r['http_code']): ?>
                     <span class="label <?= $http_class ?>" style="font-size:12px;">HTTP <?= (int)$r['http_code'] ?></span>
                 <?php endif; ?>
-                <?php if (!$r['changed']): ?>
-                    <span class="label label-default" style="font-size:11px;">no PUT (no changes)</span>
+                <?php if (!$r['changed'] && $r['request_body'] !== null): ?>
+                    <span class="label label-default" style="font-size:11px;">PUT sent with no mutations</span>
                 <?php endif; ?>
             </h4>
 
