@@ -71,13 +71,29 @@ class ProductCardManager extends SessionManager {
               $b = $b['values'][0];
               $thc = $b['thc'] . iif(str_len($b['thc']), '%');
               $cbd = $b['cbd'] . iif(str_len($b['cbd']), '%');
+			  // Aviv 5.5.26: normalize bad terpene values (over 1% is almost always a data-entry error;
+			  // divide by 10 up to 3 times until value is at or below 1%).
+			  if (is_array($b['terpenoids'])) {
+				  foreach ($b['terpenoids'] as $tK => $tV) {
+					  $divisions = 0;
+					  while ($tV > 1 && $divisions < 3) {
+						  $tV = $tV / 10;
+						  $divisions++;
+					  }
+					  $b['terpenoids'][$tK] = $tV;
+				  }
+			  }
 			  arsort($b['terpenoids']);
               $terpenses = array();
+			  $terpCount = 0;
               foreach($b['terpenoids'] as $k => $v) {
                 $terpvalue = ($v > .01)?$v:"(N/A)";
 				$terpname = (str_len($k)>18)?substr($k,0,16).'...':$k;
 				$pushvalue = '<tr><td style="padding:.5pt;font-size:8pt;text-align:left;">' . $terpname . '</td><td style="padding:0pt;font-size:8pt;text-align:right;">' . $terpvalue . '%</td></tr>';
-				array_push($terpenses, $pushvalue);
+				if ($terpCount < 5) {
+					array_push($terpenses, $pushvalue);
+					$terpCount++;
+				}
 				$sqlwhere =$neweffects?"AND effect NOT IN ('" . implode("','",$neweffects) . "')":NULL;
 			  	$tTerp = str_replace('Beta','',$k);
 				$tTerp = str_replace('Alpha','',$tTerp);
